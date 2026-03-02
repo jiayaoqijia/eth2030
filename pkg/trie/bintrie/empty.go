@@ -31,6 +31,10 @@ func (e Empty) Hash() types.Hash {
 	return types.Hash{}
 }
 
+func (e Empty) HashWith(_ TrieHasher) types.Hash {
+	return types.Hash{}
+}
+
 func (e Empty) GetValuesAtStem(_ []byte, _ NodeResolverFn) ([][]byte, error) {
 	var values [256][]byte
 	return values[:], nil

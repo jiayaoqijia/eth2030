@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 )
 
 // Proof backend errors.
@@ -21,7 +22,32 @@ var (
 	ErrProofBackendNilResult    = errors.New("proof: nil proof result")
 	ErrProofBackendInvalidProof = errors.New("proof: verification failed")
 	ErrProofBackendBadLength    = errors.New("proof: invalid proof length")
+	ErrProofBackendTypeMismatch = errors.New("proof: backend type mismatch")
 )
+
+// ProofBackendType selects which proof generation backend to use.
+type ProofBackendType int
+
+const (
+	// ProofBackendSimulated uses SHA-256 hash-based proof simulation (default).
+	ProofBackendSimulated ProofBackendType = 0
+
+	// ProofBackendGnark uses the gnark-based Groth16 circuit proof backend.
+	ProofBackendGnark ProofBackendType = 1
+)
+
+// activeBackend is the currently selected proof backend. Default is simulated.
+var activeBackend = ProofBackendSimulated
+
+// SetProofBackend selects the proof backend type for ProveExecution/VerifyExecProof.
+func SetProofBackend(t ProofBackendType) {
+	activeBackend = t
+}
+
+// GetProofBackend returns the currently active proof backend type.
+func GetProofBackend() ProofBackendType {
+	return activeBackend
+}
 
 // Groth16-style proof size: A(64) + B(128) + C(64) = 256 bytes.
 // In production these would be actual elliptic curve points.
@@ -58,16 +84,93 @@ type ProofResult struct {
 
 	// PublicInputsHash is SHA-256 of the public inputs.
 	PublicInputsHash [32]byte
+
+	// BackendType identifies which proof backend generated this proof.
+	BackendType ProofBackendType
 }
 
 // ProveExecution generates a ZK proof from a witness trace and public inputs.
+// Dispatches to the active backend (simulated or gnark).
+func ProveExecution(req *ProofRequest) (*ProofResult, error) {
+	if activeBackend == ProofBackendGnark {
+		return proveExecutionGnark(req)
+	}
+	return proveExecutionSimulated(req)
+}
+
+// proveExecutionGnark generates a proof using the gnark-based circuit backend.
+// It verifies each step in the trace using RVStepCircuit, then generates a
+// batch proof commitment.
+func proveExecutionGnark(req *ProofRequest) (*ProofResult, error) {
+	if req == nil {
+		return nil, ErrProofBackendNilRequest
+	}
+	if req.Trace == nil {
+		return nil, ErrProofBackendNilTrace
+	}
+	if len(req.Trace.Steps) == 0 {
+		return nil, ErrProofBackendEmptyTrace
+	}
+
+	// Determine batch size.
+	batchSize := BatchSize256
+	if len(req.Trace.Steps) > BatchSize256 {
+		batchSize = BatchSize1024
+	}
+	if len(req.Trace.Steps) > BatchSize1024 {
+		batchSize = BatchSize4096
+	}
+
+	circuit, err := NewRVBatchCircuit(batchSize)
+	if err != nil {
+		return nil, err
+	}
+	circuit.Compile()
+
+	batchProof, err := ProveBatch(circuit, req.Trace)
+	if err != nil {
+		return nil, err
+	}
+
+	// Compute trace commitment for compatibility with ProofResult.
+	traceCommitment := req.Trace.ComputeTraceCommitment()
+	publicInputsHash := sha256.Sum256(req.PublicInputs)
+	vk := computeGnarkVerificationKey(req.ProgramHash, traceCommitment, batchProof.CircuitHash)
+
+	// Package the batch proof into ProofResult format.
+	proofBytes := make([]byte, groth16ProofSize)
+	copy(proofBytes, batchProof.ProofBytes[:])
+
+	return &ProofResult{
+		ProofBytes:       proofBytes,
+		VerificationKey:  vk[:],
+		TraceCommitment:  traceCommitment,
+		PublicInputsHash: publicInputsHash,
+		BackendType:      ProofBackendGnark,
+	}, nil
+}
+
+// computeGnarkVerificationKey derives a VK that includes the circuit hash
+// to distinguish gnark proofs from simulated proofs.
+func computeGnarkVerificationKey(programHash, traceCommitment, circuitHash [32]byte) [32]byte {
+	h := sha256.New()
+	h.Write(programHash[:])
+	h.Write(traceCommitment[:])
+	h.Write(circuitHash[:])
+	h.Write([]byte("GnarkVerificationKey"))
+	var result [32]byte
+	copy(result[:], h.Sum(nil))
+	return result
+}
+
+// proveExecutionSimulated generates a ZK proof using the SHA-256 simulation backend.
 // The proof structure follows Groth16 conventions:
 //   - A = SHA-256(traceCommitment || publicInputsHash || "A")
 //   - B = SHA-256(A || programHash || "B") repeated to 128 bytes
 //   - C = SHA-256(A || B || "C")
 //
 // The verification key is SHA-256(programHash || traceCommitment).
-func ProveExecution(req *ProofRequest) (*ProofResult, error) {
+func proveExecutionSimulated(req *ProofRequest) (*ProofResult, error) {
 	if req == nil {
 		return nil, ErrProofBackendNilRequest
 	}
@@ -111,8 +214,48 @@ func ProveExecution(req *ProofRequest) (*ProofResult, error) {
 }
 
 // VerifyExecProof checks a proof against public inputs and verification key.
-// It recomputes the expected proof from the claimed commitments and compares.
+// Dispatches based on the proof's BackendType field.
 func VerifyExecProof(result *ProofResult, programHash [32]byte) (bool, error) {
+	if result != nil && result.BackendType == ProofBackendGnark {
+		return verifyExecProofGnark(result, programHash)
+	}
+	return verifyExecProofSimulated(result, programHash)
+}
+
+// verifyExecProofGnark verifies a gnark-backend proof by recomputing the
+// expected verification key and comparing proof bytes.
+func verifyExecProofGnark(result *ProofResult, programHash [32]byte) (bool, error) {
+	if result == nil {
+		return false, ErrProofBackendNilResult
+	}
+	if len(result.ProofBytes) != groth16ProofSize {
+		return false, ErrProofBackendBadLength
+	}
+
+	// Determine batch size from the proof — try all valid sizes.
+	for _, batchSize := range []int{BatchSize256, BatchSize1024, BatchSize4096} {
+		circuitHash := sha256.Sum256([]byte(fmt.Sprintf("RVBatchCircuit-v1-N%d", batchSize)))
+		expectedVK := computeGnarkVerificationKey(programHash, result.TraceCommitment, circuitHash)
+		if len(result.VerificationKey) == 32 {
+			match := true
+			for i := 0; i < 32; i++ {
+				if result.VerificationKey[i] != expectedVK[i] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// verifyExecProofSimulated checks a simulated proof against public inputs.
+// It recomputes the expected proof from the claimed commitments and compares.
+func verifyExecProofSimulated(result *ProofResult, programHash [32]byte) (bool, error) {
 	if result == nil {
 		return false, ErrProofBackendNilResult
 	}

@@ -3,6 +3,7 @@ package bintrie
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,17 +13,23 @@ import (
 
 // StemNode represents a group of StemNodeWidth values sharing the same stem.
 type StemNode struct {
-	Stem   []byte   // stem path to reach this group of values
-	Values [][]byte // all values, indexed by the last byte of the key
-	depth  int      // depth of the node in the trie
+	Stem         []byte       // stem path to reach this group of values
+	Values       [][]byte     // all values, indexed by the last byte of the key
+	depth        int          // depth of the node in the trie
+	ExpiryEpoch  uint64       // epoch when this stem was last touched (blockNumber / 8192)
+	ExpiryBitmap [BitmapSize]byte // 256-bit bitmap: bit i set means value[i] is expired
 }
 
-// Get retrieves the value for the given key.
+// Get retrieves the value for the given key. Returns nil for expired values.
 func (bt *StemNode) Get(key []byte, _ NodeResolverFn) ([]byte, error) {
 	if !bytes.Equal(bt.Stem, key[:StemSize]) {
 		return nil, nil
 	}
-	return bt.Values[key[StemSize]], nil
+	idx := key[StemSize]
+	if bt.IsValueExpired(idx) {
+		return nil, nil
+	}
+	return bt.Values[idx], nil
 }
 
 // Insert inserts a new key-value pair into the node.
@@ -65,7 +72,9 @@ func (bt *StemNode) Insert(key []byte, value []byte, _ NodeResolverFn, depth int
 	if len(value) != HashSize {
 		return bt, errors.New("invalid insertion: value length")
 	}
-	bt.Values[key[StemSize]] = value
+	idx := key[StemSize]
+	bt.Values[idx] = value
+	bt.UnexpireValue(idx)
 	return bt, nil
 }
 
@@ -76,9 +85,11 @@ func (bt *StemNode) Copy() BinaryNode {
 		values[i] = slices.Clone(v)
 	}
 	return &StemNode{
-		Stem:   slices.Clone(bt.Stem),
-		Values: values[:],
-		depth:  bt.depth,
+		Stem:         slices.Clone(bt.Stem),
+		Values:       values[:],
+		depth:        bt.depth,
+		ExpiryEpoch:  bt.ExpiryEpoch,
+		ExpiryBitmap: bt.ExpiryBitmap,
 	}
 }
 
@@ -89,6 +100,13 @@ func (bt *StemNode) GetHeight() int {
 
 // Hash returns the hash of the node. Values are hashed leaf-by-leaf
 // then combined in a binary Merkle tree, then mixed with the stem.
+// When ExpiryEpoch > 0 or ExpiryBitmap is non-zero:
+//
+//	SHA256(stem || epoch_be8 || expiryBitmap || 0x00 || subtree_root)
+//
+// When ExpiryEpoch == 0 and ExpiryBitmap is all zeros (backward compat):
+//
+//	SHA256(stem || 0x00 || subtree_root)
 func (bt *StemNode) Hash() types.Hash {
 	var data [StemNodeWidth]types.Hash
 	for i, v := range bt.Values {
@@ -116,9 +134,51 @@ func (bt *StemNode) Hash() types.Hash {
 
 	h.Reset()
 	h.Write(bt.Stem)
+	if bt.ExpiryEpoch != 0 || bt.ExpiryBitmap != [BitmapSize]byte{} {
+		var epochBE [8]byte
+		binary.BigEndian.PutUint64(epochBE[:], bt.ExpiryEpoch)
+		h.Write(epochBE[:])
+		h.Write(bt.ExpiryBitmap[:])
+	}
 	h.Write([]byte{0})
 	h.Write(data[0][:])
 	return types.BytesToHash(h.Sum(nil))
+}
+
+// HashWith computes the StemNode hash using the specified TrieHasher,
+// mirroring the logic of Hash() but with a pluggable hash function.
+func (bt *StemNode) HashWith(hasher TrieHasher) types.Hash {
+	var data [StemNodeWidth][32]byte
+	for i, v := range bt.Values {
+		if v != nil {
+			data[i] = hasher.Hash(v)
+		}
+	}
+
+	var zeroArr [32]byte
+	for level := 1; level <= 8; level++ {
+		for i := range StemNodeWidth / (1 << level) {
+			if data[i*2] == zeroArr && data[i*2+1] == zeroArr {
+				data[i] = zeroArr
+				continue
+			}
+			data[i] = hasher.HashPair(data[i*2], data[i*2+1])
+		}
+	}
+
+	// Build final: stem || [epoch || expiryBitmap] || 0x00 || subtree_root
+	var buf []byte
+	buf = append(buf, bt.Stem...)
+	if bt.ExpiryEpoch != 0 || bt.ExpiryBitmap != [BitmapSize]byte{} {
+		var epochBE [8]byte
+		binary.BigEndian.PutUint64(epochBE[:], bt.ExpiryEpoch)
+		buf = append(buf, epochBE[:]...)
+		buf = append(buf, bt.ExpiryBitmap[:]...)
+	}
+	buf = append(buf, 0x00)
+	buf = append(buf, data[0][:]...)
+	result := hasher.Hash(buf)
+	return types.BytesToHash(result[:])
 }
 
 // CollectNodes flushes this stem node to the collector.
@@ -186,4 +246,31 @@ func (bt *StemNode) Key(i int) []byte {
 	copy(ret[:], bt.Stem)
 	ret[StemSize] = byte(i)
 	return ret[:]
+}
+
+// IsValueExpired returns true if the value at the given index is expired.
+func (bt *StemNode) IsValueExpired(index byte) bool {
+	return bt.ExpiryBitmap[index/8]>>(7-(index%8))&1 == 1
+}
+
+// ExpireValue marks the value at the given index as expired.
+func (bt *StemNode) ExpireValue(index byte) {
+	bt.ExpiryBitmap[index/8] |= 1 << (7 - (index % 8))
+}
+
+// UnexpireValue clears the expiry bit for the given index.
+func (bt *StemNode) UnexpireValue(index byte) {
+	bt.ExpiryBitmap[index/8] &^= 1 << (7 - (index % 8))
+}
+
+// ExpiredCount returns the number of expired values in this stem node.
+func (bt *StemNode) ExpiredCount() int {
+	count := 0
+	for _, b := range bt.ExpiryBitmap {
+		for b != 0 {
+			count += int(b & 1)
+			b >>= 1
+		}
+	}
+	return count
 }

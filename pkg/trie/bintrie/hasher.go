@@ -29,6 +29,12 @@ func (h HashedNode) Hash() types.Hash {
 	return types.Hash(h)
 }
 
+// HashWith returns the stored hash regardless of the hasher.
+// HashedNode cannot be re-hashed without resolving the underlying data.
+func (h HashedNode) HashWith(_ TrieHasher) types.Hash {
+	return types.Hash(h)
+}
+
 func (h HashedNode) GetValuesAtStem(_ []byte, _ NodeResolverFn) ([][]byte, error) {
 	return nil, errors.New("attempted to get values from an unresolved node")
 }

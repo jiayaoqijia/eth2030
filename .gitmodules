@@ -109,3 +109,6 @@
 [submodule "refs/fiat-shamir"]
 	path = refs/fiat-shamir
 	url = https://github.com/leanEthereum/fiat-shamir
+[submodule "refs/prysm"]
+	path = refs/prysm
+	url = https://github.com/OffchainLabs/prysm

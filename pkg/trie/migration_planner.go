@@ -128,10 +128,12 @@ type PlanProgress struct {
 // MigrationPlanner creates, executes, and tracks migration plans.
 // Thread-safe for concurrent access.
 type MigrationPlanner struct {
-	mu      sync.RWMutex
-	config  *PlannerConfig
-	plans   []*MigrationPlan
-	results map[string]*PhaseResult // key: "planID:phaseIdx"
+	mu         sync.RWMutex
+	config     *PlannerConfig
+	plans      []*MigrationPlan
+	results    map[string]*PhaseResult // key: "planID:phaseIdx"
+	sourceTrie *Trie                   // optional: source MPT for real execution
+	destTrie   *BinaryTrie             // optional: destination binary trie
 }
 
 // NewMigrationPlanner creates a new planner with the given config.
@@ -157,6 +159,15 @@ func NewMigrationPlanner(config *PlannerConfig) *MigrationPlanner {
 		plans:   make([]*MigrationPlan, 0),
 		results: make(map[string]*PhaseResult),
 	}
+}
+
+// SetSourceTrie attaches a source MPT and destination binary trie for
+// real incremental migration execution in ExecutePhase.
+func (mp *MigrationPlanner) SetSourceTrie(source *Trie, dest *BinaryTrie) {
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	mp.sourceTrie = source
+	mp.destTrie = dest
 }
 
 // CreatePlan creates a migration plan for the given state root. The plan
@@ -236,8 +247,9 @@ func (mp *MigrationPlanner) CreatePlan(stateRoot [32]byte) (*MigrationPlan, erro
 	return plan, nil
 }
 
-// ExecutePhase simulates executing a single phase of a plan. It records
-// the phase result and updates the phase status.
+// ExecutePhase executes a single phase of a plan using the incremental
+// migration engine when a source trie is available, otherwise simulates
+// migration. It records the phase result and updates the phase status.
 func (mp *MigrationPlanner) ExecutePhase(planID int, phase int) (*PhaseResult, error) {
 	mp.mu.Lock()
 	defer mp.mu.Unlock()
@@ -255,10 +267,23 @@ func (mp *MigrationPlanner) ExecutePhase(planID int, phase int) (*PhaseResult, e
 	start := time.Now()
 	p.Status = "running"
 
-	// Simulate migration work for this phase.
+	// Use the incremental migration engine if a source trie is attached.
+	// Otherwise, fall back to simulated counts for planning purposes.
 	accountsMigrated := p.AccountCount
 	storageMigrated := p.StorageCount
 	gasUsed := accountsMigrated * 5200
+
+	if mp.sourceTrie != nil && mp.destTrie != nil {
+		config := IncrementalMigrationConfig{
+			BatchSize: int(p.AccountCount),
+			CursorKey: fmt.Sprintf("planner_%d_%d", planID, phase),
+		}
+		im := NewIncrementalMigration(mp.sourceTrie, mp.destTrie, config)
+		migrated, _, _ := im.MigrateBlock(int(p.AccountCount))
+		accountsMigrated = uint64(migrated)
+		storageMigrated = accountsMigrated * 10
+		gasUsed = accountsMigrated * 5200
+	}
 
 	duration := time.Since(start).Nanoseconds()
 

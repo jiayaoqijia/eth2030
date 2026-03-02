@@ -526,8 +526,10 @@ func (z *ZkISABn128Pairing) ProveExecution(input []byte) (*ExecutionProof, error
 	}, nil
 }
 
-// RegisterZkISAPrecompiles returns a map of all zkISA precompiles indexed
-// by their address. These are used for provable execution in the zkVM.
+// RegisterZkISAPrecompiles returns a map of the base 6 zkISA precompiles
+// indexed by their address. These are used for provable execution in the zkVM.
+// For the full set (15 entries including BLS12-381 and misc), use
+// RegisterAllZkISAPrecompiles.
 func RegisterZkISAPrecompiles() map[types.Address]ZkISAPrecompile {
 	precompiles := []ZkISAPrecompile{
 		&ZkISAEcrecover{},
@@ -542,6 +544,27 @@ func RegisterZkISAPrecompiles() map[types.Address]ZkISAPrecompile {
 	for _, p := range precompiles {
 		registry[p.Address()] = p
 	}
+	return registry
+}
+
+// RegisterAllZkISAPrecompiles returns the full set of 15 zkISA precompiles
+// including the base 6, plus BLS12-381 (0x0b-0x13) and misc (0x03, 0x04,
+// 0x09, 0x0a) precompiles for I+ fork RISC-V coverage.
+func RegisterAllZkISAPrecompiles() map[types.Address]ZkISAPrecompile {
+	registry := RegisterZkISAPrecompiles()
+
+	// Add BLS12-381 zkISA precompiles.
+	bls12 := registerBLS12381ZkISAPrecompiles()
+	for addr, p := range bls12 {
+		registry[addr] = p
+	}
+
+	// Add misc zkISA precompiles.
+	misc := registerMiscZkISAPrecompiles()
+	for addr, p := range misc {
+		registry[addr] = p
+	}
+
 	return registry
 }
 

@@ -10,13 +10,16 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
-// BinaryHasher computes SHA-256 Merkle hashes for binary trie nodes.
-// It supports incremental hashing (skipping clean subtrees via dirty
-// flags) and parallel hashing for large subtrees.
+// BinaryHasher computes Merkle hashes for binary trie nodes using a
+// pluggable TrieHasher. It supports incremental hashing (skipping clean
+// subtrees via dirty flags) and parallel hashing for large subtrees.
 type BinaryHasher struct {
 	// parallelThreshold is the minimum subtree height at which the
 	// hasher spawns goroutines for left and right children.
 	parallelThreshold int
+
+	// trieHasher is the pluggable hash function. Nil means SHA-256.
+	trieHasher TrieHasher
 
 	// cache stores previously computed hashes keyed by node pointer.
 	mu    sync.Mutex
@@ -28,6 +31,16 @@ type BinaryHasher struct {
 func NewBinaryHasher(parallelThreshold int) *BinaryHasher {
 	return &BinaryHasher{
 		parallelThreshold: parallelThreshold,
+		cache:             make(map[BinaryNode]types.Hash),
+	}
+}
+
+// NewBinaryHasherWith creates a hasher with a pluggable TrieHasher and
+// the given parallel threshold.
+func NewBinaryHasherWith(hasher TrieHasher, parallelThreshold int) *BinaryHasher {
+	return &BinaryHasher{
+		parallelThreshold: parallelThreshold,
+		trieHasher:        hasher,
 		cache:             make(map[BinaryNode]types.Hash),
 	}
 }
@@ -66,11 +79,19 @@ func (bh *BinaryHasher) hashNode(node BinaryNode, depth int) types.Hash {
 	case *InternalNode:
 		h = bh.hashInternal(n, depth)
 	case *StemNode:
-		h = n.Hash()
+		if bh.trieHasher != nil {
+			h = n.HashWith(bh.trieHasher)
+		} else {
+			h = n.Hash()
+		}
 	case HashedNode:
 		h = types.Hash(n)
 	default:
-		h = node.Hash()
+		if bh.trieHasher != nil {
+			h = node.HashWith(bh.trieHasher)
+		} else {
+			h = node.Hash()
+		}
 	}
 
 	bh.mu.Lock()
@@ -101,6 +122,13 @@ func (bh *BinaryHasher) hashInternalSequential(n *InternalNode, depth int) types
 		rightHash = bh.hashNode(n.right, depth+1)
 	}
 
+	if bh.trieHasher != nil {
+		var l, r [32]byte
+		copy(l[:], leftHash[:])
+		copy(r[:], rightHash[:])
+		result := bh.trieHasher.HashPair(l, r)
+		return types.BytesToHash(result[:])
+	}
 	h := sha256.New()
 	h.Write(leftHash[:])
 	h.Write(rightHash[:])
@@ -129,6 +157,13 @@ func (bh *BinaryHasher) hashInternalParallel(n *InternalNode, depth int) types.H
 
 	wg.Wait()
 
+	if bh.trieHasher != nil {
+		var l, r [32]byte
+		copy(l[:], leftHash[:])
+		copy(r[:], rightHash[:])
+		result := bh.trieHasher.HashPair(l, r)
+		return types.BytesToHash(result[:])
+	}
 	h := sha256.New()
 	h.Write(leftHash[:])
 	h.Write(rightHash[:])
@@ -213,6 +248,13 @@ func (bh *BinaryHasher) hashInternalStats(n *InternalNode, depth int, stats *Has
 		rightHash = bh.hashWithStatsNode(n.right, depth+1, stats)
 	}
 
+	if bh.trieHasher != nil {
+		var l, r [32]byte
+		copy(l[:], leftHash[:])
+		copy(r[:], rightHash[:])
+		result := bh.trieHasher.HashPair(l, r)
+		return types.BytesToHash(result[:])
+	}
 	h := sha256.New()
 	h.Write(leftHash[:])
 	h.Write(rightHash[:])
@@ -229,12 +271,30 @@ func HashLeafValue(value []byte) types.Hash {
 	return types.BytesToHash(h[:])
 }
 
+// HashLeafValueWith computes the hash of a leaf value using a TrieHasher.
+func HashLeafValueWith(value []byte, hasher TrieHasher) types.Hash {
+	if value == nil {
+		return types.Hash{}
+	}
+	h := hasher.Hash(value)
+	return types.BytesToHash(h[:])
+}
+
 // HashPair computes SHA-256(left || right) for two 32-byte hashes.
 func HashPair(left, right types.Hash) types.Hash {
 	h := sha256.New()
 	h.Write(left[:])
 	h.Write(right[:])
 	return types.BytesToHash(h.Sum(nil))
+}
+
+// HashPairWith computes hasher(left || right) for two 32-byte hashes.
+func HashPairWith(left, right types.Hash, hasher TrieHasher) types.Hash {
+	var l, r [32]byte
+	copy(l[:], left[:])
+	copy(r[:], right[:])
+	result := hasher.HashPair(l, r)
+	return types.BytesToHash(result[:])
 }
 
 // BuildMerkleRoot builds a binary Merkle tree root from a list of leaf
@@ -256,6 +316,29 @@ func BuildMerkleRoot(leaves []types.Hash) types.Hash {
 		next := make([]types.Hash, len(padded)/2)
 		for i := 0; i < len(next); i++ {
 			next[i] = HashPair(padded[2*i], padded[2*i+1])
+		}
+		padded = next
+	}
+	return padded[0]
+}
+
+// BuildMerkleRootWith builds a binary Merkle tree root using the given hasher.
+func BuildMerkleRootWith(leaves []types.Hash, hasher TrieHasher) types.Hash {
+	if len(leaves) == 0 {
+		return types.Hash{}
+	}
+
+	n := 1
+	for n < len(leaves) {
+		n <<= 1
+	}
+	padded := make([]types.Hash, n)
+	copy(padded, leaves)
+
+	for len(padded) > 1 {
+		next := make([]types.Hash, len(padded)/2)
+		for i := 0; i < len(next); i++ {
+			next[i] = HashPairWith(padded[2*i], padded[2*i+1], hasher)
 		}
 		padded = next
 	}

@@ -114,6 +114,21 @@ func (bt *InternalNode) Hash() types.Hash {
 	return types.BytesToHash(h.Sum(nil))
 }
 
+// HashWith computes the internal node hash using the specified TrieHasher.
+func (bt *InternalNode) HashWith(hasher TrieHasher) types.Hash {
+	var left, right [32]byte
+	if bt.left != nil {
+		lh := bt.left.HashWith(hasher)
+		copy(left[:], lh[:])
+	}
+	if bt.right != nil {
+		rh := bt.right.HashWith(hasher)
+		copy(right[:], rh[:])
+	}
+	result := hasher.HashPair(left, right)
+	return types.BytesToHash(result[:])
+}
+
 // InsertValuesAtStem inserts a full value group at the given stem in the internal node.
 func (bt *InternalNode) InsertValuesAtStem(stem []byte, values [][]byte, resolver NodeResolverFn, depth int) (BinaryNode, error) {
 	var err error

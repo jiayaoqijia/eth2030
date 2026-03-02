@@ -50,6 +50,21 @@ func GetBinaryTreeKey(addr types.Address, key []byte) []byte {
 	return k
 }
 
+// GetBinaryTreeKeyWith computes the tree key using a pluggable TrieHasher.
+func GetBinaryTreeKeyWith(addr types.Address, key []byte, th TrieHasher) []byte {
+	var buf [12 + 20 + 31 + 1]byte
+	// zeroHash[:12] is already zero
+	copy(buf[12:], addr[:])
+	copy(buf[32:], key[:31])
+	// buf[63] = 0x00 already
+	h := th.Hash(buf[:])
+	k := h[:]
+	out := make([]byte, 32)
+	copy(out, k)
+	out[31] = key[31]
+	return out
+}
+
 // GetBinaryTreeKeyBasicData returns the tree key for an account's basic data.
 func GetBinaryTreeKeyBasicData(addr types.Address) []byte {
 	var k [32]byte
@@ -57,11 +72,25 @@ func GetBinaryTreeKeyBasicData(addr types.Address) []byte {
 	return GetBinaryTreeKey(addr, k[:])
 }
 
+// GetBinaryTreeKeyBasicDataWith returns the tree key using a pluggable hasher.
+func GetBinaryTreeKeyBasicDataWith(addr types.Address, th TrieHasher) []byte {
+	var k [32]byte
+	k[31] = BasicDataLeafKey
+	return GetBinaryTreeKeyWith(addr, k[:], th)
+}
+
 // GetBinaryTreeKeyCodeHash returns the tree key for an account's code hash.
 func GetBinaryTreeKeyCodeHash(addr types.Address) []byte {
 	var k [32]byte
 	k[31] = CodeHashLeafKey
 	return GetBinaryTreeKey(addr, k[:])
+}
+
+// GetBinaryTreeKeyCodeHashWith returns the tree key using a pluggable hasher.
+func GetBinaryTreeKeyCodeHashWith(addr types.Address, th TrieHasher) []byte {
+	var k [32]byte
+	k[31] = CodeHashLeafKey
+	return GetBinaryTreeKeyWith(addr, k[:], th)
 }
 
 // GetBinaryTreeKeyStorageSlot returns the tree key for a storage slot.
@@ -82,6 +111,22 @@ func GetBinaryTreeKeyStorageSlot(address types.Address, key []byte) []byte {
 	return GetBinaryTreeKey(address, k[:])
 }
 
+// GetBinaryTreeKeyStorageSlotWith returns the tree key using a pluggable hasher.
+func GetBinaryTreeKeyStorageSlotWith(address types.Address, key []byte, th TrieHasher) []byte {
+	var k [32]byte
+
+	if bytes.Equal(key[:31], zeroHash[:31]) && key[31] < 64 {
+		k[31] = 64 + key[31]
+		return GetBinaryTreeKeyWith(address, k[:], th)
+	}
+
+	k[0] = 1
+	copy(k[1:], key[:31])
+	k[31] = key[31]
+
+	return GetBinaryTreeKeyWith(address, k[:], th)
+}
+
 // GetBinaryTreeKeyCodeChunk returns the tree key for a code chunk.
 func GetBinaryTreeKeyCodeChunk(address types.Address, chunknr uint64) []byte {
 	chunkOffset := new(big.Int).Add(codeOffset, new(big.Int).SetUint64(chunknr))
@@ -89,6 +134,15 @@ func GetBinaryTreeKeyCodeChunk(address types.Address, chunknr uint64) []byte {
 	b := chunkOffset.Bytes()
 	copy(buf[32-len(b):], b)
 	return GetBinaryTreeKey(address, buf[:])
+}
+
+// GetBinaryTreeKeyCodeChunkWith returns the tree key using a pluggable hasher.
+func GetBinaryTreeKeyCodeChunkWith(address types.Address, chunknr uint64, th TrieHasher) []byte {
+	chunkOffset := new(big.Int).Add(codeOffset, new(big.Int).SetUint64(chunknr))
+	var buf [32]byte
+	b := chunkOffset.Bytes()
+	copy(buf[32-len(b):], b)
+	return GetBinaryTreeKeyWith(address, buf[:], th)
 }
 
 // StorageIndex computes the tree index and sub-index for a storage key.
@@ -161,12 +215,26 @@ var errInvalidRootType = errors.New("invalid root type")
 
 // BinaryTrie is the primary trie structure implementing EIP-7864.
 type BinaryTrie struct {
-	root BinaryNode
+	root   BinaryNode
+	hasher TrieHasher // pluggable hash function (nil defaults to SHA-256)
 }
 
-// New creates a new empty binary trie.
+// New creates a new empty binary trie using SHA-256.
 func New() *BinaryTrie {
 	return &BinaryTrie{root: NewBinaryNode()}
+}
+
+// NewWithHasher creates a new empty binary trie using the specified hasher.
+func NewWithHasher(hasher TrieHasher) *BinaryTrie {
+	return &BinaryTrie{root: NewBinaryNode(), hasher: hasher}
+}
+
+// Hasher returns the trie's configured hasher (SHA-256 if none set).
+func (t *BinaryTrie) Hasher() TrieHasher {
+	if t.hasher == nil {
+		return SHA256Hasher{}
+	}
+	return t.hasher
 }
 
 // Get retrieves a value by its full 32-byte key.
@@ -195,9 +263,18 @@ func (t *BinaryTrie) Delete(key []byte) error {
 	return nil
 }
 
-// Hash returns the root hash of the trie.
+// Hash returns the root hash of the trie using the configured hasher.
+// If no hasher was set (via NewWithHasher), defaults to SHA-256.
 func (t *BinaryTrie) Hash() types.Hash {
+	if t.hasher != nil {
+		return t.root.HashWith(t.hasher)
+	}
 	return t.root.Hash()
+}
+
+// HashWith returns the root hash of the trie using the specified hasher.
+func (t *BinaryTrie) HashWith(hasher TrieHasher) types.Hash {
+	return t.root.HashWith(hasher)
 }
 
 // GetAccount returns the account information for the given address.
@@ -340,7 +417,7 @@ func (t *BinaryTrie) UpdateStem(key []byte, values [][]byte) error {
 
 // Copy creates a deep copy of the trie.
 func (t *BinaryTrie) Copy() *BinaryTrie {
-	return &BinaryTrie{root: t.root.Copy()}
+	return &BinaryTrie{root: t.root.Copy(), hasher: t.hasher}
 }
 
 // Root returns the root node (for testing and iteration).

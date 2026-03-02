@@ -49,6 +49,10 @@ type CanonicalExecutorConfig struct {
 
 	// CollectWitness enables witness collection for proof generation.
 	CollectWitness bool
+
+	// ProofBackend selects the proof generation backend.
+	// Default (zero value) is ProofBackendSimulated.
+	ProofBackend ProofBackendType
 }
 
 // DefaultCanonicalExecutorConfig returns sensible defaults.
@@ -212,6 +216,11 @@ func (ce *CanonicalExecutor) ExecuteAndProve(programID types.Hash, input []byte)
 	publicInputs = append(publicInputs, output.ProgramHash[:]...)
 	publicInputs = append(publicInputs, inputHash[:]...)
 	publicInputs = append(publicInputs, outputHash[:]...)
+
+	// Set the active backend to match the executor's configuration.
+	origBackend := GetProofBackend()
+	SetProofBackend(ce.config.ProofBackend)
+	defer SetProofBackend(origBackend)
 
 	// Generate proof via the proof backend.
 	req := &ProofRequest{

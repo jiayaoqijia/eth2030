@@ -2,7 +2,6 @@ package bintrie
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"errors"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -26,6 +25,9 @@ type Proof struct {
 	Stem []byte
 	// LeafIndex is the leaf index within the stem node (key[31]).
 	LeafIndex byte
+	// HasherID identifies which hash function was used to build this proof.
+	// 0=SHA-256 (default), 1=BLAKE3, 2=Poseidon2, 3=Keccak.
+	HasherID uint8
 }
 
 // Prove constructs a Merkle proof for the given key.
@@ -111,13 +113,19 @@ func collectStemSiblings(node *StemNode, values [][]byte) []types.Hash {
 }
 
 // VerifyProof verifies a Merkle proof against a known root hash.
+// It selects the correct hash function based on proof.HasherID.
 func VerifyProof(root types.Hash, proof *Proof) bool {
 	if proof == nil || len(proof.Key) != HashSize {
 		return false
 	}
 
+	hasher := HasherByID(proof.HasherID)
+	if hasher == nil {
+		return false
+	}
+
 	// Reconstruct the stem node hash from the value
-	stemHash := computeStemHash(proof.Stem, proof.LeafIndex, proof.Value)
+	stemHash := computeStemHashWith(proof.Stem, proof.LeafIndex, proof.Value, hasher)
 
 	// Walk back up the sibling path to reconstruct the root
 	current := stemHash
@@ -129,15 +137,16 @@ func VerifyProof(root types.Hash, proof *Proof) bool {
 		depth := i
 		bit := stem[depth/8] >> (7 - (depth % 8)) & 1
 
-		h := sha256.New()
+		var left, right [32]byte
 		if bit == 0 {
-			h.Write(current[:])
-			h.Write(proof.Siblings[i][:])
+			copy(left[:], current[:])
+			copy(right[:], proof.Siblings[i][:])
 		} else {
-			h.Write(proof.Siblings[i][:])
-			h.Write(current[:])
+			copy(left[:], proof.Siblings[i][:])
+			copy(right[:], current[:])
 		}
-		current = types.BytesToHash(h.Sum(nil))
+		result := hasher.HashPair(left, right)
+		current = types.BytesToHash(result[:])
 	}
 
 	return current == root
@@ -145,31 +154,118 @@ func VerifyProof(root types.Hash, proof *Proof) bool {
 
 // computeStemHash computes the hash of a stem node containing a single value.
 func computeStemHash(stem []byte, leafIndex byte, value []byte) types.Hash {
-	// Hash the value
-	var data [StemNodeWidth]types.Hash
+	return computeStemHashWith(stem, leafIndex, value, SHA256Hasher{})
+}
+
+// computeStemHashWith computes the hash of a stem node using the specified hasher.
+func computeStemHashWith(stem []byte, leafIndex byte, value []byte, hasher TrieHasher) types.Hash {
+	var data [StemNodeWidth][32]byte
 	if value != nil {
-		h := sha256.Sum256(value)
-		data[leafIndex] = types.BytesToHash(h[:])
+		data[leafIndex] = hasher.Hash(value)
 	}
 
-	// Build the 8-level binary tree
-	h := sha256.New()
+	var zeroArr [32]byte
 	for level := 1; level <= 8; level++ {
 		for i := range StemNodeWidth / (1 << level) {
-			h.Reset()
-			if data[i*2] == (types.Hash{}) && data[i*2+1] == (types.Hash{}) {
-				data[i] = types.Hash{}
+			if data[i*2] == zeroArr && data[i*2+1] == zeroArr {
+				data[i] = zeroArr
 				continue
 			}
-			h.Write(data[i*2][:])
-			h.Write(data[i*2+1][:])
-			data[i] = types.BytesToHash(h.Sum(nil))
+			data[i] = hasher.HashPair(data[i*2], data[i*2+1])
 		}
 	}
 
-	h.Reset()
-	h.Write(stem)
-	h.Write([]byte{0})
-	h.Write(data[0][:])
-	return types.BytesToHash(h.Sum(nil))
+	var buf []byte
+	buf = append(buf, stem...)
+	buf = append(buf, 0x00)
+	buf = append(buf, data[0][:]...)
+	result := hasher.Hash(buf)
+	return types.BytesToHash(result[:])
+}
+
+// SerializeProof serializes a Proof to a byte slice.
+// Format: [HasherID:1][KeyLen:1][Key:KeyLen][LeafIndex:1][ValueLen:1][Value:ValueLen]
+//
+//	[SiblingCount:2][Siblings:SiblingCount*32]
+func SerializeProof(p *Proof) []byte {
+	keyLen := len(p.Key)
+	valLen := len(p.Value)
+	sibCount := len(p.Siblings)
+	size := 1 + 1 + keyLen + 1 + 1 + valLen + 2 + sibCount*HashSize
+	buf := make([]byte, 0, size)
+
+	buf = append(buf, p.HasherID)
+	buf = append(buf, byte(keyLen))
+	buf = append(buf, p.Key...)
+	buf = append(buf, p.LeafIndex)
+	buf = append(buf, byte(valLen))
+	buf = append(buf, p.Value...)
+	buf = append(buf, byte(sibCount>>8), byte(sibCount))
+	for _, s := range p.Siblings {
+		buf = append(buf, s[:]...)
+	}
+	return buf
+}
+
+// DeserializeProof deserializes a Proof from a byte slice.
+func DeserializeProof(data []byte) (*Proof, error) {
+	if len(data) < 6 {
+		return nil, errProofTooShort
+	}
+
+	p := &Proof{}
+	off := 0
+
+	p.HasherID = data[off]
+	off++
+
+	keyLen := int(data[off])
+	off++
+	if off+keyLen > len(data) {
+		return nil, errProofTooShort
+	}
+	p.Key = make([]byte, keyLen)
+	copy(p.Key, data[off:off+keyLen])
+	off += keyLen
+
+	if off >= len(data) {
+		return nil, errProofTooShort
+	}
+	p.LeafIndex = data[off]
+	off++
+
+	if off >= len(data) {
+		return nil, errProofTooShort
+	}
+	valLen := int(data[off])
+	off++
+	if off+valLen > len(data) {
+		return nil, errProofTooShort
+	}
+	if valLen > 0 {
+		p.Value = make([]byte, valLen)
+		copy(p.Value, data[off:off+valLen])
+	}
+	off += valLen
+
+	if off+2 > len(data) {
+		return nil, errProofTooShort
+	}
+	sibCount := int(data[off])<<8 | int(data[off+1])
+	off += 2
+
+	if off+sibCount*HashSize > len(data) {
+		return nil, errProofTooShort
+	}
+	p.Siblings = make([]types.Hash, sibCount)
+	for i := range sibCount {
+		copy(p.Siblings[i][:], data[off:off+HashSize])
+		off += HashSize
+	}
+
+	if keyLen >= StemSize {
+		p.Stem = p.Key[:StemSize]
+	}
+
+	return p, nil
 }
