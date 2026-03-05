@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/consensys/gnark v0.14.0
-	github.com/consensys/gnark-crypto v0.19.0
+	github.com/consensys/gnark-crypto v0.19.1
 	github.com/crate-crypto/go-eth-kzg v1.5.0
 	github.com/ethereum/go-ethereum v1.17.0
 	github.com/gorilla/websocket v1.4.2
