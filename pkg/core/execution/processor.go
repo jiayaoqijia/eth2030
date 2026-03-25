@@ -1188,14 +1188,18 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	}
 
 	// Validate nonce
-	stateNonce := statedb.GetNonce(msg.From)
-	if msg.Nonce < stateNonce {
-		gp.AddGas(msg.GasLimit)
-		return nil, fmt.Errorf("%w: address %v, tx nonce: %d, state nonce: %d", ErrNonceTooLow, msg.From, msg.Nonce, stateNonce)
-	}
-	if msg.Nonce > stateNonce {
-		gp.AddGas(msg.GasLimit)
-		return nil, fmt.Errorf("%w: address %v, tx nonce: %d, state nonce: %d", ErrNonceTooHigh, msg.From, msg.Nonce, stateNonce)
+	// EIP-8141: FrameTx uses its own nonce validation in ExecuteFrameTx with msg.FrameSender.
+	// Skip the standard nonce check here to avoid checking against the wrong address (msg.From).
+	if msg.TxType != types.FrameTxType {
+		stateNonce := statedb.GetNonce(msg.From)
+		if msg.Nonce < stateNonce {
+			gp.AddGas(msg.GasLimit)
+			return nil, fmt.Errorf("%w: address %v, tx nonce: %d, state nonce: %d", ErrNonceTooLow, msg.From, msg.Nonce, stateNonce)
+		}
+		if msg.Nonce > stateNonce {
+			gp.AddGas(msg.GasLimit)
+			return nil, fmt.Errorf("%w: address %v, tx nonce: %d, state nonce: %d", ErrNonceTooHigh, msg.From, msg.Nonce, stateNonce)
+		}
 	}
 
 	// EIP-3607: Reject transactions from senders with deployed code.
@@ -1203,11 +1207,16 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	// Exception: accounts with EIP-7702 delegation designators (0xef0100 prefix)
 	// are allowed to send transactions since they are still EOAs that have
 	// delegated their code execution.
-	if codeHash := statedb.GetCodeHash(msg.From); codeHash != (types.Hash{}) && codeHash != types.EmptyCodeHash {
+	// EIP-8141: For FrameTx, check msg.FrameSender instead of msg.From.
+	senderAddr := msg.From
+	if msg.TxType == types.FrameTxType && msg.FrameSender != (types.Address{}) {
+		senderAddr = msg.FrameSender
+	}
+	if codeHash := statedb.GetCodeHash(senderAddr); codeHash != (types.Hash{}) && codeHash != types.EmptyCodeHash {
 		// Check if the sender has EIP-7702 delegated code, which is allowed.
-		if code := statedb.GetCode(msg.From); !types.HasDelegationPrefix(code) {
+		if code := statedb.GetCode(senderAddr); !types.HasDelegationPrefix(code) {
 			gp.AddGas(msg.GasLimit)
-			return nil, fmt.Errorf("sender not an EOA: address %v, codehash: %v", msg.From, codeHash)
+			return nil, fmt.Errorf("sender not an EOA: address %v, codehash: %v", senderAddr, codeHash)
 		}
 	}
 
@@ -1252,15 +1261,20 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	}
 	totalCost := new(big.Int).Add(msg.Value, balanceGasCost)
 	totalCost.Add(totalCost, calldataGasCost)
-	balance := statedb.GetBalance(msg.From)
+	// EIP-8141: For FrameTx, use FrameSender for balance check and deduction.
+	payerAddr := msg.From
+	if msg.TxType == types.FrameTxType && msg.FrameSender != (types.Address{}) {
+		payerAddr = msg.FrameSender
+	}
+	balance := statedb.GetBalance(payerAddr)
 	if balance.Cmp(totalCost) < 0 {
 		gp.AddGas(msg.GasLimit)
-		return nil, fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientBalance, msg.From, balance, totalCost)
+		return nil, fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientBalance, payerAddr, balance, totalCost)
 	}
 
 	// Deduct gas cost + calldata gas cost from sender
 	deduction := new(big.Int).Add(gasCost, calldataGasCost)
-	statedb.SubBalance(msg.From, deduction)
+	statedb.SubBalance(payerAddr, deduction)
 
 	isCreate := msg.To == nil
 
@@ -1268,7 +1282,10 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	// EIP-8141: FrameTx nonce is incremented after frame execution, not before.
 	// EIP-7701: AA transactions manage their own nonce through the SCA's validation
 	// and execution phases. The protocol does not increment nonce for AA transactions.
-	if !isCreate && msg.TxType != types.FrameTxType && msg.TxType != types.AATxType {
+	// EIP-7702: SetCodeTx nonce is incremented inside ProcessAuthorizations, after
+	// the authorization nonce validation. We must NOT increment it here or the
+	// authorization nonce check will fail.
+	if !isCreate && msg.TxType != types.FrameTxType && msg.TxType != types.AATxType && msg.TxType != types.SetCodeTxType {
 		statedb.SetNonce(msg.From, msg.Nonce+1)
 	}
 
@@ -1440,7 +1457,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	if msg.TxType == types.FrameTxType && len(msg.Frames) > 0 {
 		// EIP-8141: execute as frame transaction.
 		frameTx := &types.FrameTx{
-			Nonce:  new(big.Int).SetUint64(msg.Nonce),
+			Nonce:  msg.Nonce,
 			Sender: msg.FrameSender,
 			Frames: msg.Frames,
 		}
@@ -1483,6 +1500,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		stateNonceForFrame := statedb.GetNonce(msg.FrameSender)
 
 		callFn := func(caller, target types.Address, frameGasLimit uint64, data []byte, mode uint8, frameIndex int) (uint64, uint64, []*types.Log, bool, uint8, error) {
+			execLog.Debug("FrameTx callFn", "frameIndex", frameIndex, "caller", caller, "target", target, "mode", mode, "gasLimit", frameGasLimit)
 			// EIP-8141: clear transient storage between frames for isolation.
 			if frameIndex > 0 {
 				statedb.ClearTransientStorage()
@@ -1529,6 +1547,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 				approved = true
 				approveScope = evm.FrameCtx.LastApproveScope
 			}
+			execLog.Debug("FrameTx frame completed", "frameIndex", frameIndex, "approved", approved, "approveScope", approveScope, "status", status, "callErr", callErr)
 
 			// Update frame status in vm context for TXPARAM(0x15) introspection.
 			if frameIndex < len(evm.FrameCtx.Frames) {
@@ -1545,9 +1564,11 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		var frameErr error
 		frameCtx, frameErr = eips.ExecuteFrameTx(frameTx, stateNonceForFrame, callFn)
 		if frameErr != nil {
+			execLog.Error("FrameTx execution failed", "error", frameErr, "sender", msg.FrameSender, "nonce", msg.Nonce)
 			execErr = frameErr
 			gasRemaining = 0
 		} else {
+			execLog.Debug("FrameTx execution succeeded", "sender", msg.FrameSender, "senderApproved", frameCtx.SenderApproved, "payerApproved", frameCtx.PayerApproved, "payer", frameCtx.Payer)
 			// Calculate remaining gas after all frame execution.
 			var totalFrameGasUsed uint64
 			for _, fr := range frameCtx.FrameResults {
@@ -1565,10 +1586,10 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 			}
 
 			// EIP-8141: transfer gas cost from sender to payer for sponsored tx (GAP-1).
-			// The sender was pre-charged at line 875. If a different payer was
+			// The sender was pre-charged above. If a different payer was
 			// approved, refund sender and charge payer instead.
-			if frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
-				statedb.AddBalance(msg.From, deduction)
+			if frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.FrameSender {
+				statedb.AddBalance(msg.FrameSender, deduction)
 				statedb.SubBalance(frameCtx.Payer, deduction)
 				// AA-1.3: if the payer's balance went negative, they failed to cover
 				// gas — slash the paymaster.
@@ -1633,7 +1654,10 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	if remainingGas > 0 {
 		refundAmount := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(remainingGas))
 		refundRecipient := msg.From
-		if frameCtx != nil && frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
+		if msg.TxType == types.FrameTxType && msg.FrameSender != (types.Address{}) {
+			refundRecipient = msg.FrameSender
+		}
+		if frameCtx != nil && frameCtx.Payer != (types.Address{}) && frameCtx.Payer != refundRecipient {
 			refundRecipient = frameCtx.Payer
 		}
 		statedb.AddBalance(refundRecipient, refundAmount)

@@ -477,3 +477,176 @@ func TestE2E_MultiBlock_BALAccessIndex(t *testing.T) {
 		t.Errorf("chain height = %d, want 3", bc.CurrentBlock().NumberU64())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// E2E: FrameTx (EIP-8141) execution through real block processing
+// ---------------------------------------------------------------------------
+
+// TestE2E_FrameTx_WithEIP7702Delegation tests a complete FrameTx execution
+// where the sender has delegated to a SimpleApprover contract via EIP-7702.
+func TestE2E_FrameTx_WithEIP7702Delegation(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	approver := types.HexToAddress("0x6D264Bf712D5F9698e82E97E0BaEE255eA4BD1c3")
+	target := types.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
+	statedb := state.NewMemoryStateDB()
+	statedb.AddBalance(sender, ether(10))
+	statedb.SetNonce(sender, 0)
+
+	// Set up approver contract with SimpleApprover code.
+	// PUSH1 0x02, PUSH1 0x00, PUSH1 0x00, APPROVE
+	simpleApproverCode := []byte{0x60, 0x02, 0x60, 0x00, 0x60, 0x00, 0xaa}
+	statedb.CreateAccount(approver)
+	statedb.SetCode(approver, simpleApproverCode)
+	statedb.AddBalance(approver, ether(1))
+
+	// Set up sender with delegation to approver (EIP-7702).
+	// Designator: 0xef0100 || approver_address
+	designator := make([]byte, 23)
+	designator[0] = 0xef
+	designator[1] = 0x01
+	designator[2] = 0x00
+	copy(designator[3:], approver[:])
+	statedb.CreateAccount(sender)
+	statedb.SetCode(sender, designator)
+	statedb.AddBalance(sender, ether(10))
+
+	genesis := makeGenesis(30_000_000, big.NewInt(1))
+
+	// Build FrameTx: VERIFY frame (calls APPROVE(2)) + SENDER frame (call to target)
+	// Note: Use TestConfigGlamsterdan for APPROVE opcode support
+	frameTx := &types.FrameTx{
+		ChainID:  config.TestConfigGlamsterdan.ChainID,
+		Nonce:    0,
+		Sender:   sender,
+		Frames:   []types.Frame{
+			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte{}}, // Target=nil means sender
+			{Mode: types.ModeSender, Target: &target, GasLimit: 21000, Data: []byte{}},
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+	}
+	tx := types.NewTransaction(frameTx)
+
+	// Create block manually to avoid double ProcessWithBAL call
+	// (makeBlockWithState internally calls ProcessWithBAL with TestConfig)
+	genesisHeader := genesis.Header()
+	header := &types.Header{
+		ParentHash:      genesis.Hash(),
+		Number:          new(big.Int).Add(genesisHeader.Number, big.NewInt(1)),
+		GasLimit:        genesisHeader.GasLimit,
+		Time:            genesisHeader.Time + 12,
+		Difficulty:      new(big.Int),
+		BaseFee:         new(big.Int).Set(genesisHeader.BaseFee),
+		UncleHash:       types.EmptyUncleHash,
+		WithdrawalsHash: &types.EmptyRootHash,
+	}
+	body := &types.Body{
+		Transactions: []*types.Transaction{tx},
+		Withdrawals:  []*types.Withdrawal{},
+	}
+	block := types.NewBlock(header, body)
+
+	// Process the block with TestConfigGlamsterdan for APPROVE opcode support
+	proc := execution.NewStateProcessor(config.TestConfigGlamsterdan)
+	result, err := proc.ProcessWithBAL(block, statedb)
+	if err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+
+	// Check receipt
+	if len(result.Receipts) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(result.Receipts))
+	}
+	receipt := result.Receipts[0]
+	t.Logf("FrameTx receipt: status=%d, gasUsed=%d", receipt.Status, receipt.GasUsed)
+	t.Logf("FrameTx receipt details: %+v", receipt)
+
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		// Log detailed error for debugging
+		t.Errorf("FrameTx failed with status=%d, expected success", receipt.Status)
+	}
+
+	// Verify nonce was incremented
+	nonce := statedb.GetNonce(sender)
+	t.Logf("Sender nonce after FrameTx: %d", nonce)
+	if nonce != 1 {
+		t.Errorf("expected nonce=1, got %d", nonce)
+	}
+}
+
+// TestE2E_FrameTx_VerifyFrameApproveScope2 tests that VERIFY frame with APPROVE(2)
+// correctly approves both sender and payer.
+func TestE2E_FrameTx_VerifyFrameApproveScope2(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	approver := types.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+	statedb := state.NewMemoryStateDB()
+	statedb.AddBalance(sender, ether(10))
+
+	// Set up approver with SimpleApprover code (APPROVE(2))
+	simpleApproverCode := []byte{0x60, 0x02, 0x60, 0x00, 0x60, 0x00, 0xaa}
+	statedb.CreateAccount(approver)
+	statedb.SetCode(approver, simpleApproverCode)
+
+	// Set up sender with delegation
+	designator := make([]byte, 23)
+	designator[0] = 0xef
+	designator[1] = 0x01
+	designator[2] = 0x00
+	copy(designator[3:], approver[:])
+	statedb.SetCode(sender, designator)
+	statedb.SetNonce(sender, 0)
+
+	genesis := makeGenesis(30_000_000, big.NewInt(1))
+
+	// FrameTx with only VERIFY frame (should succeed with APPROVE(2))
+	frameTx := &types.FrameTx{
+		ChainID:  config.TestConfigGlamsterdan.ChainID,
+		Nonce:    0,
+		Sender:   sender,
+		Frames:   []types.Frame{
+			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte{}},
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+	}
+	tx := types.NewTransaction(frameTx)
+
+	// Create block manually to avoid double ProcessWithBAL call
+	genesisHeader := genesis.Header()
+	header := &types.Header{
+		ParentHash:      genesis.Hash(),
+		Number:          new(big.Int).Add(genesisHeader.Number, big.NewInt(1)),
+		GasLimit:        genesisHeader.GasLimit,
+		Time:            genesisHeader.Time + 12,
+		Difficulty:      new(big.Int),
+		BaseFee:         new(big.Int).Set(genesisHeader.BaseFee),
+		UncleHash:       types.EmptyUncleHash,
+		WithdrawalsHash: &types.EmptyRootHash,
+	}
+	body := &types.Body{
+		Transactions: []*types.Transaction{tx},
+		Withdrawals:  []*types.Withdrawal{},
+	}
+	block := types.NewBlock(header, body)
+
+	proc := execution.NewStateProcessor(config.TestConfigGlamsterdan)
+	result, err := proc.ProcessWithBAL(block, statedb)
+	if err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+
+	if len(result.Receipts) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(result.Receipts))
+	}
+
+	receipt := result.Receipts[0]
+	t.Logf("VERIFY-only FrameTx receipt: status=%d", receipt.Status)
+
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		t.Errorf("VERIFY-only FrameTx failed with status=%d", receipt.Status)
+	}
+}

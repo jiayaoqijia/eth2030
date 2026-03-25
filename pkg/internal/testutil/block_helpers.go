@@ -45,6 +45,11 @@ func MakeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
 // fields by executing the transactions against the provided state. The state is
 // mutated in place so callers can chain multiple blocks.
 func MakeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb state.StateDB) *types.Block {
+	return MakeBlockWithStateAndConfig(parent, txs, statedb, config.TestConfig)
+}
+
+// MakeBlockWithStateAndConfig is like MakeBlockWithState but accepts a custom config.
+func MakeBlockWithStateAndConfig(parent *types.Block, txs []*types.Transaction, statedb state.StateDB, cfg *config.ChainConfig) *types.Block {
 	parentHeader := parent.Header()
 	blobGasUsed := uint64(0)
 	var pExcess, pUsed uint64
@@ -93,7 +98,7 @@ func MakeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb s
 
 	blk := types.NewBlock(header, body)
 
-	proc := execution.NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(cfg)
 	result, err := proc.ProcessWithBAL(blk, statedb)
 	if err == nil {
 		var gasUsed uint64

@@ -46,6 +46,11 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb s
 	return testutil.MakeBlockWithState(parent, txs, statedb)
 }
 
+// makeBlockWithStateAndConfig builds a valid child block with custom config.
+func makeBlockWithStateAndConfig(parent *types.Block, txs []*types.Transaction, statedb state.StateDB, cfg *config.ChainConfig) *types.Block {
+	return testutil.MakeBlockWithStateAndConfig(parent, txs, statedb, cfg)
+}
+
 // makeChainBlocks builds a chain of empty blocks from the given parent using
 // the provided state (which is mutated in place).
 func makeChainBlocks(parent *types.Block, count int, statedb state.StateDB) []*types.Block {
