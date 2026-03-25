@@ -45,12 +45,19 @@ type FrameContext struct {
 	// Approval state (transaction-scoped).
 	SenderApproved bool
 	PayerApproved  bool
+	Payer          types.Address // The address that pays for gas
 
 	// APPROVE tracking: records the most recent APPROVE call within the
 	// current frame so the callFn can distinguish APPROVE(2) from
 	// APPROVE(0)+APPROVE(1) without relying solely on boolean flags.
 	LastApproveScope       uint8
 	ApproveCalledThisFrame bool
+
+	// CurrentFrameCaller is the caller for the current frame.
+	// Per EIP-8141: ORIGIN opcode returns frame caller throughout all call depths.
+	// - VERIFY/DEFAULT frame: ENTRY_POINT
+	// - SENDER frame: tx.sender
+	CurrentFrameCaller types.Address
 
 	// Transaction parameters exposed via TXPARAM* opcodes.
 	TxType            uint64
@@ -69,6 +76,12 @@ type FrameContext struct {
 // opApprove implements the APPROVE opcode (0xaa) per EIP-8141.
 // Stack: [offset, length, scope] (top-0 = offset, top-1 = length, top-2 = scope)
 // Behaves like RETURN but also updates the transaction-scoped approval context.
+//
+// Per EIP-8141 and revm-eip8141 reference:
+// - APPROVE is only valid inside a VERIFY frame (mode == 1)
+// - Scope 0x0: sender approval only
+// - Scope 0x1: payer approval (payer = current frame target), requires sender_approved
+// - Scope 0x2: combined sender+payer approval (payer = tx sender)
 func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
 	offset := stack.Pop()
 	length := stack.Pop()
@@ -86,62 +99,60 @@ func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 		return nil, ErrInvalidApproveScope
 	}
 
-	// Track the APPROVE call for the callFn to read.
-	fc.ApproveCalledThisFrame = true
-	fc.LastApproveScope = uint8(scopeVal)
-
-	// APPROVE must only succeed if the executing contract IS the frame target.
+	// Per revm-eip8141: APPROVE is only valid inside a VERIFY frame (mode == 1).
 	if fc.CurrentFrameIndex >= uint64(len(fc.Frames)) {
 		return nil, ErrFrameIndexOutOfBounds
 	}
-	if contract.Address != fc.Frames[fc.CurrentFrameIndex].Target {
-		return nil, ErrCallerNotFrameTarget
+	if fc.Frames[fc.CurrentFrameIndex].Mode != FrameModeVerify {
+		return nil, ErrInvalidApproveScope
 	}
 
 	switch scopeVal {
-	case 0: // Execution approval
+	case 0: // Execution approval (sender only)
 		if fc.SenderApproved {
 			return nil, ErrAlreadyApproved
-		}
-		// CALLER must equal tx.sender for execution approval.
-		if contract.CallerAddress != fc.Sender {
-			return nil, ErrCallerNotSender
 		}
 		fc.SenderApproved = true
 
 	case 1: // Payment approval
-		if fc.PayerApproved {
-			return nil, ErrAlreadyApproved
-		}
-		// sender_approved must already be set.
 		if !fc.SenderApproved {
 			return nil, ErrSenderNotApproved
 		}
-		// Check balance of frame.target (the contract being called).
-		if evm.StateDB != nil {
-			balance := evm.StateDB.GetBalance(contract.Address)
-			if fc.MaxCost != nil && balance.Cmp(fc.MaxCost) < 0 {
+		if fc.PayerApproved {
+			return nil, ErrAlreadyApproved
+		}
+		// EIP-8141: check if frame.target has sufficient balance for max cost.
+		payerAddr := fc.Frames[fc.CurrentFrameIndex].Target
+		if evm.StateDB != nil && fc.MaxCost != nil {
+			balance := evm.StateDB.GetBalance(payerAddr)
+			if balance.Cmp(fc.MaxCost) < 0 {
 				return nil, ErrInsufficientBalance
 			}
 		}
+		// Payment approval delegates gas payment to the current frame target.
+		fc.Payer = payerAddr
 		fc.PayerApproved = true
 
-	case 2: // Combined execution + payment
+	case 2: // Combined execution + payment approval
 		if fc.SenderApproved || fc.PayerApproved {
 			return nil, ErrAlreadyApproved
 		}
-		if contract.CallerAddress != fc.Sender {
-			return nil, ErrCallerNotSender
-		}
-		if evm.StateDB != nil {
-			balance := evm.StateDB.GetBalance(contract.Address)
-			if fc.MaxCost != nil && balance.Cmp(fc.MaxCost) < 0 {
+		// EIP-8141: check if tx.sender has sufficient balance for max cost.
+		if evm.StateDB != nil && fc.MaxCost != nil {
+			balance := evm.StateDB.GetBalance(fc.Sender)
+			if balance.Cmp(fc.MaxCost) < 0 {
 				return nil, ErrInsufficientBalance
 			}
 		}
+		// Combined approval means sender and payer are the transaction sender.
+		fc.Payer = fc.Sender
 		fc.SenderApproved = true
 		fc.PayerApproved = true
 	}
+
+	// Track the APPROVE call for the callFn to read.
+	fc.ApproveCalledThisFrame = true
+	fc.LastApproveScope = uint8(scopeVal)
 
 	// Return data from memory at [offset, offset+length), like RETURN.
 	ret := memory.Get(int64(offset.Uint64()), int64(length.Uint64()))

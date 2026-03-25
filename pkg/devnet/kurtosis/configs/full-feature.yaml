@@ -40,7 +40,7 @@ dora_params:
   image: "eth2030/dora:v0.0.1"
 
 spamoor_params:
-  image: eth2030/spamoor:v0.0.1
+  image: spamoor:local
   # Resource management for spamoor
   # CPU is milicores
   # RAM is in MB

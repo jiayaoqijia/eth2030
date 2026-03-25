@@ -39,7 +39,7 @@ func TestExecuteFrameTxSimpleApproveScope2(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -86,7 +86,7 @@ func TestExecuteFrameTxSponsoredTransaction(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(5),
+		Nonce:  5,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sender-sig")},
@@ -125,7 +125,7 @@ func TestExecuteFrameTxSenderModeWithoutApproval(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			// No VERIFY frame first, directly try SENDER mode.
@@ -147,7 +147,7 @@ func TestExecuteFrameTxVerifyNoApprove(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -175,7 +175,7 @@ func TestExecuteFrameTxPayerNotApproved(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -203,7 +203,7 @@ func TestExecuteFrameTxNonceMismatch(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(5),
+		Nonce:  5,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -226,7 +226,7 @@ func TestExecuteFrameTxGasIsolation(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -263,7 +263,7 @@ func TestExecuteFrameTxDoubleApproveRejects(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig1")},
@@ -290,7 +290,7 @@ func TestCalcFrameRefund(t *testing.T) {
 	sender := types.HexToAddress("0xaaaa")
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, GasLimit: 50000},
@@ -318,7 +318,7 @@ func TestCalcFrameRefund(t *testing.T) {
 func TestCalcFrameRefundNoRefund(t *testing.T) {
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  types.HexToAddress("0xaaaa"),
 		Frames: []types.Frame{
 			{Mode: types.ModeDefault, GasLimit: 50000},
@@ -370,7 +370,7 @@ func TestBuildFrameReceipt(t *testing.T) {
 func TestMaxFrameTxCost(t *testing.T) {
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  types.HexToAddress("0xaaaa"),
 		Frames: []types.Frame{
 			{Mode: types.ModeDefault, GasLimit: 100000},
@@ -391,7 +391,7 @@ func TestMaxFrameTxCost(t *testing.T) {
 func TestMaxFrameTxCostWithBlobs(t *testing.T) {
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  types.HexToAddress("0xaaaa"),
 		Frames: []types.Frame{
 			{Mode: types.ModeDefault, GasLimit: 100000},
@@ -421,7 +421,7 @@ func TestFrameExecutionDefaultModeCaller(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -467,7 +467,7 @@ func TestFrameExecutionSenderModeCaller(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -506,7 +506,7 @@ func TestFrameExecutionNilTargetDefaultsToSender(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   new(big.Int).SetUint64(0),
+		Nonce:  0,
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -528,5 +528,92 @@ func TestFrameExecutionNilTargetDefaultsToSender(t *testing.T) {
 	if targetsSeen[0] != sender {
 		t.Fatalf("nil target should default to sender %s, got %s",
 			sender.Hex(), targetsSeen[0].Hex())
+	}
+}
+
+// TestApproveScope2WithVerifierContract tests that APPROVE(2) works correctly
+// when the VERIFY frame targets a verifier contract that is different from sender.
+// This is the common pattern for EIP-8141: a verifier contract validates the
+// signature and calls APPROVE(2) to approve both sender execution and payment.
+func TestApproveScope2WithVerifierContract(t *testing.T) {
+	sender := types.HexToAddress("0x1111111111111111111111111111111111111111")
+	verifier := types.HexToAddress("0x2222222222222222222222222222222222222222") // Different from sender!
+	target := types.HexToAddress("0x3333333333333333333333333333333333333333")
+
+	tx := &types.FrameTx{
+		ChainID: big.NewInt(1),
+		Nonce:   0,
+		Sender:  sender,
+		Frames: []types.Frame{
+			// VERIFY frame targets a verifier contract (not sender)
+			{Mode: types.ModeVerify, Target: &verifier, GasLimit: 50000, Data: []byte("signature")},
+			// SENDER frame executes user action
+			{Mode: types.ModeSender, Target: &target, GasLimit: 100000, Data: []byte("call")},
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+		MaxFeePerBlobGas:     big.NewInt(0),
+	}
+
+	ctx, err := ExecuteFrameTx(tx, 0, simpleCallFn(2))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ctx.SenderApproved {
+		t.Fatal("sender should be approved")
+	}
+	if !ctx.PayerApproved {
+		t.Fatal("payer should be approved")
+	}
+	// Per EIP-8141: APPROVE(2) sets payer = sender
+	if ctx.Payer != sender {
+		t.Fatalf("payer should be sender %s, got %s", sender.Hex(), ctx.Payer.Hex())
+	}
+}
+
+// TestApproveScope0WithVerifierContract tests that APPROVE(0) works correctly
+// when the VERIFY frame targets a verifier contract different from sender.
+func TestApproveScope0WithVerifierContract(t *testing.T) {
+	sender := types.HexToAddress("0x1111111111111111111111111111111111111111")
+	verifier := types.HexToAddress("0x2222222222222222222222222222222222222222")
+	sponsor := types.HexToAddress("0x555555555555555555555555555555555555555")
+	target := types.HexToAddress("0x3333333333333333333333333333333333333333")
+
+	tx := &types.FrameTx{
+		ChainID: big.NewInt(1),
+		Nonce:   0,
+		Sender:  sender,
+		Frames: []types.Frame{
+			// VERIFY frame 0: verifier calls APPROVE(0) to approve sender
+			{Mode: types.ModeVerify, Target: &verifier, GasLimit: 50000, Data: []byte("sig1")},
+			// VERIFY frame 1: sponsor calls APPROVE(1) to approve payment
+			{Mode: types.ModeVerify, Target: &sponsor, GasLimit: 30000, Data: []byte("sig2")},
+			// SENDER frame: execute user action
+			{Mode: types.ModeSender, Target: &target, GasLimit: 100000, Data: []byte("call")},
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+		MaxFeePerBlobGas:     big.NewInt(0),
+	}
+
+	approvals := []frameApproval{
+		{approved: true, scope: 0}, // APPROVE(0) = sender only
+		{approved: true, scope: 1}, // APPROVE(1) = payer = sponsor
+		{approved: false, scope: 0},
+	}
+
+	ctx, err := ExecuteFrameTx(tx, 0, customCallFn(approvals))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ctx.SenderApproved {
+		t.Fatal("sender should be approved")
+	}
+	if !ctx.PayerApproved {
+		t.Fatal("payer should be approved")
+	}
+	// Per EIP-8141: APPROVE(1) sets payer = frame.target (sponsor)
+	if ctx.Payer != sponsor {
+		t.Fatalf("payer should be sponsor %s, got %s", sponsor.Hex(), ctx.Payer.Hex())
 	}
 }

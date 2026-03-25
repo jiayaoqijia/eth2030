@@ -35,7 +35,7 @@ func makeTestBlock(txs []*types.Transaction) *types.Block {
 func makeFrameTx(data []byte) *types.Transaction {
 	return types.NewTransaction(&types.FrameTx{
 		ChainID:              big.NewInt(1),
-		Nonce:                big.NewInt(1),
+		Nonce:                1,
 		MaxPriorityFeePerGas: big.NewInt(1),
 		MaxFeePerGas:         big.NewInt(1),
 		Frames: []types.Frame{

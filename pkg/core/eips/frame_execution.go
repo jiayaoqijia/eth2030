@@ -45,14 +45,10 @@ type FrameCallFunc func(
 //
 // The callFn callback is invoked for each frame to perform the actual EVM call.
 // stateNonce is the current nonce of tx.Sender in state (for stateful validation).
+// Note: nonce validation is performed in processor.go before calling this function.
 func ExecuteFrameTx(tx *types.FrameTx, stateNonce uint64, callFn FrameCallFunc) (*FrameExecutionContext, error) {
-	// Stateful validation: nonce check.
-	// For 2D nonces (key != 0), only the sequence portion is compared.
-	// For simple nonces (key == 0), it behaves like a standard uint64 nonce.
-	txSeq := tx.NonceSeq()
-	if txSeq != stateNonce {
-		return nil, fmt.Errorf("%w: got %d, want %d", ErrFrameNonceMismatch, txSeq, stateNonce)
-	}
+	// Note: nonce validation is performed in processor.go before executing frames.
+	// This keeps the validation consistent with standard transaction processing.
 
 	ctx := &FrameExecutionContext{
 		FrameResults: make([]types.FrameResult, len(tx.Frames)),
@@ -126,40 +122,40 @@ func ExecuteFrameTx(tx *types.FrameTx, stateNonce uint64, callFn FrameCallFunc) 
 }
 
 // processApprove handles the APPROVE opcode's effect on transaction-scoped state.
+// Per EIP-8141 and the revm-eip8141 reference implementation:
+// - Scope 0: sender approval only
+// - Scope 1: payer approval (requires prior sender approval), payer = frame.target
+// - Scope 2: combined sender+payer approval, payer = sender
 func (ctx *FrameExecutionContext) processApprove(scope uint8, sender, target types.Address) error {
 	switch scope {
-	case 0: // Approval of execution only.
+	case 0: // Approval of execution only (sender approval).
 		if ctx.SenderApproved {
 			return errors.New("frame tx: sender already approved")
 		}
-		if target != sender {
-			return errors.New("frame tx: APPROVE(0) caller must be sender")
-		}
 		ctx.SenderApproved = true
 
-	case 1: // Approval of payment only.
-		if ctx.PayerApproved {
-			return errors.New("frame tx: payer already approved")
-		}
+	case 1: // Approval of payment only (payer approval).
 		if !ctx.SenderApproved {
 			return errors.New("frame tx: APPROVE(1) requires sender approval first")
 		}
+		if ctx.PayerApproved {
+			return errors.New("frame tx: payer already approved")
+		}
+		// Payment approval delegates gas payment to the current frame target (sponsor).
 		ctx.PayerApproved = true
 		ctx.Payer = target
 
-	case 2: // Approval of execution and payment.
+	case 2: // Combined execution + payment approval.
 		if ctx.SenderApproved {
 			return errors.New("frame tx: sender already approved")
 		}
 		if ctx.PayerApproved {
 			return errors.New("frame tx: payer already approved")
 		}
-		if target != sender {
-			return errors.New("frame tx: APPROVE(2) caller must be sender")
-		}
+		// Combined approval means sender and payer are the transaction sender.
 		ctx.SenderApproved = true
 		ctx.PayerApproved = true
-		ctx.Payer = target
+		ctx.Payer = sender
 
 	default:
 		return fmt.Errorf("frame tx: invalid APPROVE scope %d", scope)

@@ -146,6 +146,14 @@ type RPCAuthorization struct {
 	S       string `json:"s"`
 }
 
+// RPCFrame is the JSON representation of a single frame in a FrameTx (EIP-8141).
+type RPCFrame struct {
+	Mode     string  `json:"mode"`
+	Target   *string `json:"target,omitempty"`
+	GasLimit string  `json:"gasLimit"`
+	Data     string  `json:"data"`
+}
+
 // RPCTransaction is the JSON representation of a transaction.
 type RPCTransaction struct {
 	Hash        string  `json:"hash"`
@@ -176,6 +184,8 @@ type RPCTransaction struct {
 	MaxFeePerBlobGas    *string            `json:"maxFeePerBlobGas,omitempty"`
 	BlobVersionedHashes []string           `json:"blobVersionedHashes,omitempty"`
 	AuthorizationList   []RPCAuthorization `json:"authorizationList,omitempty"`
+	// EIP-8141 FrameTx fields (type 0x06).
+	Frames []RPCFrame `json:"frames,omitempty"`
 }
 
 // RPCReceipt is the JSON representation of a transaction receipt.
@@ -637,7 +647,14 @@ func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber
 		Type:     EncodeUint64(uint64(txType)),
 	}
 
-	if sender := tx.Sender(); sender != nil {
+	// For FrameTx (type 0x06), use FrameSender() since the sender is in the FrameTx struct.
+	// For other transaction types, use the cached Sender().
+	if txType == types.FrameTxType {
+		frameSender := tx.FrameSender()
+		if !frameSender.IsZero() {
+			rpcTx.From = EncodeAddress(frameSender)
+		}
+	} else if sender := tx.Sender(); sender != nil {
 		rpcTx.From = EncodeAddress(*sender)
 	}
 
@@ -725,6 +742,26 @@ func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber
 		rpcTx.AuthorizationList = FormatAuthorizationList(tx.AuthorizationList())
 	}
 
+	// EIP-8141: FrameTx frames (type 6).
+	if txType == types.FrameTxType {
+		frames := tx.Frames()
+		if frames != nil {
+			rpcTx.Frames = make([]RPCFrame, len(frames))
+			for i, f := range frames {
+				rpcFrame := RPCFrame{
+					Mode:     EncodeUint64(uint64(f.Mode)),
+					GasLimit: EncodeUint64(f.GasLimit),
+					Data:     EncodeBytes(f.Data),
+				}
+				if f.Target != nil {
+					target := EncodeAddress(*f.Target)
+					rpcFrame.Target = &target
+				}
+				rpcTx.Frames[i] = rpcFrame
+			}
+		}
+	}
+
 	return rpcTx
 }
 
@@ -753,7 +790,13 @@ func FormatReceipt(receipt *types.Receipt, tx *types.Transaction, blockTimestamp
 
 	// From and To
 	if tx != nil {
-		if sender := tx.Sender(); sender != nil {
+		// For FrameTx (type 0x06), use FrameSender() since the sender is in the FrameTx struct.
+		if tx.Type() == types.FrameTxType {
+			frameSender := tx.FrameSender()
+			if !frameSender.IsZero() {
+				rpcReceipt.From = EncodeAddress(frameSender)
+			}
+		} else if sender := tx.Sender(); sender != nil {
 			rpcReceipt.From = EncodeAddress(*sender)
 		}
 		if tx.To() != nil {

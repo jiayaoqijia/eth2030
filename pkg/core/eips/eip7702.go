@@ -8,6 +8,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/log"
 )
 
 const (
@@ -45,6 +46,7 @@ func processOneAuthorization(statedb state.StateDB, auth *types.Authorization, c
 	// 1. Verify chain ID: must match the current chain, or be 0 (any-chain wildcard).
 	if auth.ChainID != nil && auth.ChainID.Sign() != 0 {
 		if chainID == nil || auth.ChainID.Cmp(chainID) != 0 {
+			log.Debug("EIP-7702: chain ID mismatch", "auth_chain_id", auth.ChainID, "expected_chain_id", chainID)
 			return ErrAuthChainID
 		}
 	}
@@ -53,14 +55,18 @@ func processOneAuthorization(statedb state.StateDB, auth *types.Authorization, c
 	signerAddr, err := RecoverAuthority(auth)
 	if err != nil {
 		if errors.Is(err, ErrAuthInvalidSig) {
+			log.Debug("EIP-7702: invalid signature", "error", err)
 			return ErrAuthInvalidSig
 		}
+		log.Debug("EIP-7702: signature recovery failed", "error", err)
 		return fmt.Errorf("%w: %v", ErrAuthSignature, err)
 	}
 
 	// 3. Verify the nonce matches the signer's current nonce.
 	currentNonce := statedb.GetNonce(signerAddr)
+	log.Debug("EIP-7702: processing authorization", "signer", signerAddr, "auth_nonce", auth.Nonce, "current_nonce", currentNonce)
 	if auth.Nonce != currentNonce {
+		log.Warn("EIP-7702: nonce mismatch", "signer", signerAddr, "auth_nonce", auth.Nonce, "current_nonce", currentNonce)
 		return ErrAuthNonce
 	}
 
@@ -82,6 +88,7 @@ func processOneAuthorization(statedb state.StateDB, auth *types.Authorization, c
 	// 6. Increment the signer's nonce.
 	statedb.SetNonce(signerAddr, currentNonce+1)
 
+	log.Info("EIP-7702: delegation set successfully", "signer", signerAddr, "delegate_to", auth.Address)
 	return nil
 }
 

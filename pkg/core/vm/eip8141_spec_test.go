@@ -10,16 +10,21 @@ import (
 // --- SPEC-1.3: ORIGIN opcode in frame context ---
 
 func TestOriginInFrameContext(t *testing.T) {
-	// Inside a frame tx, ORIGIN should return FrameCtx.Sender, not TxContext.Origin.
+	// Inside a frame tx, ORIGIN returns frame caller per EIP-8141:
+	// - VERIFY/DEFAULT frame: ENTRY_POINT
+	// - SENDER frame: tx.sender
+	// Here we test a SENDER frame where caller = frameSender.
 	frameSender := types.Address{0xAA, 0xBB}
 	txOrigin := types.Address{0x11, 0x22}
 
-	frames := []Frame{{Mode: FrameModeVerify, Target: frameSender, GasLimit: 100000}}
+	frames := []Frame{{Mode: FrameModeSender, Target: frameSender, GasLimit: 100000}}
 	evm := newFrameTestEVM(frameSender, frames)
 	evm.FrameCtx.Sender = frameSender
+	evm.FrameCtx.SenderApproved = true // Required for SENDER mode
+	evm.FrameCtx.CurrentFrameCaller = frameSender // SENDER mode: caller = sender
 	evm.TxContext.Origin = txOrigin // different from frame sender
 
-	// ORIGIN opcode: expects to get frameSender, not txOrigin.
+	// ORIGIN opcode: expects to get frameSender (the frame caller for SENDER mode).
 	code := []byte{
 		byte(ORIGIN),      // pushes ORIGIN to stack
 		byte(PUSH1), 0x00, // mstore offset
@@ -43,6 +48,40 @@ func TestOriginInFrameContext(t *testing.T) {
 	copy(got[:], ret[12:])
 	if got != frameSender {
 		t.Errorf("ORIGIN in frame context: got %x, want %x", got, frameSender)
+	}
+}
+
+func TestOriginInVerifyFrame(t *testing.T) {
+	// VERIFY frame: ORIGIN returns ENTRY_POINT, not tx.sender.
+	frameSender := types.Address{0xAA, 0xBB}
+
+	frames := []Frame{{Mode: FrameModeVerify, Target: frameSender, GasLimit: 100000}}
+	evm := newFrameTestEVM(frameSender, frames)
+	evm.FrameCtx.Sender = frameSender
+	evm.FrameCtx.CurrentFrameCaller = types.EntryPointAddress // VERIFY mode: caller = ENTRY_POINT
+
+	code := []byte{
+		byte(ORIGIN),
+		byte(PUSH1), 0x00,
+		byte(MSTORE),
+		byte(PUSH1), 0x20,
+		byte(PUSH1), 0x00,
+		byte(RETURN),
+	}
+	contract := NewContract(frameSender, frameSender, nil, 100000)
+	contract.Code = code
+
+	ret, err := evm.Run(contract, nil)
+	if err != nil {
+		t.Fatalf("ORIGIN in VERIFY frame failed: %v", err)
+	}
+	if len(ret) < 32 {
+		t.Fatalf("expected 32 bytes return, got %d", len(ret))
+	}
+	var got types.Address
+	copy(got[:], ret[12:])
+	if got != types.EntryPointAddress {
+		t.Errorf("ORIGIN in VERIFY frame: got %x, want %x (ENTRY_POINT)", got, types.EntryPointAddress)
 	}
 }
 

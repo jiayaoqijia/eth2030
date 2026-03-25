@@ -356,10 +356,12 @@ func opAddress(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 }
 
 func opOrigin(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
-	// EIP-8141: inside a frame transaction, ORIGIN returns the frame caller (tx.Sender),
-	// not the traditional tx.from, so that frame contracts can identify the user.
+	// EIP-8141: inside a frame transaction, ORIGIN returns the frame caller,
+	// not the traditional tx origin. Per the spec:
+	// - VERIFY/DEFAULT frame: ENTRY_POINT
+	// - SENDER frame: tx.sender
 	if evm.FrameCtx != nil {
-		stack.Push(new(big.Int).SetBytes(evm.FrameCtx.Sender[:]))
+		stack.Push(new(big.Int).SetBytes(evm.FrameCtx.CurrentFrameCaller[:]))
 		return nil, nil
 	}
 	stack.Push(new(big.Int).SetBytes(evm.TxContext.Origin[:]))

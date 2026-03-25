@@ -15,7 +15,7 @@ import (
 func newTestFrameTx(sender types.Address, nonce uint64, frames []types.Frame) *types.Transaction {
 	ftx := &types.FrameTx{
 		ChainID:              big.NewInt(1),
-		Nonce:                new(big.Int).SetUint64(nonce),
+		Nonce:                nonce,
 		Sender:               sender,
 		Frames:               frames,
 		MaxFeePerGas:         big.NewInt(1000000000),
@@ -167,7 +167,7 @@ func TestFrameTx_NonceGuard(t *testing.T) {
 	}
 	ftx := &types.FrameTx{
 		ChainID:              big.NewInt(1),
-		Nonce:                new(big.Int),
+		Nonce:                0,
 		Sender:               sender,
 		Frames:               frames,
 		MaxFeePerGas:         big.NewInt(1),
@@ -252,7 +252,7 @@ func TestFrameTx_SponsoredGasSettlement(t *testing.T) {
 	}
 	ftx := &types.FrameTx{
 		ChainID:              big.NewInt(1),
-		Nonce:                new(big.Int),
+		Nonce:                0,
 		Sender:               sender,
 		Frames:               frames,
 		MaxFeePerGas:         big.NewInt(1),

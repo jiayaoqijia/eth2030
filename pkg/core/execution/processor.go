@@ -1499,6 +1499,13 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 
 		stateNonceForFrame := statedb.GetNonce(msg.FrameSender)
 
+		// EIP-8141: validate nonce BEFORE executing frames.
+		// Per spec: "Ensure tx.nonce == state[tx.sender].nonce"
+		// This is a transaction-level validation that should reject invalid transactions.
+		if msg.Nonce != stateNonceForFrame {
+			return nil, fmt.Errorf("frame tx: nonce mismatch: got %d, want %d", msg.Nonce, stateNonceForFrame)
+		}
+
 		callFn := func(caller, target types.Address, frameGasLimit uint64, data []byte, mode uint8, frameIndex int) (uint64, uint64, []*types.Log, bool, uint8, error) {
 			execLog.Debug("FrameTx callFn", "frameIndex", frameIndex, "caller", caller, "target", target, "mode", mode, "gasLimit", frameGasLimit)
 			// EIP-8141: clear transient storage between frames for isolation.
@@ -1508,6 +1515,10 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 
 			// Update the current frame index in the EVM context.
 			evm.FrameCtx.CurrentFrameIndex = uint64(frameIndex)
+
+			// EIP-8141: ORIGIN returns frame caller throughout all call depths.
+			// Set the current frame caller for ORIGIN opcode.
+			evm.FrameCtx.CurrentFrameCaller = caller
 
 			// Reset per-frame APPROVE tracking before each frame call.
 			if evm.FrameCtx != nil {

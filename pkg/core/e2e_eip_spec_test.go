@@ -650,3 +650,302 @@ func TestE2E_FrameTx_VerifyFrameApproveScope2(t *testing.T) {
 		t.Errorf("VERIFY-only FrameTx failed with status=%d", receipt.Status)
 	}
 }
+
+// TestE2E_FrameTx_SenderModeWithoutApproval tests that SENDER frame fails
+// when sender_approved is not set.
+func TestE2E_FrameTx_SenderModeWithoutApproval(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	target := types.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
+	statedb := state.NewMemoryStateDB()
+	statedb.AddBalance(sender, ether(10))
+	statedb.SetNonce(sender, 0)
+
+	genesis := makeGenesis(30_000_000, big.NewInt(1))
+
+	// FrameTx with SENDER frame first (no VERIFY frame to approve)
+	frameTx := &types.FrameTx{
+		ChainID:  config.TestConfigGlamsterdan.ChainID,
+		Nonce:    0,
+		Sender:   sender,
+		Frames:   []types.Frame{
+			{Mode: types.ModeSender, Target: &target, GasLimit: 21000, Data: []byte{}},
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+	}
+	tx := types.NewTransaction(frameTx)
+
+	// Create block manually
+	genesisHeader := genesis.Header()
+	header := &types.Header{
+		ParentHash:      genesis.Hash(),
+		Number:          new(big.Int).Add(genesisHeader.Number, big.NewInt(1)),
+		GasLimit:        genesisHeader.GasLimit,
+		Time:            genesisHeader.Time + 12,
+		Difficulty:      new(big.Int),
+		BaseFee:         new(big.Int).Set(genesisHeader.BaseFee),
+		UncleHash:       types.EmptyUncleHash,
+		WithdrawalsHash: &types.EmptyRootHash,
+	}
+	body := &types.Body{
+		Transactions: []*types.Transaction{tx},
+		Withdrawals:  []*types.Withdrawal{},
+	}
+	block := types.NewBlock(header, body)
+
+	proc := execution.NewStateProcessor(config.TestConfigGlamsterdan)
+	_, err := proc.ProcessWithBAL(block, statedb)
+
+	// Should fail because SENDER mode requires sender_approved
+	if err == nil {
+		t.Error("expected error for SENDER frame without approval")
+	}
+	t.Logf("Got expected error: %v", err)
+}
+
+// TestE2E_FrameTx_VerifyWithoutApprove tests that VERIFY frame fails
+// when it does not call APPROVE.
+func TestE2E_FrameTx_VerifyWithoutApprove(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	approver := types.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
+	statedb := state.NewMemoryStateDB()
+
+	// Set up a contract that does NOT call APPROVE
+	// Just returns without APPROVE: PUSH1 0x00, PUSH1 0x00, RETURN
+	noApproveCode := []byte{0x60, 0x00, 0x60, 0x00, 0xf3}
+	statedb.CreateAccount(approver)
+	statedb.SetCode(approver, noApproveCode)
+
+	// Set up sender with delegation to approver (EIP-7702)
+	designator := make([]byte, 23)
+	designator[0] = 0xef
+	designator[1] = 0x01
+	designator[2] = 0x00
+	copy(designator[3:], approver[:])
+	statedb.CreateAccount(sender)
+	statedb.SetCode(sender, designator)
+	
+	// Add balance AFTER setting code
+	statedb.AddBalance(sender, ether(100))
+	statedb.SetNonce(sender, 0)
+
+	genesis := makeGenesis(30_000_000, big.NewInt(1))
+
+	// FrameTx with VERIFY frame that doesn't call APPROVE
+	frameTx := &types.FrameTx{
+		ChainID:  config.TestConfigGlamsterdan.ChainID,
+		Nonce:    0,
+		Sender:   sender,
+		Frames:   []types.Frame{
+			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte{}},
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+	}
+	tx := types.NewTransaction(frameTx)
+
+	// Create block manually
+	genesisHeader := genesis.Header()
+	header := &types.Header{
+		ParentHash:      genesis.Hash(),
+		Number:          new(big.Int).Add(genesisHeader.Number, big.NewInt(1)),
+		GasLimit:        genesisHeader.GasLimit,
+		Time:            genesisHeader.Time + 12,
+		Difficulty:      new(big.Int),
+		BaseFee:         new(big.Int).Set(genesisHeader.BaseFee),
+		UncleHash:       types.EmptyUncleHash,
+		WithdrawalsHash: &types.EmptyRootHash,
+	}
+	body := &types.Body{
+		Transactions: []*types.Transaction{tx},
+		Withdrawals:  []*types.Withdrawal{},
+	}
+	block := types.NewBlock(header, body)
+
+	proc := execution.NewStateProcessor(config.TestConfigGlamsterdan)
+	result, err := proc.ProcessWithBAL(block, statedb)
+
+	// Per EIP-8141, invalid transactions should produce a failed receipt
+	// but not cause the block processing to fail.
+	if err != nil {
+		t.Fatalf("ProcessWithBAL should not return error for invalid FrameTx: %v", err)
+	}
+
+	if len(result.Receipts) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(result.Receipts))
+	}
+
+	receipt := result.Receipts[0]
+	t.Logf("FrameTx without APPROVE receipt: status=%d", receipt.Status)
+
+	// The receipt should indicate failure
+	if receipt.Status != types.ReceiptStatusFailed {
+		t.Errorf("expected failed receipt status, got status=%d", receipt.Status)
+	}
+}
+
+// TestE2E_FrameTx_NonceMismatch tests that FrameTx fails when nonce doesn't match.
+func TestE2E_FrameTx_NonceMismatch(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	approver := types.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
+	statedb := state.NewMemoryStateDB()
+
+	// Set up approver contract
+	simpleApproverCode := []byte{0x60, 0x02, 0x60, 0x00, 0x60, 0x00, 0xaa}
+	statedb.CreateAccount(approver)
+	statedb.SetCode(approver, simpleApproverCode)
+
+	// Set up sender with delegation to approver (EIP-7702)
+	designator := make([]byte, 23)
+	designator[0] = 0xef
+	designator[1] = 0x01
+	designator[2] = 0x00
+	copy(designator[3:], approver[:])
+	statedb.CreateAccount(sender)
+	statedb.SetCode(sender, designator)
+	
+	// Add balance AFTER setting code
+	statedb.AddBalance(sender, ether(100))
+	statedb.SetNonce(sender, 5) // State nonce is 5
+
+	genesis := makeGenesis(30_000_000, big.NewInt(1))
+
+	// FrameTx with wrong nonce (0 instead of 5)
+	frameTx := &types.FrameTx{
+		ChainID:  config.TestConfigGlamsterdan.ChainID,
+		Nonce:    0, // Wrong nonce
+		Sender:   sender,
+		Frames:   []types.Frame{
+			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte{}},
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+	}
+	tx := types.NewTransaction(frameTx)
+
+	// Create block manually
+	genesisHeader := genesis.Header()
+	header := &types.Header{
+		ParentHash:      genesis.Hash(),
+		Number:          new(big.Int).Add(genesisHeader.Number, big.NewInt(1)),
+		GasLimit:        genesisHeader.GasLimit,
+		Time:            genesisHeader.Time + 12,
+		Difficulty:      new(big.Int),
+		BaseFee:         new(big.Int).Set(genesisHeader.BaseFee),
+		UncleHash:       types.EmptyUncleHash,
+		WithdrawalsHash: &types.EmptyRootHash,
+	}
+	body := &types.Body{
+		Transactions: []*types.Transaction{tx},
+		Withdrawals:  []*types.Withdrawal{},
+	}
+	block := types.NewBlock(header, body)
+
+	proc := execution.NewStateProcessor(config.TestConfigGlamsterdan)
+	result, err := proc.ProcessWithBAL(block, statedb)
+
+	// Nonce mismatch should return an error (invalid transaction)
+	if err == nil {
+		t.Fatal("expected error for nonce mismatch")
+	}
+	t.Logf("Got expected error: %v", err)
+	
+	if result != nil {
+		t.Logf("Receipt status: %d", result.Receipts[0].Status)
+	}
+}
+
+// TestE2E_FrameTx_SponsoredTransaction tests APPROVE(0) + APPROVE(1) for sponsored transaction.
+func TestE2E_FrameTx_SponsoredTransaction(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	approver := types.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	sponsor := types.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	target := types.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+
+	statedb := state.NewMemoryStateDB()
+
+	// Set up approver contract that calls APPROVE(0)
+	// PUSH1 0x00, PUSH1 0x00, PUSH1 0x00, APPROVE
+	approverCode := []byte{0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0xaa}
+	statedb.CreateAccount(approver)
+	statedb.SetCode(approver, approverCode)
+
+	// Set up sponsor contract with APPROVE(1) code
+	// PUSH1 0x01, PUSH1 0x00, PUSH1 0x00, APPROVE
+	sponsorCode := []byte{0x60, 0x01, 0x60, 0x00, 0x60, 0x00, 0xaa}
+	statedb.CreateAccount(sponsor)
+	statedb.SetCode(sponsor, sponsorCode)
+
+	// Set up sender with delegation to approver (EIP-7702)
+	designator := make([]byte, 23)
+	designator[0] = 0xef
+	designator[1] = 0x01
+	designator[2] = 0x00
+	copy(designator[3:], approver[:])
+	statedb.CreateAccount(sender)
+	statedb.SetCode(sender, designator)
+	
+	// Add balance AFTER setting code
+	statedb.AddBalance(sender, ether(100))
+	statedb.AddBalance(sponsor, ether(100))
+	statedb.SetNonce(sender, 0)
+
+	genesis := makeGenesis(30_000_000, big.NewInt(1))
+
+	// FrameTx with VERIFY(sender via delegation) APPROVE(0) + VERIFY(sponsor) APPROVE(1) + SENDER
+	frameTx := &types.FrameTx{
+		ChainID:  config.TestConfigGlamsterdan.ChainID,
+		Nonce:    0,
+		Sender:   sender,
+		Frames:   []types.Frame{
+			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte{}},      // sender approves execution
+			{Mode: types.ModeVerify, Target: &sponsor, GasLimit: 50000, Data: []byte{}}, // sponsor approves payment
+			{Mode: types.ModeSender, Target: &target, GasLimit: 21000, Data: []byte{}},  // actual execution
+		},
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+	}
+	tx := types.NewTransaction(frameTx)
+
+	// Create block manually
+	genesisHeader := genesis.Header()
+	header := &types.Header{
+		ParentHash:      genesis.Hash(),
+		Number:          new(big.Int).Add(genesisHeader.Number, big.NewInt(1)),
+		GasLimit:        genesisHeader.GasLimit,
+		Time:            genesisHeader.Time + 12,
+		Difficulty:      new(big.Int),
+		BaseFee:         new(big.Int).Set(genesisHeader.BaseFee),
+		UncleHash:       types.EmptyUncleHash,
+		WithdrawalsHash: &types.EmptyRootHash,
+	}
+	body := &types.Body{
+		Transactions: []*types.Transaction{tx},
+		Withdrawals:  []*types.Withdrawal{},
+	}
+	block := types.NewBlock(header, body)
+
+	proc := execution.NewStateProcessor(config.TestConfigGlamsterdan)
+	result, err := proc.ProcessWithBAL(block, statedb)
+	if err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+
+	if len(result.Receipts) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(result.Receipts))
+	}
+
+	receipt := result.Receipts[0]
+	t.Logf("Sponsored FrameTx receipt: status=%d, gasUsed=%d", receipt.Status, receipt.GasUsed)
+
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		t.Errorf("Sponsored FrameTx failed with status=%d", receipt.Status)
+	}
+}

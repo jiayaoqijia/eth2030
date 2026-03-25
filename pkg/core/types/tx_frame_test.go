@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 )
@@ -9,7 +10,7 @@ func TestFrameTxRoundTripDefaultMode(t *testing.T) {
 	target := HexToAddress("0xdeadbeef")
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(42),
+		Nonce:   42,
 		Sender:  HexToAddress("0x1111111111111111111111111111111111111111"),
 		Frames: []Frame{
 			{Mode: ModeDefault, Target: &target, GasLimit: 100000, Data: []byte{0xca, 0xfe}},
@@ -41,7 +42,7 @@ func TestFrameTxRoundTripDefaultMode(t *testing.T) {
 	if frameTx.ChainID.Int64() != 1 {
 		t.Fatalf("ChainID mismatch: got %d", frameTx.ChainID.Int64())
 	}
-	if frameTx.Nonce == nil || frameTx.Nonce.Cmp(big.NewInt(42)) != 0 {
+	if frameTx.Nonce != 42 {
 		t.Fatalf("Nonce mismatch: got %v", frameTx.Nonce)
 	}
 	if frameTx.Sender != inner.Sender {
@@ -65,7 +66,7 @@ func TestFrameTxRoundTripDefaultMode(t *testing.T) {
 func TestFrameTxRoundTripVerifyMode(t *testing.T) {
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0x2222222222222222222222222222222222222222"),
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("signature-data")},
@@ -102,7 +103,7 @@ func TestFrameTxRoundTripSenderMode(t *testing.T) {
 	target := HexToAddress("0xerc20token")
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(5),
+		Nonce:   5,
 		Sender:  HexToAddress("0x3333333333333333333333333333333333333333"),
 		Frames: []Frame{
 			{Mode: ModeSender, Target: &target, GasLimit: 200000, Data: []byte{0x01, 0x02, 0x03}},
@@ -136,7 +137,7 @@ func TestFrameTxRoundTripMultiFrame(t *testing.T) {
 
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(10),
+		Nonce:   10,
 		Sender:  sender,
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -176,7 +177,7 @@ func TestFrameTxRoundTripMultiFrame(t *testing.T) {
 func TestFrameTxRoundTripWithBlobs(t *testing.T) {
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -213,7 +214,7 @@ func TestComputeFrameSigHashVerifyElision(t *testing.T) {
 
 	tx := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  sender,
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("signature-A")},
@@ -232,7 +233,7 @@ func TestComputeFrameSigHashVerifyElision(t *testing.T) {
 	// Change the VERIFY frame data -- sig hash should remain the same.
 	tx2 := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  sender,
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("completely-different-signature-B")},
@@ -251,7 +252,7 @@ func TestComputeFrameSigHashVerifyElision(t *testing.T) {
 	// Change the SENDER frame data -- sig hash should differ.
 	tx3 := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  sender,
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("signature-A")},
@@ -272,7 +273,7 @@ func TestComputeFrameSigHashConsistency(t *testing.T) {
 	sender := HexToAddress("0xaaaa")
 	tx := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(5),
+		Nonce:   5,
 		Sender:  sender,
 		Frames: []Frame{
 			{Mode: ModeDefault, Target: nil, GasLimit: 50000, Data: []byte("data")},
@@ -296,7 +297,7 @@ func TestValidateFrameTxValid(t *testing.T) {
 	target := HexToAddress("0xbeef")
 	tx := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -314,7 +315,7 @@ func TestValidateFrameTxValid(t *testing.T) {
 func TestValidateFrameTxEmptyFrames(t *testing.T) {
 	tx := &FrameTx{
 		ChainID:              big.NewInt(1),
-		Nonce:                big.NewInt(0),
+		Nonce:                0,
 		Sender:               HexToAddress("0xaaaa"),
 		Frames:               nil,
 		MaxPriorityFeePerGas: big.NewInt(1),
@@ -333,7 +334,7 @@ func TestValidateFrameTxTooManyFrames(t *testing.T) {
 	}
 	tx := &FrameTx{
 		ChainID:              big.NewInt(1),
-		Nonce:                big.NewInt(0),
+		Nonce:                0,
 		Sender:               HexToAddress("0xaaaa"),
 		Frames:               frames,
 		MaxPriorityFeePerGas: big.NewInt(1),
@@ -348,7 +349,7 @@ func TestValidateFrameTxTooManyFrames(t *testing.T) {
 func TestValidateFrameTxInvalidMode(t *testing.T) {
 	tx := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: 5, GasLimit: 100, Data: nil},
@@ -365,7 +366,7 @@ func TestValidateFrameTxInvalidMode(t *testing.T) {
 func TestValidateFrameTxBlobFeeWithoutBlobs(t *testing.T) {
 	tx := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: ModeDefault, GasLimit: 100},
@@ -383,7 +384,7 @@ func TestValidateFrameTxBlobFeeWithoutBlobs(t *testing.T) {
 func TestCalcFrameTxGas(t *testing.T) {
 	tx := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -409,7 +410,7 @@ func TestCalcFrameTxGas(t *testing.T) {
 func TestFrameTxHashConsistency(t *testing.T) {
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -447,7 +448,7 @@ func TestFrameTxCopy(t *testing.T) {
 	target := HexToAddress("0xbeef")
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(7),
+		Nonce:   7,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: &target, GasLimit: 50000, Data: []byte("sig")},
@@ -460,11 +461,10 @@ func TestFrameTxCopy(t *testing.T) {
 	cpy := inner.copy().(*FrameTx)
 
 	// Mutate original, verify copy is independent.
-	inner.Nonce.SetInt64(999)
 	inner.Frames[0].Data = []byte("mutated")
 	inner.ChainID.SetInt64(9999)
 
-	if cpy.Nonce == nil || cpy.Nonce.Cmp(big.NewInt(7)) != 0 {
+	if cpy.Nonce != 7 {
 		t.Fatal("copy nonce should be independent")
 	}
 	if string(cpy.Frames[0].Data) != "sig" {
@@ -478,7 +478,7 @@ func TestFrameTxCopy(t *testing.T) {
 func TestFrameTxTxDataInterface(t *testing.T) {
 	inner := &FrameTx{
 		ChainID:              big.NewInt(1),
-		Nonce:                big.NewInt(5),
+		Nonce:                5,
 		Sender:               HexToAddress("0xaaaa"),
 		Frames:               []Frame{{Mode: ModeDefault, GasLimit: 100}},
 		MaxPriorityFeePerGas: big.NewInt(2),
@@ -515,116 +515,19 @@ func TestFrameTxTxDataInterface(t *testing.T) {
 	}
 }
 
-func TestFrameTx2DNonceRoundTrip(t *testing.T) {
-	// key=0x1234, seq=42
-	nonce := new(big.Int).Lsh(big.NewInt(0x1234), 64)
-	nonce.Or(nonce, new(big.Int).SetUint64(42))
-
-	inner := &FrameTx{
-		ChainID: big.NewInt(1),
-		Nonce:   nonce,
-		Sender:  HexToAddress("0xaaaa"),
-		Frames: []Frame{
-			{Mode: ModeDefault, GasLimit: 100000, Data: []byte("data")},
-		},
-		MaxPriorityFeePerGas: big.NewInt(1),
-		MaxFeePerGas:         big.NewInt(10),
-		MaxFeePerBlobGas:     big.NewInt(0),
-	}
-
-	encoded, err := EncodeFrameTx(inner)
-	if err != nil {
-		t.Fatalf("EncodeFrameTx: %v", err)
-	}
-	decoded, err := DecodeFrameTx(encoded[1:]) // strip type byte
-	if err != nil {
-		t.Fatalf("DecodeFrameTx: %v", err)
-	}
-	if decoded.Nonce.Cmp(nonce) != 0 {
-		t.Fatalf("nonce mismatch: got %s, want %s", decoded.Nonce, nonce)
-	}
-}
-
-func TestFrameTxNonceKeySeq(t *testing.T) {
-	tests := []struct {
-		name    string
-		key     int64
-		seq     uint64
-		wantKey int64
-		wantSeq uint64
-	}{
-		{"zero key simple nonce", 0, 42, 0, 42},
-		{"non-zero key", 0x1234, 99, 0x1234, 99},
-		{"zero seq", 0xABCD, 0, 0xABCD, 0},
-		{"max seq", 1, ^uint64(0), 1, ^uint64(0)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			nonce := new(big.Int).Lsh(big.NewInt(tt.key), 64)
-			nonce.Or(nonce, new(big.Int).SetUint64(tt.seq))
-
-			tx := &FrameTx{Nonce: nonce}
-			if got := tx.NonceKey().Int64(); got != tt.wantKey {
-				t.Fatalf("NonceKey: got %d, want %d", got, tt.wantKey)
-			}
-			if got := tx.NonceSeq(); got != tt.wantSeq {
-				t.Fatalf("NonceSeq: got %d, want %d", got, tt.wantSeq)
-			}
-		})
-	}
-}
-
-func TestFrameTxNonceLower64(t *testing.T) {
-	// 2D nonce with key=0xFF, seq=123
-	nonce := new(big.Int).Lsh(big.NewInt(0xFF), 64)
-	nonce.Or(nonce, new(big.Int).SetUint64(123))
-
-	tx := &FrameTx{Nonce: nonce}
-	if got := tx.nonce(); got != 123 {
-		t.Fatalf("nonce() should return lower 64 bits: got %d, want 123", got)
-	}
-}
-
 func TestFrameTxNilNonce(t *testing.T) {
-	tx := &FrameTx{Nonce: nil}
+	// Nonce is now uint64, so zero is the default.
+	tx := &FrameTx{Nonce: 0}
 
 	if got := tx.nonce(); got != 0 {
-		t.Fatalf("nil nonce should return 0: got %d", got)
-	}
-	if got := tx.NonceKey(); got.Sign() != 0 {
-		t.Fatalf("nil nonce key should be 0: got %s", got)
-	}
-	if got := tx.NonceSeq(); got != 0 {
-		t.Fatalf("nil nonce seq should be 0: got %d", got)
-	}
-}
-
-func TestFrameTxNegativeNonceValidation(t *testing.T) {
-	tx := &FrameTx{
-		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(-1),
-		Sender:  HexToAddress("0xaaaa"),
-		Frames: []Frame{
-			{Mode: ModeDefault, GasLimit: 100},
-		},
-		MaxPriorityFeePerGas: big.NewInt(1),
-		MaxFeePerGas:         big.NewInt(10),
-		MaxFeePerBlobGas:     big.NewInt(0),
-	}
-	err := ValidateFrameTx(tx)
-	if err == nil {
-		t.Fatal("expected error for negative nonce")
-	}
-	if err.Error() != "frame tx: negative nonce" {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("zero nonce should return 0: got %d", got)
 	}
 }
 
 func TestFrameTxSigningHashMatchesSigHash(t *testing.T) {
 	inner := &FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   big.NewInt(0),
+		Nonce:   0,
 		Sender:  HexToAddress("0xaaaa"),
 		Frames: []Frame{
 			{Mode: ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -642,5 +545,41 @@ func TestFrameTxSigningHashMatchesSigHash(t *testing.T) {
 	if sigHash != directHash {
 		t.Fatalf("SigningHash and ComputeFrameSigHash should match:\n  signing=%s\n  direct=%s",
 			sigHash.Hex(), directHash.Hex())
+	}
+}
+
+func TestTransactionFramesMethod(t *testing.T) {
+	sender := HexToAddress("0x1234567890123456789012345678901234567890")
+	target := HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
+	
+	inner := &FrameTx{
+		ChainID: big.NewInt(3151908),
+		Nonce:   1,
+		Sender:  sender,
+		Frames: []Frame{
+			{Mode: ModeVerify, GasLimit: 50000, Data: []byte{0x60, 0x02, 0x60, 0x00, 0x60, 0x00, 0xaa}},
+			{Mode: ModeSender, Target: &target, GasLimit: 21000, Data: []byte{}},
+		},
+	}
+	
+	tx := NewTransaction(inner)
+	
+	// Test tx.Type()
+	if tx.Type() != FrameTxType {
+		t.Fatalf("expected type 0x%02x, got 0x%02x", FrameTxType, tx.Type())
+	}
+	
+	// Test tx.Frames()
+	frames := tx.Frames()
+	fmt.Printf("DEBUG Test: frames count = %d\n", len(frames))
+	if len(frames) != 2 {
+		t.Fatalf("expected 2 frames, got %d", len(frames))
+	}
+	
+	// Test tx.FrameSender()
+	fs := tx.FrameSender()
+	fmt.Printf("DEBUG Test: frameSender = %s\n", fs.Hex())
+	if fs != sender {
+		t.Fatalf("expected sender %s, got %s", sender.Hex(), fs.Hex())
 	}
 }

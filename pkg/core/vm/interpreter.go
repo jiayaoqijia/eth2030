@@ -505,6 +505,20 @@ func (evm *EVM) Call(caller types.Address, addr types.Address, input []byte, gas
 		return nil, gas, nil
 	}
 
+	// EIP-7702: Handle delegation designator (0xef0100 || address).
+	// When an account has delegated its code, we execute the delegated contract's code
+	// but keep the contract.Address as the original target (the delegator).
+	execAddr := addr // Address for contract creation (may be updated for delegation)
+	if delegatedAddr, ok := types.IsDelegated(code); ok {
+		delegatedCode := evm.StateDB.GetCode(delegatedAddr)
+		if len(delegatedCode) > 0 {
+			code = delegatedCode
+			// Note: We keep execAddr as the original target (delegator).
+			// This ensures ADDRESS opcode returns the delegator's address,
+			// not the delegated contract's address.
+		}
+	}
+
 	// EL-3.3: if code starts with RISC-V magic bytes and I+ fork is active,
 	// route execution through the RISC-V CPU emulator instead of the EVM.
 	if evm.forkRules.IsIPlus && IsRVCode(code) {
@@ -519,7 +533,7 @@ func (evm *EVM) Call(caller types.Address, addr types.Address, input []byte, gas
 	}
 
 	// Create the contract for execution.
-	contract := NewContract(caller, addr, value, gas)
+	contract := NewContract(caller, execAddr, value, gas)
 	contract.Code = code
 	contract.CodeHash = evm.StateDB.GetCodeHash(addr)
 
@@ -681,7 +695,21 @@ func (evm *EVM) StaticCall(caller types.Address, addr types.Address, input []byt
 		return nil, gas, nil
 	}
 
-	contract := NewContract(caller, addr, new(big.Int), gas)
+	// EIP-7702: Handle delegation designator (0xef0100 || address).
+	// When an account has delegated its code, we execute the delegated contract's code
+	// but keep the contract.Address as the original target (the delegator).
+	execAddr := addr // Address for contract creation (may be updated for delegation)
+	if delegatedAddr, ok := types.IsDelegated(code); ok {
+		delegatedCode := evm.StateDB.GetCode(delegatedAddr)
+		if len(delegatedCode) > 0 {
+			code = delegatedCode
+			// Note: We keep execAddr as the original target (delegator).
+			// This ensures ADDRESS opcode returns the delegator's address,
+			// not the delegated contract's address.
+		}
+	}
+
+	contract := NewContract(caller, execAddr, new(big.Int), gas)
 	contract.Code = code
 	contract.CodeHash = evm.StateDB.GetCodeHash(addr)
 
