@@ -123,34 +123,44 @@ spamoor_params:
     - scenario: frametx
       name: "EIP-8141 Simple FrameTx"
       config:
-        pattern: simple
+        tx_pattern: simple
         throughput: 1
         max_pending: 4
         max_wallets: 6
         verify_gas: 50000
-        exec_gas: 21000
+        execution_gas: 21000
+        tip_fee: 2
+    - scenario: frametx
+      name: "EIP-8141 Transfer FrameTx"
+      config:
+        tx_pattern: transfer
+        throughput: 1
+        max_pending: 4
+        max_wallets: 6
+        verify_gas: 50000
+        execution_gas: 50000
+        tip_fee: 2
+    - scenario: frametx
+      name: "EIP-8141 Deploy FrameTx"
+      config:
+        tx_pattern: deploy
+        throughput: 1
+        max_pending: 4
+        max_wallets: 6
+        verify_gas: 50000
+        execution_gas: 50000
+        deploy_gas: 100000
         tip_fee: 2
     - scenario: frametx
       name: "EIP-8141 Sponsored FrameTx"
       config:
-        pattern: sponsored
+        tx_pattern: sponsored
         throughput: 1
         max_pending: 4
         max_wallets: 6
         verify_gas: 50000
         payer_verify_gas: 30000
-        exec_gas: 50000
-        tip_fee: 2
-    - scenario: frametx
-      name: "EIP-8141 Multi-Frame Tx"
-      config:
-        pattern: multi_frame
-        throughput: 1
-        max_pending: 4
-        max_wallets: 6
-        verify_gas: 50000
-        exec_gas: 30000
-        extra_frames: 2
+        execution_gas: 50000
         tip_fee: 2
     - scenario: blobs
       name: "EIP-4844 Blob Transactions"
