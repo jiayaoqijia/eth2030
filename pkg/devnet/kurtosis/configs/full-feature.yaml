@@ -16,14 +16,13 @@ participants:
 
 network_params:
   network: kurtosis
-  seconds_per_slot: 15
-  genesis_delay: 60
+  seconds_per_slot: 12
+  genesis_delay: 30
   # Fork schedule:
   # - fulu_fork_epoch: 1 → Fulu (PeerDAS) starts at epoch 1 (slot 32)
   # - gloas_fork_epoch: 2 → Gloas (ePBS/EIP-7732) starts at epoch 2 (slot 64)
   # - heze_fork_epoch: 3 → Heze (FOCIL/EIP-7805) starts at epoch 3 (slot 96)
-  # Note: Lighthouse warns about non-256-aligned fork epochs — this is acceptable
-  # for a devnet where stability is more important than period alignment.
+  # Note: Spacing forks by 1 epoch ensures gossip topics are properly initialized.
   fulu_fork_epoch: 1
   gloas_fork_epoch: 2
   heze_fork_epoch: 3
@@ -119,6 +118,39 @@ spamoor_params:
         sender_validation_gas: 50000
         sender_execution_gas: 21000
         sender_execution_data: "0x"
+        tip_fee: 2
+    # EIP-8141 Frame Transactions
+    - scenario: frametx
+      name: "EIP-8141 Simple FrameTx"
+      config:
+        pattern: simple
+        throughput: 1
+        max_pending: 4
+        max_wallets: 6
+        verify_gas: 50000
+        exec_gas: 21000
+        tip_fee: 2
+    - scenario: frametx
+      name: "EIP-8141 Sponsored FrameTx"
+      config:
+        pattern: sponsored
+        throughput: 1
+        max_pending: 4
+        max_wallets: 6
+        verify_gas: 50000
+        payer_verify_gas: 30000
+        exec_gas: 50000
+        tip_fee: 2
+    - scenario: frametx
+      name: "EIP-8141 Multi-Frame Tx"
+      config:
+        pattern: multi_frame
+        throughput: 1
+        max_pending: 4
+        max_wallets: 6
+        verify_gas: 50000
+        exec_gas: 30000
+        extra_frames: 2
         tip_fee: 2
     - scenario: blobs
       name: "EIP-4844 Blob Transactions"
