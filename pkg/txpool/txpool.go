@@ -749,6 +749,21 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	balance := pool.state.GetBalance(payer)
 	if balance != nil {
 		cost := pool.txCost(tx)
+		// Debug log for FrameTx
+		if tx.Type() == types.FrameTxType {
+			txpoolLog.Debug("frame_tx_balance_check",
+				"event", "frame_tx_balance_check",
+				"hash", tx.Hash().Hex(),
+				"payer", payer.Hex(),
+				"payerBalance", bigIntString(balance),
+				"requiredCost", bigIntString(cost),
+				"gas", tx.Gas(),
+				"gasPrice", bigIntString(tx.GasPrice()),
+				"gasFeeCap", bigIntString(tx.GasFeeCap()),
+				"gasTipCap", bigIntString(tx.GasTipCap()),
+				"value", bigIntString(tx.Value()),
+			)
+		}
 		if balance.Cmp(cost) < 0 {
 			if aatx, ok := tx.Inner().(*types.AATx); ok {
 				txpoolLog.Debug("aa_tx_payer_cost_check_failed",
@@ -1101,6 +1116,11 @@ func (pool *TxPool) senderOf(tx *types.Transaction) types.Address {
 	if aatx, ok := tx.Inner().(*types.AATx); ok {
 		tx.SetSender(aatx.Sender)
 		return aatx.Sender
+	}
+	// EIP-8141: FrameTx has explicit Sender field (no signature).
+	if ftx, ok := tx.Inner().(*types.FrameTx); ok {
+		tx.SetSender(ftx.Sender)
+		return ftx.Sender
 	}
 	// Recover sender from signature using ecrecover.
 	sigHash := tx.SigningHash()
