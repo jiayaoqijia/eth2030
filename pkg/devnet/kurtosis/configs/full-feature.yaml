@@ -2,7 +2,7 @@ participants:
   - el_type: geth
     el_image: eth2030:local
     el_log_level: debug
-    el_extra_params: ["--rpc.rate_limit=0", "--override.glamsterdam=0"]
+    el_extra_params: ["--rpc.rate_limit=0"]
     cl_type: lighthouse
     cl_log_level: debug
     cl_image: eth2030cl:local
