@@ -12,6 +12,10 @@ participants:
     # node provides an alternative path for attestation propagation, enabling
     # reliable reconnection and finalization.
     cl_extra_params: ["--subscribe-all-subnets"]
+    # vc_beacon_node_indices: Each VC connects to ALL beacon nodes (0, 1, 2).
+    # This ensures inclusion lists are broadcast to all nodes, preventing
+    # InvalidInclusionListBits errors when FOCIL activates (Heze fork).
+    vc_beacon_node_indices: [0, 1, 2]
     count: 3
 
 network_params:
