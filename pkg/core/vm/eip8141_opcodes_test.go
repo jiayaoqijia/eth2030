@@ -904,7 +904,14 @@ func TestEIP8141_NotInCancun(t *testing.T) {
 func TestEIP8141_NotInPrague(t *testing.T) {
 	jt := NewPragueJumpTable()
 
-	opcodes := []OpCode{APPROVE, TXPARAMLOAD, TXPARAMSIZE, TXPARAMCOPY}
+	// TODO: APPROVE is now in Prague for EIP-8141 development.
+	// Move this check to Glamsterdan-only when fork is ready.
+	if jt[APPROVE] == nil {
+		t.Error("APPROVE should be defined in Prague jump table (temporary for development)")
+	}
+
+	// TXPARAM* opcodes are still Glamsterdan-only
+	opcodes := []OpCode{TXPARAMLOAD, TXPARAMSIZE, TXPARAMCOPY}
 	for _, op := range opcodes {
 		if jt[op] != nil {
 			t.Errorf("%s should not be defined in Prague jump table", op)

@@ -639,6 +639,12 @@ func NewCancunJumpTable() JumpTable {
 // NewPragueJumpTable returns the Prague fork jump table.
 func NewPragueJumpTable() JumpTable {
 	tbl := NewCancunJumpTable()
+
+	// TODO: Move APPROVE to Glamsterdan jump table when fork is ready.
+	// EIP-8141 FrameTx requires APPROVE opcode (0xaa) support.
+	// Currently enabling it directly in Prague for development.
+	tbl[APPROVE] = &operation{execute: opApprove, constantGas: GasLow, minStack: 3, maxStack: 1024, halts: true, memorySize: memoryApprove, dynamicGas: gasMemExpansion}
+
 	return tbl
 }
 
