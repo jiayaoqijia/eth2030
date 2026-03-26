@@ -248,13 +248,6 @@ func loadGenesisFile(cfg *Config) (*coreconfig.Genesis, error) {
 	// Apply fork override timestamps from CLI flags.
 	applyForkOverrides(chainCfg, cfg)
 
-	// Default GlamsterdanTime to 0 if not set in genesis or via override.
-	// This enables EIP-8141 APPROVE opcode (0xaa) by default for devnets.
-	if chainCfg.GlamsterdanTime == nil {
-		zero := uint64(0)
-		chainCfg.GlamsterdanTime = &zero
-	}
-
 	// Resolve network ID.
 	networkID := cfg.NetworkID
 	if networkID == 0 && chainCfg.ChainID != nil {
