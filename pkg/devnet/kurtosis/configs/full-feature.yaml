@@ -5,7 +5,7 @@ participants:
     el_extra_params: ["--rpc.rate_limit=0"]
     cl_type: lighthouse
     cl_log_level: debug
-    cl_image: eth2030cl:local
+    cl_image: sigp/lighthouse:latest
     # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
     # --target-peers=2 prevents Lighthouse from dropping peers when it can't find
     # enough DataColumn subnet peers (default target is 50, impossible with 3 nodes).
@@ -24,9 +24,12 @@ network_params:
   # - heze_fork_epoch: 3 → Heze (FOCIL/EIP-7805) starts at epoch 3 (slot 96)
   # Note: Lighthouse warns about non-256-aligned fork epochs — this is acceptable
   # for a devnet where stability is more important than period alignment.
+  # Gloas/Heze disabled when using upstream sigp/lighthouse:latest (it expects
+  # Gloas-specific Engine API we don't implement). Re-enable when using
+  # eth2030cl:local fork that knows eth2030 fork semantics.
   fulu_fork_epoch: 1
-  gloas_fork_epoch: 2
-  heze_fork_epoch: 3
+  gloas_fork_epoch: 18446744073709551615
+  heze_fork_epoch: 18446744073709551615
 
 additional_services:
   - dora
