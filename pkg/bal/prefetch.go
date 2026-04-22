@@ -4,13 +4,13 @@
 // access list to pre-load state data before parallel transaction execution.
 // This mirrors the architecture from go-ethereum's reader_eip_7928.go:
 //
-//   [Block Access List] ← hint
-//          ↓
-//   [PrefetchReader] → async background state loading
-//          ↓
-//   [MutationOverlay] → merges pre-state with prior tx mutations
-//          ↓
-//   [ReadTracker] → captures per-tx state accesses for BAL construction
+//	[Block Access List] ← hint
+//	       ↓
+//	[PrefetchReader] → async background state loading
+//	       ↓
+//	[MutationOverlay] → merges pre-state with prior tx mutations
+//	       ↓
+//	[ReadTracker] → captures per-tx state accesses for BAL construction
 package bal
 
 import (
@@ -155,8 +155,8 @@ type MutationOverlay struct {
 // TxMutation records the state changes from a single transaction.
 type TxMutation struct {
 	TxIndex       int
-	BalanceDeltas map[types.Address]int64  // balance changes (can be negative)
-	NonceDeltas   map[types.Address]int64  // nonce increments
+	BalanceDeltas map[types.Address]int64 // balance changes (can be negative)
+	NonceDeltas   map[types.Address]int64 // nonce increments
 	StorageWrites map[types.Address]map[types.Hash]types.Hash
 }
 
@@ -219,10 +219,10 @@ func (m *MutationOverlay) Exist(addr types.Address) bool {
 // ReadTracker wraps a StateReader and records all state accesses for
 // constructing the per-tx portion of the block access list.
 type ReadTracker struct {
-	inner     StateReader
-	mu        sync.Mutex
-	accounts  map[types.Address]bool
-	storage   map[types.Address]map[types.Hash]bool
+	inner    StateReader
+	mu       sync.Mutex
+	accounts map[types.Address]bool
+	storage  map[types.Address]map[types.Hash]bool
 }
 
 // NewReadTracker creates a tracker that records accesses to inner.

@@ -319,10 +319,10 @@ func sendLegacyTx(from types.Address, to *types.Address, data []byte, gasLimit u
 	}
 	params := []interface{}{
 		map[string]interface{}{
-			"from":  from.Hex(),
-			"to":    toHex,
-			"data":  "0x" + hex.EncodeToString(data),
-			"gas":   fmt.Sprintf("0x%x", gasLimit),
+			"from": from.Hex(),
+			"to":   toHex,
+			"data": "0x" + hex.EncodeToString(data),
+			"gas":  fmt.Sprintf("0x%x", gasLimit),
 		},
 	}
 	return rpcCall("eth_sendTransaction", params)

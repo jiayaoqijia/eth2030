@@ -16,76 +16,39 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: Build
+  ci:
+    name: Build, Vet, Lint, Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
           cache-dependency-path: pkg/go.sum
 
-      - name: Build all packages
-        working-directory: pkg
-        run: go build ./...
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache-dependency-path: pkg/go.sum
-
-      - name: Run tests
-        working-directory: pkg
-        run: |
-          go test ./... -timeout=15m -count=1 2>&1 | tee /tmp/test-output.txt
-          exit ${PIPESTATUS[0]}
-        env:
-          GOFLAGS: '-p=4'
-
-      - name: Test summary
-        if: always()
-        run: |
-          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          grep -E "^(ok|FAIL|---)" /tmp/test-output.txt | head -100 >> $GITHUB_STEP_SUMMARY || true
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache-dependency-path: pkg/go.sum
-
-      - name: Check formatting
+      - name: gofmt
         working-directory: pkg
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
-            echo "Files not formatted:"
+            echo "::error::Files not formatted:"
             echo "$unformatted"
             exit 1
           fi
 
-      - name: Vet
+      - name: go vet
         working-directory: pkg
         run: go vet ./...
+
+      - name: Build + Test
+        working-directory: pkg
+        run: go test ./... -timeout=15m -count=1
+        env:
+          GOFLAGS: '-p=4'

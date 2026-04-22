@@ -44,7 +44,7 @@ type FrameVerifier interface {
 //  3. Validate T's state validity against postState:
 //     a. For EOA txs: check nonce and balance.
 //     b. For frame txs (type 0x06): check nonce, skip balance check (payer
-//        determined at APPROVE time), and verify VERIFY target(s) have code.
+//     determined at APPROVE time), and verify VERIFY target(s) have code.
 //     If state-invalid → exempt. If valid but T absent → ILUnsatisfied.
 //
 // The frame tx balance check is intentionally skipped because EIP-8141 defers
@@ -108,26 +108,26 @@ func CheckILSatisfactionWithVerifier(block *types.Block, ils []*InclusionList, p
 				}
 
 				if tx.Type() == types.FrameTxType {
-						// EIP-8141 frame tx: skip balance check (payer is
-						// determined at APPROVE time, may differ from sender).
-						// Instead, verify VERIFY target(s) have code.
-						if verifier != nil && !frameTxVerifyTargetsHaveCode(tx, verifier) {
-							continue // VERIFY target has no code → can't APPROVE → exempt
-						}
-					} else {
-						// EOA tx: standard balance check.
-						gasPrice := tx.GasPrice()
-						if gasPrice == nil {
-							gasPrice = new(big.Int)
-						}
-						cost := new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), gasPrice)
-						if v := tx.Value(); v != nil {
-							cost.Add(cost, v)
-						}
-						if cost.IsUint64() && postState.GetBalance(fromKey) < cost.Uint64() {
-							continue // insufficient balance → exempt
-						}
+					// EIP-8141 frame tx: skip balance check (payer is
+					// determined at APPROVE time, may differ from sender).
+					// Instead, verify VERIFY target(s) have code.
+					if verifier != nil && !frameTxVerifyTargetsHaveCode(tx, verifier) {
+						continue // VERIFY target has no code → can't APPROVE → exempt
 					}
+				} else {
+					// EOA tx: standard balance check.
+					gasPrice := tx.GasPrice()
+					if gasPrice == nil {
+						gasPrice = new(big.Int)
+					}
+					cost := new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), gasPrice)
+					if v := tx.Value(); v != nil {
+						cost.Add(cost, v)
+					}
+					if cost.IsUint64() && postState.GetBalance(fromKey) < cost.Uint64() {
+						continue // insufficient balance → exempt
+					}
+				}
 			}
 			// Valid tx absent from block → unsatisfied.
 			return ILUnsatisfied

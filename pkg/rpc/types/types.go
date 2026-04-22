@@ -201,7 +201,7 @@ type RPCReceipt struct {
 
 	// EIP-8141 Frame transaction fields (only present for FrameTx type 0x06).
 	// Payer is the address that paid for the gas (repurposed ContractAddress for FrameTx).
-	Payer        *string          `json:"payer,omitempty"`
+	Payer        *string           `json:"payer,omitempty"`
 	FrameResults *[]RPCFrameResult `json:"frameResults,omitempty"`
 }
 
