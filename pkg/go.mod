@@ -9,7 +9,7 @@ require (
 	github.com/ethereum/go-ethereum v1.17.10
 	github.com/gorilla/websocket v1.5.3
 	github.com/holiman/uint256 v1.3.2
-	github.com/supranational/blst v0.3.16
+	github.com/supranational/blst v0.3.17
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sync v0.24.0
 	lukechampine.com/blake3 v1.4.1
