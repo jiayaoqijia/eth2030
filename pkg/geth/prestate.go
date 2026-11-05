@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	gethstate "github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/holiman/uint256"
 
@@ -60,8 +61,9 @@ func MakePreState(accounts map[string]PreAccount) (*StateTestState, error) {
 		}
 	}
 
-	// Commit to trie to produce a clean pre-state root.
-	root, err := statedb.Commit(0, false, false)
+	// Commit to trie to produce a clean pre-state root. Zero rules = no
+	// EIP-158/161 emptiness handling, matching the old Commit(0, false, false).
+	root, err := statedb.Commit(params.Rules{}, 0)
 	if err != nil {
 		return nil, err
 	}

@@ -237,7 +237,7 @@ func (st *GethStateTest) RunWithGeth(subtest StateSubtest) *GethRunResult {
 	processor := geth.NewGethBlockProcessorWithEth2028(config, nil)
 	evm := processor.MakeEVM(blockCtx, stState.StateDB, evmBlockNum, evmTimestamp)
 	snapshot := stState.StateDB.Snapshot()
-	gasPool := new(gethcore.GasPool).AddGas(hexToUint64(st.json.Env.CurrentGasLimit))
+	gasPool := gethcore.NewGasPool(hexToUint64(st.json.Env.CurrentGasLimit))
 
 	_, applyErr := gethcore.ApplyMessage(evm, msg, gasPool)
 
@@ -260,9 +260,8 @@ func (st *GethStateTest) RunWithGeth(subtest StateSubtest) *GethRunResult {
 
 	// Commit.
 	blockNum := hexToUint64(st.json.Env.CurrentNumber)
-	isEIP158 := config.IsEIP158(new(big.Int).SetUint64(blockNum))
-	isCancun := config.IsCancun(new(big.Int).SetUint64(blockNum), hexToUint64(st.json.Env.CurrentTimestamp))
-	root, err := stState.StateDB.Commit(blockNum, isEIP158, isCancun)
+	rules := config.Rules(new(big.Int).SetUint64(blockNum), true, hexToUint64(st.json.Env.CurrentTimestamp))
+	root, err := stState.StateDB.Commit(rules, blockNum)
 	if err != nil {
 		result.Error = fmt.Errorf("commit state: %w", err)
 		return result
@@ -396,17 +395,25 @@ func (st *GethStateTest) buildGethMessage(post stPostState, config *gethparams.C
 		From:                  from,
 		To:                    to,
 		Nonce:                 hexToUint64(tx.Nonce),
-		Value:                 value,
+		Value:                 u256OrNil(value),
 		GasLimit:              gasLimit,
-		GasPrice:              gasPrice,
-		GasFeeCap:             maxFee,
-		GasTipCap:             maxPriority,
+		GasPrice:              u256OrNil(gasPrice),
+		GasFeeCap:             u256OrNil(maxFee),
+		GasTipCap:             u256OrNil(maxPriority),
 		Data:                  data,
 		AccessList:            accessList,
 		BlobHashes:            blobHashes,
-		BlobGasFeeCap:         blobFeeCap,
+		BlobGasFeeCap:         u256OrNil(blobFeeCap),
 		SetCodeAuthorizations: authList,
 	}, nil
+}
+
+// u256OrNil converts a *big.Int to *uint256.Int, preserving nil.
+func u256OrNil(x *big.Int) *uint256.Int {
+	if x == nil {
+		return nil
+	}
+	return uint256.MustFromBig(x)
 }
 
 // buildGethBlockContext creates a go-ethereum BlockContext (same for GethStateTest).

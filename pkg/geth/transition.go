@@ -23,7 +23,7 @@ func ApplyMessage(
 	gasLimit uint64,
 ) (*gethcore.ExecutionResult, error) {
 	evm := gethvm.NewEVM(blockCtx, statedb, config, gethvm.Config{})
-	gp := new(gethcore.GasPool).AddGas(gasLimit)
+	gp := gethcore.NewGasPool(gasLimit)
 	return gethcore.ApplyMessage(evm, msg, gp)
 }
 
@@ -103,15 +103,15 @@ func MakeMessage(
 		From:                  from,
 		To:                    to,
 		Nonce:                 nonce,
-		Value:                 value,
+		Value:                 u256FromBig(value),
 		GasLimit:              gasLimit,
-		GasPrice:              gasPrice,
-		GasFeeCap:             gasFeeCap,
-		GasTipCap:             gasTipCap,
+		GasPrice:              u256FromBig(gasPrice),
+		GasFeeCap:             u256FromBig(gasFeeCap),
+		GasTipCap:             u256FromBig(gasTipCap),
 		Data:                  data,
 		AccessList:            accessList,
 		BlobHashes:            blobHashes,
-		BlobGasFeeCap:         blobGasFeeCap,
+		BlobGasFeeCap:         u256FromBig(blobGasFeeCap),
 		SetCodeAuthorizations: authList,
 	}
 	return msg
@@ -137,11 +137,11 @@ func EffectiveGasPrice(gasPrice, maxFeePerGas, maxPriorityFee, baseFee *big.Int)
 func TxContextFromMessage(msg *gethcore.Message, baseFee *big.Int) gethvm.TxContext {
 	gasPrice := msg.GasPrice
 	if baseFee != nil && msg.GasFeeCap != nil {
-		gasPrice = EffectiveGasPrice(msg.GasPrice, msg.GasFeeCap, msg.GasTipCap, baseFee)
+		gasPrice = effectiveGasPrice(msg, baseFee)
 	}
 	return gethvm.TxContext{
 		Origin:   msg.From,
-		GasPrice: ToUint256(gasPrice),
+		GasPrice: gasPrice,
 	}
 }
 

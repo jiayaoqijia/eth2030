@@ -9,6 +9,7 @@ import (
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethvm "github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -113,7 +114,7 @@ func TestEffectiveGasPrice_ZeroTip(t *testing.T) {
 func TestTxContextFromMessage_Legacy(t *testing.T) {
 	msg := &gethcore.Message{
 		From:     gethcommon.Address{0x01},
-		GasPrice: big.NewInt(200),
+		GasPrice: uint256.NewInt(200),
 	}
 	ctx := TxContextFromMessage(msg, nil)
 	if ctx.Origin != (gethcommon.Address{0x01}) {
@@ -129,9 +130,9 @@ func TestTxContextFromMessage_EIP1559(t *testing.T) {
 	from := gethcommon.HexToAddress("0xdeadbeef")
 	msg := &gethcore.Message{
 		From:      from,
-		GasPrice:  big.NewInt(0),
-		GasFeeCap: big.NewInt(100),
-		GasTipCap: big.NewInt(10),
+		GasPrice:  uint256.NewInt(0),
+		GasFeeCap: uint256.NewInt(100),
+		GasTipCap: uint256.NewInt(10),
 	}
 	baseFee := big.NewInt(50)
 	ctx := TxContextFromMessage(msg, baseFee)
@@ -148,9 +149,9 @@ func TestTxContextFromMessage_NilBaseFee(t *testing.T) {
 	from := gethcommon.HexToAddress("0x1234")
 	msg := &gethcore.Message{
 		From:      from,
-		GasPrice:  big.NewInt(300),
-		GasFeeCap: big.NewInt(400),
-		GasTipCap: big.NewInt(50),
+		GasPrice:  uint256.NewInt(300),
+		GasFeeCap: uint256.NewInt(400),
+		GasTipCap: uint256.NewInt(50),
 	}
 	// nil baseFee: skip EIP-1559 calc, use msg.GasPrice.
 	ctx := TxContextFromMessage(msg, nil)
@@ -286,14 +287,14 @@ func TestMakeMessage_Basic(t *testing.T) {
 	if msg.Nonce != 5 {
 		t.Errorf("Nonce = %d, want 5", msg.Nonce)
 	}
-	if msg.Value.Int64() != 1000 {
-		t.Errorf("Value = %d, want 1000", msg.Value.Int64())
+	if msg.Value.Uint64() != 1000 {
+		t.Errorf("Value = %d, want 1000", msg.Value.Uint64())
 	}
 	if msg.GasLimit != 21000 {
 		t.Errorf("GasLimit = %d, want 21000", msg.GasLimit)
 	}
-	if msg.GasPrice.Int64() != 100 {
-		t.Errorf("GasPrice = %d, want 100", msg.GasPrice.Int64())
+	if msg.GasPrice.Uint64() != 100 {
+		t.Errorf("GasPrice = %d, want 100", msg.GasPrice.Uint64())
 	}
 	if len(msg.Data) != 1 || msg.Data[0] != 0xab {
 		t.Errorf("Data = %v, want [0xab]", msg.Data)
@@ -463,11 +464,11 @@ func TestApplyMessage_SimpleTransfer(t *testing.T) {
 		From:      gethcommon.HexToAddress(sender),
 		To:        &toAddr,
 		Nonce:     0,
-		Value:     big.NewInt(1000),
+		Value:     uint256.NewInt(1000),
 		GasLimit:  21000,
-		GasPrice:  big.NewInt(2_000_000_000),
-		GasFeeCap: big.NewInt(2_000_000_000),
-		GasTipCap: big.NewInt(1_000_000_000),
+		GasPrice:  uint256.NewInt(2_000_000_000),
+		GasFeeCap: uint256.NewInt(2_000_000_000),
+		GasTipCap: uint256.NewInt(1_000_000_000),
 	}
 
 	result, err := ApplyMessage(preState.StateDB, config, blockCtx, msg, 8_000_000)
@@ -517,11 +518,11 @@ func TestApplyMessage_InsufficientBalance(t *testing.T) {
 		From:      gethcommon.HexToAddress(sender),
 		To:        &toAddr,
 		Nonce:     0,
-		Value:     big.NewInt(1_000_000_000_000_000_000), // 1 ETH, more than balance
+		Value:     uint256.NewInt(1_000_000_000_000_000_000), // 1 ETH, more than balance
 		GasLimit:  21000,
-		GasPrice:  big.NewInt(2_000_000_000),
-		GasFeeCap: big.NewInt(2_000_000_000),
-		GasTipCap: big.NewInt(1_000_000_000),
+		GasPrice:  uint256.NewInt(2_000_000_000),
+		GasFeeCap: uint256.NewInt(2_000_000_000),
+		GasTipCap: uint256.NewInt(1_000_000_000),
 	}
 
 	_, err = ApplyMessage(preState.StateDB, config, blockCtx, msg, 8_000_000)
@@ -608,8 +609,8 @@ func TestTxContextFromMessage_CapEqualsTip(t *testing.T) {
 	from := gethcommon.Address{0x05}
 	msg := &gethcore.Message{
 		From:      from,
-		GasFeeCap: big.NewInt(60),
-		GasTipCap: big.NewInt(10),
+		GasFeeCap: uint256.NewInt(60),
+		GasTipCap: uint256.NewInt(10),
 	}
 	baseFee := big.NewInt(50)
 	// baseFee(50) + tipCap(10) = 60 == maxFeePerGas(60) -> returns 60.
@@ -623,7 +624,7 @@ func TestTxContextFromMessage_ZeroGasPrice(t *testing.T) {
 	from := gethcommon.Address{0x06}
 	msg := &gethcore.Message{
 		From:     from,
-		GasPrice: big.NewInt(0),
+		GasPrice: uint256.NewInt(0),
 	}
 	ctx := TxContextFromMessage(msg, nil)
 	if ctx.GasPrice.ToBig().Sign() != 0 {
@@ -671,8 +672,8 @@ func TestMakeMessage_WithBlobHashes(t *testing.T) {
 	if len(msg.BlobHashes) != 2 {
 		t.Errorf("BlobHashes length = %d, want 2", len(msg.BlobHashes))
 	}
-	if msg.BlobGasFeeCap.Int64() != 500 {
-		t.Errorf("BlobGasFeeCap = %d, want 500", msg.BlobGasFeeCap.Int64())
+	if msg.BlobGasFeeCap.Uint64() != 500 {
+		t.Errorf("BlobGasFeeCap = %d, want 500", msg.BlobGasFeeCap.Uint64())
 	}
 }
 
@@ -682,7 +683,7 @@ func TestTxContextFromMessage_OriginSet(t *testing.T) {
 	expected := gethcommon.HexToAddress("0xcafebabe")
 	msg := &gethcore.Message{
 		From:     expected,
-		GasPrice: big.NewInt(50),
+		GasPrice: uint256.NewInt(50),
 	}
 	ctx := TxContextFromMessage(msg, nil)
 	if ctx.Origin != expected {
@@ -691,4 +692,4 @@ func TestTxContextFromMessage_OriginSet(t *testing.T) {
 }
 
 // Verify TxContextFromMessage returns a gethvm.TxContext (compile-time check).
-var _ gethvm.TxContext = TxContextFromMessage(&gethcore.Message{GasPrice: big.NewInt(0)}, nil)
+var _ gethvm.TxContext = TxContextFromMessage(&gethcore.Message{GasPrice: uint256.NewInt(0)}, nil)
