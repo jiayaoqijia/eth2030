@@ -1,5 +1,12 @@
 # Project Status
 
+## Website Domain Recovery (2026-11-05)
+
+### Current Status: BLOCKED ON REPOSITORY ADMIN
+
+GitHub Pages is configured for GitHub Actions but currently binds `eth2030.altllm.ai`, while the website and deployment workflow specify `eth2030.com`. The latter resolves to GitHub Pages and returns 404. A repository administrator must change the Pages custom domain to `eth2030.com` and verify DNS and HTTPS; this replaces the existing custom-domain binding. The privacy page now identifies GitHub Pages as the hosting provider.
+
+
 ## Full-Feature Devnet Bring-Up (2026-03-25)
 
 ### Current Status: IN PROGRESS
