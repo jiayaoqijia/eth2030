@@ -71,14 +71,9 @@ spamoor_params:
         max_wallets: 10
         random_target: true
         tip_fee: 2
-    - scenario: blobs
-      name: "EIP-4844 Blob Transactions"
-      config:
-        throughput: 1
-        max_pending: 3
-        max_wallets: 4
-        sidecars: 1
-        tip_fee: 2
+    # NOTE: blob scenario omitted pre-fulu on purpose: upstream unstable
+    # lighthouse removed engine_getBlobsV1, so pre-fulu blob blocks cannot be
+    # fetch-verified. Post-fulu blob fetching uses getBlobsV2/V3 (supported).
 
 rakoon_params:
   tx_type: eip7702

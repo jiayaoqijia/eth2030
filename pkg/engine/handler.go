@@ -591,13 +591,24 @@ func (api *EngineAPI) handleGetBlobsV2(params []json.RawMessage) (any, *jsonrpcE
 }
 
 // handleGetBlobsV3 processes an engine_getBlobsV3 request (Osaka/Fulu PeerDAS).
+// Lighthouse >= 8.4 sends an optional second param (custody-indicator
+// bitarray over the requested blobs) — accepted and ignored; the EL serves
+// the full sparse set.
 // Returns a sparse array: null at positions where the blob is not in the local
 // pool (partial-response semantics per the Osaka spec).
 func (api *EngineAPI) handleGetBlobsV3(params []json.RawMessage) (any, *jsonrpcError) {
-	if len(params) != 1 {
+	if len(params) < 1 || len(params) > 2 {
 		return nil, &jsonrpcError{
 			Code:    InvalidParamsCode,
-			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
+			Message: fmt.Sprintf("expected 1-2 params, got %d", len(params)),
+		}
+	}
+	if len(params) == 2 {
+		if err := validateCustodyColumns(params[1]); err != nil {
+			return nil, &jsonrpcError{
+				Code:    InvalidParamsCode,
+				Message: err.Error(),
+			}
 		}
 	}
 	var hashes []types.Hash

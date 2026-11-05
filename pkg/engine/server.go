@@ -303,6 +303,7 @@ func (api *EngineAPI) ExchangeCapabilities(requested []string) []string {
 		"engine_newPayloadV5",
 		"engine_forkchoiceUpdatedV3",
 		"engine_forkchoiceUpdatedV4",
+		"engine_forkchoiceUpdatedV5",
 		"engine_getPayloadV3",
 		"engine_getPayloadV4",
 		"engine_getPayloadV5",
