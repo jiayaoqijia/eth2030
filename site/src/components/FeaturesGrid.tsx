@@ -1,43 +1,24 @@
-'use client';
-import { motion } from 'framer-motion';
-import NeonBorder from '@/components/ui/NeonBorder';
 import SectionHeading from '@/components/ui/SectionHeading';
-import { features } from '@/lib/data';
-import { useInView } from '@/hooks/useInView';
+import { evidence } from '@/lib/data';
+
+const revision = '14497b5fefa08cdba038f92bd2c29f82ad09b625';
+const base = `https://github.com/jiayaoqijia/eth2030`;
 
 export default function FeaturesGrid() {
-  const { ref, isInView } = useInView();
-
-  return (
-    <section id="features" className="py-20 md:py-28 px-4">
-      <SectionHeading title="Features" subtitle="Comprehensive Ethereum protocol implementation" />
-
-      <div ref={ref} className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {features.map((feature, i) => (
-          <motion.div
-            key={feature.title}
-            initial={{ opacity: 0, y: 30 }}
-            animate={isInView ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.5, delay: i * 0.05 }}
-          >
-            <NeonBorder color={feature.color} className="h-full p-6 bg-eth-surface/30 backdrop-blur-sm">
-              <div className="text-3xl mb-3">{feature.icon}</div>
-              <h3 className="text-lg font-bold text-eth-text mb-2">{feature.title}</h3>
-              <p className="text-sm text-eth-dim leading-relaxed mb-4">{feature.description}</p>
-              <div className="flex flex-wrap gap-2">
-                {feature.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-xs px-2 py-0.5 rounded bg-eth-deep/20 text-eth-dim border border-eth-deep/20"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </NeonBorder>
-          </motion.div>
-        ))}
+  return <section id="features" className="py-20 md:py-28 px-4">
+    <SectionHeading title="Research you can inspect" subtitle="Selected code and tests, with the limits of this review" />
+    <div className="max-w-5xl mx-auto">
+      <p className="text-eth-text/80 text-sm leading-7 mb-8">ETH2030 is an experimental execution client and research codebase. The entries below identify code to review, not claims of full EIP conformance or production readiness. Evidence checked against repository revision <a className="text-eth-teal underline" href={`https://github.com/jiayaoqijia/eth2030/commit/${revision}`}>14497b5</a> on November 5, 2026.</p>
+      <div className="grid md:grid-cols-2 gap-4">
+        {evidence.map(item => <article key={item.eip} className="rounded-xl border border-eth-purple/25 bg-eth-surface/60 p-6">
+          <p className="text-xs uppercase tracking-wider text-eth-teal mb-2">Code present · verification incomplete</p>
+          <h3 className="text-lg font-bold text-eth-text mb-3">{item.title}</h3>
+          <p className="text-sm text-eth-text/80 leading-6">{item.summary}</p>
+          <p className="text-sm text-eth-dim leading-6 mt-3">{item.limit}</p>
+          <div className="flex flex-wrap gap-4 text-sm mt-5"><a className="text-eth-purple underline" href={`https://eips.ethereum.org/EIPS/eip-${item.eip}`}>{item.spec}</a><a className="text-eth-teal underline" href={`${base}/${item.code.endsWith('.go') ? 'blob' : 'tree'}/${revision}/${item.code}`}>Source</a><a className="text-eth-teal underline" href={`${base}/blob/${revision}/${item.test}`}>Tests</a></div>
+        </article>)}
       </div>
-    </section>
-  );
+      <p className="mt-8 text-sm text-eth-dim leading-7">Unit tests exercise specific code paths; they do not establish protocol conformance, security or cross-client interoperability. The roadmap is broader than the areas reviewed here.</p>
+    </div>
+  </section>;
 }

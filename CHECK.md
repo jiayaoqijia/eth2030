@@ -66,3 +66,12 @@
   - then lift jump semantics from op-index simulation to byte-offset simulation,
   - prove end-to-end `compile`→`run` correctness against bytecode semantics,
   - begin RISC-V interpreter/simulation proof chain once VM core stabilizes.
+
+## Website Strawmap refresh (2026-11-05)
+
+- [x] Inspect the latest EF Strawmap and selected EIPs; distinguish draft milestones from network activation.
+- [x] Inspect selected implementation and test evidence; record gaps and limits.
+- [x] Replace outdated roadmap and unsupported promotional claims with sourced, reviewable content.
+- [x] Verify site build, evidence paths and responsive presentation; update STATUS.md.
+- [x] Commit only files changed for this task.
+- [ ] Complete a full current-spec conformance and cross-client audit before claiming broader coverage.
