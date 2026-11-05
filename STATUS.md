@@ -1,5 +1,25 @@
 # Project Status
 
+## Update Plan Phase 0/1 Baseline (2026-11-06)
+
+### Current Status: COMPLETE
+
+**Scope:** Baseline re-validation after ~6.5 months of maintenance downtime, plus devnet infrastructure pinning per workspace docs/UPDATE_PLAN.md (phases 0 and 1).
+
+**Completed Work:**
+- Toolchain: Go 1.25.2 -> 1.27.3 (gvm default), rust/cargo 1.99.1
+- spamoor: pushed 3 unpushed commits (4d4b439..4908a05 on feat/support-native-aa)
+- eth2030: `go build ./...`, `go vet ./...`, `go test ./...` all green on go1.27.3 (213 packages, 0 cached results, 0 FAIL; includes core/eftest EF state tests, 156s)
+- lighthouse: `cargo check --workspace` clean (2m17s, 0 errors, 22 upstream future-incompat warnings)
+- Devnet infra pinned: run-devnet.sh / run-feature-tests.sh / run-geth-testnet.sh default KURTOSIS_PACKAGE to local refs/ethereum-package instead of remote master; submodule advanced 234fb546 (2026-02-12) -> 6.1.0 c4a8e15d (2026-04-02) because configs use heze_fork_epoch (upstream renamed eip7805_fork_epoch -> heze on 2026-02-26, eb8c590a)
+- Devnet smoke (full-feature, pinned package): blocks advancing, CL "Synced (verified)" with peers=2, EL net_peerCount=2, no WARN/ERROR in EL logs
+
+**Verification:**
+- `cd pkg && go build ./... && go vet ./... && go test -timeout 240m ./...`
+- `cd ../lighthouse && cargo check --workspace`
+- `cd pkg/devnet/kurtosis && ./scripts/cleanup.sh && ./scripts/run-devnet.sh full-feature`
+- `cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)` -> advancing
+
 ## Full-Feature Devnet Bring-Up (2026-03-25)
 
 ### Current Status: IN PROGRESS
