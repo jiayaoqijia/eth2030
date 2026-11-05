@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/../configs"
 PKG_DIR="$SCRIPT_DIR/../../../"
+# Pinned local ethereum-package (refs/, read-only submodule); see run-devnet.sh
+ROOT_DIR="$SCRIPT_DIR/../../../../"
+KURTOSIS_PACKAGE="${KURTOSIS_PACKAGE:-$ROOT_DIR/refs/ethereum-package}"
 
 CONFIG="${1:-geth}"
 CONFIG_FILE="$CONFIG_DIR/geth.yaml"
@@ -25,7 +28,7 @@ ENCLAVE="${2:-geth-devnet}"
 
 echo ""
 echo "=== Launching devnet: $CONFIG ==="
-kurtosis run github.com/ethpandaops/ethereum-package \
+kurtosis run "$KURTOSIS_PACKAGE" \
     --args-file "$CONFIG_FILE" \
     --enclave "$ENCLAVE"
 
