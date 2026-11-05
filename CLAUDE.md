@@ -62,7 +62,7 @@ Three layers, each with sub-tracks:
 - **Tests**: 1,090 files, ~444K LOC, 20,281 tests
 - **Total**: 2,274 files, ~794K LOC
 - **EIPs**: 58 complete, 5 substantial
-- **EF State Tests**: 36,126/36,126 passing (100%) via go-ethereum v1.17.0 backend in `pkg/core/eftest/`
+- **EF State Tests**: 36,126/36,126 passing (100%) via go-ethereum v1.17.10 backend in `pkg/core/eftest/`
 - **go-ethereum integration**: `pkg/geth/` adapter with 13 custom precompile injection + `eth2030-geth` binary for mainnet/testnet sync (verified: Sepolia snap sync via Lighthouse CL, mainnet startup, 20+ RPC methods tested)
 - **Security audits**: leanVM audit (18 findings across 4 leanEthereum repos, 9 PRs submitted: 2 merged, 4 open, 3 closed)
 
@@ -82,7 +82,7 @@ Three layers, each with sub-tracks:
   - `core/state/pruner/` - State pruner with bloom filter reachability
   - `core/vops/` - Validity-Only Partial Statelessness: partial executor, validator, witness integration, complete VOPS validator (access lists, storage proofs)
   - `core/eftest/` - EF state test runner: JSON parser, fixture loader, go-ethereum-backed execution (36,126/36,126 = 100%)
-  - `geth/` - go-ethereum adapter: type conversion, chain config mapping, pre-state creation, state transition, block processor, custom precompile injection (13 precompiles: 4 Glamsterdam repriced, 1 NTT, 4 NII, 4 field), ETH2030 fork-level detection (imports go-ethereum v1.17.0 as library)
+  - `geth/` - go-ethereum adapter: type conversion, chain config mapping, pre-state creation, state transition, block processor, custom precompile injection (13 precompiles: 4 Glamsterdam repriced, 1 NTT, 4 NII, 4 field), ETH2030 fork-level detection (imports go-ethereum v1.17.10 as library)
   - `rlp/` - RLP encoding/decoding
   - `consensus/` - Consensus layer: 3SF (3-slot finality), quick slots (6s, 4-slot epochs), 1-epoch finality, EIP-7251 validator balance (2048 ETH max EB), consolidation, APS (committee selection), EIP-7549 attestations, PQ attestations (Dilithium), attester stake cap, endgame finality, UnifiedBeaconState (merged v1/v2/modern), finality BLS adapter, CL proof circuits (SHA-256 Merkle), jeanVM aggregation (Groth16 ZK-circuit BLS), PQ chain security (SHA-3 fork choice)
   - `ssz/` - SSZ encoding/decoding, merkleization, EIP-7916 ProgressiveList
@@ -112,7 +112,7 @@ Three layers, each with sub-tracks:
   - `metrics/` - Counters, gauges, histograms, Prometheus export, EWMA, meter, CPU tracker
   - `devnet/kurtosis/` - Kurtosis devnet configs (30 features + 6 general), scripts (consensus check, assertoor, precompile smoke test, EIP-8141 frame tx test, feature verify), ethpandaops tools integration (assertoor, spamoor, rakoon, dora, blockscout, blobscan, forky, tracoor, forkmon, prometheus, grafana). Public endpoints: devnet.eth2030.com (RPC), devnet-dora.eth2030.com (Dora), devnet-blockscout.eth2030.com (Blockscout)
 - `cmd/eth2030/` - CLI binary with flags, signal handling
-  - `cmd/eth2030-geth/` - Production binary embedding go-ethereum v1.17.0 as a library for real mainnet/testnet sync (Pebble DB, RLPx P2P, snap/full sync, Engine API on port 8551, JSON-RPC on port 8545, 13 custom precompiles injected at Glamsterdam/Hegotá/I+ fork levels; supports mainnet, sepolia, holesky)
+  - `cmd/eth2030-geth/` - Production binary embedding go-ethereum v1.17.10 as a library for real mainnet/testnet sync (Pebble DB, RLPx P2P, snap/full sync, Engine API on port 8551, JSON-RPC on port 8545, 13 custom precompiles injected at Glamsterdam/Hegotá/I+ fork levels; supports mainnet, sepolia, hoodi (holesky mapped to hoodi since geth v1.17.10 removed it))
 - `internal/testutil/` - Shared test utilities
 - `refs/` - Reference submodules (47 total, read-only, do NOT modify). See **[`refs/REFERENCES.md`](refs/REFERENCES.md)** for the full catalog: per-submodule details, ETH2030 relevance, and a priority matrix mapping each North Star goal to the relevant refs. Main upstream: https://github.com/orgs/ethereum/repositories
   - **Ethereum specs**: consensus-specs, execution-specs, consensus-spec-tests, execution-spec-tests, execution-apis, beacon-APIs, builder-specs, EIPs, ERCs
