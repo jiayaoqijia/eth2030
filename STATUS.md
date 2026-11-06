@@ -1,5 +1,45 @@
 # Project Status
 
+## Update Plan Phases 2+3: Dependency Upgrades + Lighthouse Sync (2026-11-06)
+
+### Current Status: COMPLETE (with recorded Gloas/Heze devnet dependency)
+
+**Scope:** Execute UPDATE_PLAN.md phases 2 (Go dependency upgrades) and 3 (lighthouse upstream sync), per the "upgrade as far as possible" directive.
+
+**Completed Work:**
+
+Phase 2 — eth2030 Go deps (each group committed separately):
+- go-ethereum v1.17.1 -> v1.17.10: GasPool AddGas -> NewGasPool, StateDB.Commit(rules, block), SetTxContext blockAccessIndex, Message gas fields -> *uint256.Int, Holesky removed upstream (mapped to Hoodi 560048, added hoodi network). EF state tests 36,126 passing. (f20cf72)
+- gnark v0.14.0 -> v0.16.4, gnark-crypto v0.19.2 -> v0.22.0: 65 packages green (eb20de1)
+- x/crypto v0.48.0 -> v0.58.0 (+net/sys/text/sync): 43 packages green (732e844)
+- blst v0.3.16 -> v0.3.17: 55 packages green (1934f0b)
+- Indirect refresh via go get -u: pebble v2 2.1.7, otel 1.47, grpc 1.85 etc.; full suite 213 packages, 0 cached (da9c207)
+- Dockerfile builder -> golang:1.27-alpine (go directive bumped to 1.26.8 by -u) (02a8789)
+- CLAUDE.md geth version refs updated (e711263)
+
+Phase 3 — lighthouse:
+- Verified all 69 fork commits (feat/fix-native-aa) are superseded by upstream unstable (ForkName::Heze + full IL infra, payload envelopes, PTC). Backup: backup/feat-fix-native-aa-20261106.
+- New branch integrate/unstable-202611 = sigp/lighthouse unstable 25b9b754 (8.4.0-rc.0, rust 1.91 image) + IFLOW symlink. (4df5a7bcf)
+- cargo update batch reverted: parking_lot trio now requires rustc >= 1.95, breaking the rust:1.91 Docker build; upstream lockfile is the MSRV-compatible set. (2c468be9c)
+- cargo check + make lint (clippy) clean; eth2030cl:local rebuilt.
+
+Phase 3e — devnet cross-validation (eth2030cl:local + forks enabled):
+- Sanity (forks disabled, upgraded deps): blocks advancing, CL verified, peers=2.
+- Fulu transition (PeerDAS): passed on both rounds.
+- Engine API compat fixes for lighthouse >= 8.4 (in pkg/engine, with tests):
+  - fcuV4/V5 third custodyColumns param accepted; attributes shape sniffing (lighthouse snake_case/hex vs fork-era camelCase); engine_forkchoiceUpdatedV5 routed (1d56d58)
+  - fcuV5 advertised in exchangeCapabilities; getBlobsV3 custody bitarray param (d673210)
+  - Gloas getPayloadV5/V6 responses carry blockAccessList (0x-hex, RLP bytes; EIP-7928 SSZ wire encoding TODO) + slotNumber from payload attributes; e2e test drives real backend (77287d4, 1991580)
+
+**Recorded dependency (blocks Gloas/Heze devnet acceptance):**
+The devnet EL runs eth2030-geth (ethereum-package's geth launcher hardcodes the `geth` command), so the Engine API is go-ethereum's built-in server — go-ethereum v1.17.10 does not emit the Gloas payload shape (blockAccessList/slotNumber), and the CL correctly rejects it (NoViablePayloadBid -> missing field blockAccessList). The pkg/engine fixes serve the self-built binary path (verified by e2e test against the real backend). Full Gloas/Heze devnet bring-up requires either: (a) devnet EL switched to the self-built binary (needs an ethereum-package launcher override or fork — refs are read-only), or (b) Gloas support upstream in go-ethereum. Local manual verification confirmed fcuV5 + lighthouse-shaped attributes parse and build correctly on the self-built EngineAPI.
+
+**Verification:**
+- `cd pkg && go build ./... && go test -timeout 240m ./...` (213 packages green incl. EF state tests)
+- `cd ../lighthouse && cargo check --workspace && make lint` (clean)
+- `cd pkg && go test -run TestGetPayloadV6ResponseCarriesGloasFields ./engine/` (Gloas wire shape)
+- Devnet sanity + fulu: `./scripts/run-devnet.sh full-feature-eth2030` -> fulu boundary passed (blocks past slot 32)
+
 ## Update Plan Phase 0/1 Baseline (2026-11-06)
 
 ### Current Status: COMPLETE
