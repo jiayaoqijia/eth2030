@@ -350,6 +350,7 @@ type executionPayloadV5JSON struct {
 	executionPayloadV3JSON
 	ExecutionRequests []hexBytes      `json:"executionRequests"`
 	BlockAccessList   json.RawMessage `json:"blockAccessList,omitempty"`
+	SlotNumber        string          `json:"slotNumber,omitempty"`
 }
 
 func (p ExecutionPayloadV5) MarshalJSON() ([]byte, error) {
@@ -357,6 +358,7 @@ func (p ExecutionPayloadV5) MarshalJSON() ([]byte, error) {
 		executionPayloadV3JSON: p.ExecutionPayloadV3.ToV3JSON(),
 		ExecutionRequests:      toHexBytesSlice(p.ExecutionRequests),
 		BlockAccessList:        p.BlockAccessList,
+		SlotNumber:             p.SlotNumber,
 	})
 }
 
@@ -368,6 +370,7 @@ func (p *ExecutionPayloadV5) UnmarshalJSON(data []byte) error {
 	p.ExecutionPayloadV3.ApplyV3JSON(j.executionPayloadV3JSON)
 	p.ExecutionRequests = fromHexBytesSlice(j.ExecutionRequests)
 	p.BlockAccessList = j.BlockAccessList
+	p.SlotNumber = j.SlotNumber
 	return nil
 }
 
