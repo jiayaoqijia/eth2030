@@ -32,9 +32,10 @@ type BlobsBundleV2 struct {
 	Blobs       [][]byte
 }
 
-// GetPayloadV5Response is the response for engine_getPayloadV5 (Osaka spec).
+// GetPayloadV5Response is the response for engine_getPayloadV5 (Gloas spec).
+// Gloas payloads carry the BAL + slot number fields, same as V6.
 type GetPayloadV5Response struct {
-	ExecutionPayload  *ExecutionPayloadV3 `json:"executionPayload"`
+	ExecutionPayload  *ExecutionPayloadV5 `json:"executionPayload"`
 	BlockValue        *big.Int            `json:"blockValue"`
 	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`

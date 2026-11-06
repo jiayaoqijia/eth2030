@@ -91,6 +91,9 @@ type PendingPayload struct {
 	FeeRecipient types.Address
 	PrevRandao   types.Hash
 	Withdrawals  []*types.Withdrawal
+	// SlotNumber is the beacon slot from payload attributes (Gloas payloads
+	// expose it in the getPayload response). Set right after construction.
+	SlotNumber uint64
 
 	// Mutable fields set when build completes
 	status     BuildStatus

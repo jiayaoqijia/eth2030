@@ -701,7 +701,7 @@ func (p *PayloadAttributesV7) UnmarshalJSON(data []byte) error {
 // ── GetPayloadV5Response ─────────────────────────────────────────────────────
 
 type getPayloadV5ResponseJSON struct {
-	ExecutionPayload  *ExecutionPayloadV3 `json:"executionPayload"`
+	ExecutionPayload  *ExecutionPayloadV5 `json:"executionPayload"`
 	BlockValue        *hexBig             `json:"blockValue"`
 	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`

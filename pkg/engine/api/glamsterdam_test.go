@@ -386,14 +386,7 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_BackendError(t *testing.T) {
 
 func TestGlamsterdam_GetPayloadV5_Valid(t *testing.T) {
 	expected := &GetPayloadV5Response{
-		ExecutionPayload: &engpayload.ExecutionPayloadV3{
-			ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
-				ExecutionPayloadV1: engpayload.ExecutionPayloadV1{
-					BlockHash:   types.HexToHash("0xcc"),
-					BlockNumber: 200,
-				},
-			},
-		},
+		ExecutionPayload:  gloasPayloadForTest("0xcc", 200),
 		BlobsBundle:       &BlobsBundleV2{},
 		ExecutionRequests: [][]byte{},
 	}
@@ -634,11 +627,7 @@ func TestGlamsterdam_JSONRPC_ForkchoiceUpdatedV4(t *testing.T) {
 
 func TestGlamsterdam_JSONRPC_GetPayloadV5(t *testing.T) {
 	expected := &GetPayloadV5Response{
-		ExecutionPayload: &engpayload.ExecutionPayloadV3{
-			ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
-				ExecutionPayloadV1: engpayload.ExecutionPayloadV1{BlockHash: types.HexToHash("0xcc")},
-			},
-		},
+		ExecutionPayload: gloasPayloadForTest("0xcc", 0),
 	}
 	b := &mockGlamsterdamBackend{getPayloadResp: expected}
 	e := NewEngineGlamsterdam(b)
@@ -752,5 +741,21 @@ func TestGlamsterdam_ErrorMapping(t *testing.T) {
 		if rpcErr.Code != tt.wantCode {
 			t.Errorf("error %v: expected code %d, got %d", tt.err, tt.wantCode, rpcErr.Code)
 		}
+	}
+}
+
+// gloasPayloadForTest builds a Gloas-shaped ExecutionPayloadV5 without
+// multi-level promoted-field literals (go1.26 language restriction).
+func gloasPayloadForTest(hash string, num uint64) *engpayload.ExecutionPayloadV5 {
+	v3 := &engpayload.ExecutionPayloadV3{
+		ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
+			ExecutionPayloadV1: engpayload.ExecutionPayloadV1{
+				BlockHash:   types.HexToHash(hash),
+				BlockNumber: num,
+			},
+		},
+	}
+	return &engpayload.ExecutionPayloadV5{
+		ExecutionPayloadV4: engpayload.ExecutionPayloadV4{ExecutionPayloadV3: *v3},
 	}
 }

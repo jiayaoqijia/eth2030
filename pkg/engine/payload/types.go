@@ -92,6 +92,9 @@ type ExecutionPayloadV4 struct {
 type ExecutionPayloadV5 struct {
 	ExecutionPayloadV4
 	BlockAccessList json.RawMessage `json:"blockAccessList,omitempty"`
+	// SlotNumber is the beacon slot (hex-encoded) that requested this payload
+	// (Gloas payload field; lighthouse >= 8.4 expects it on Gloas payloads).
+	SlotNumber string `json:"slotNumber,omitempty"`
 }
 
 // PayloadAttributesV1 contains attributes for building a new payload.

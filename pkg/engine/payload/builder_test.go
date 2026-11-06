@@ -155,7 +155,7 @@ func TestBlockToPayloadV5_Conversion(t *testing.T) {
 	block := types.NewBlock(header, nil)
 	prevRandao := types.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
 
-	ep := BlockToPayloadV5(block, prevRandao, nil, nil)
+	ep := BlockToPayloadV5(block, prevRandao, nil, nil, 0)
 	if ep == nil {
 		t.Fatal("BlockToPayloadV5 returned nil")
 	}
