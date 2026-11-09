@@ -36,8 +36,7 @@ additional_services:
   - dora
   - spamoor
   - rakoon
-  - assertoor
-  - blockscout
+  - assertoor  # blockscout removed: blockscout-verif flaky in this env, not needed for CL/EL acceptance
 
 dora_params:
   image: "eth2030/dora:v0.0.1"
