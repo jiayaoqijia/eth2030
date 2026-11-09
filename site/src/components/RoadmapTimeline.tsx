@@ -5,6 +5,18 @@ import SectionHeading from '@/components/ui/SectionHeading';
 import { roadmapPhases } from '@/lib/data';
 import { useInView } from '@/hooks/useInView';
 
+// Map homepage phase names to /eips fork anchor ids (see src/data/eips.ts).
+const phaseForkAnchor: Record<string, string> = {
+  Glamsterdam: 'glamsterdam',
+  'Hegotá': 'hegota',
+  'I+': 'i',
+  'J+': 'j',
+  'K+': 'k',
+  'L+': 'l',
+  'M+': 'longer',
+  '2030++': 'longer',
+};
+
 const phaseColors = [
   { border: 'border-eth-purple/40', bg: 'bg-eth-purple/10', dot: 'bg-eth-purple', text: 'text-eth-purple' },
   { border: 'border-eth-teal/40', bg: 'bg-eth-teal/10', dot: 'bg-eth-teal', text: 'text-eth-teal' },
@@ -95,11 +107,12 @@ export default function RoadmapTimeline() {
                     isLeft ? 'md:mr-auto md:pr-8' : 'md:ml-auto md:pl-8'
                   }`}
                 >
-                  <div
-                    className={`rounded-xl border ${color.border} ${color.bg} backdrop-blur-sm p-5`}
+                  <Link
+                    href={phaseForkAnchor[phase.name] ? `/eips#fork-${phaseForkAnchor[phase.name]}` : '/eips'}
+                    className={`block rounded-xl border ${color.border} ${color.bg} backdrop-blur-sm p-5 transition-all hover:shadow-[0_0_20px_#8c8dfc22]`}
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className={`text-lg font-bold ${color.text}`}>{phase.name}</h3>
+                      <h3 className={`text-lg font-bold ${color.text} group-hover:text-eth-purple`}>{phase.name}</h3>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-eth-dim">{phase.year}</span>
                         <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-eth-teal/10 text-eth-teal border border-eth-teal/20">
@@ -117,7 +130,7 @@ export default function RoadmapTimeline() {
                         </span>
                       ))}
                     </div>
-                  </div>
+                  </Link>
                 </div>
               </motion.div>
             );
@@ -136,13 +149,21 @@ export default function RoadmapTimeline() {
           <span className="text-eth-pink font-semibold">30 devnet tests</span> passing
         </motion.div>
 
-        {/* PQ Roadmap link */}
+        {/* Per-EIP tracker + PQ Roadmap links */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.5, delay: 1.0 }}
-          className="mt-6 text-center"
+          className="mt-6 flex flex-wrap justify-center gap-3"
         >
+          <Link
+            href="/eips"
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-eth-purple/10 border border-eth-purple/30
+                       text-eth-purple font-semibold hover:bg-eth-purple/20
+                       hover:shadow-[0_0_20px_#8c8dfc33] transition-all duration-300 text-sm"
+          >
+            EIP Progress Tracker &rarr;
+          </Link>
           <Link
             href="/pq-roadmap"
             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-eth-pink/10 border border-eth-pink/30
