@@ -924,7 +924,7 @@ export const EIPS: EipEntry[] = [
     priority: 'P2',
     specUrl: spec(7885),
     specStatus: 'Draft',
-    implementation: ['core/vm/precompiles.go', 'crypto/pqc/'],
+    implementation: ['core/vm/precompile_ntt.go', 'crypto/pqc/'],
     tests: ['crypto/pqc/*_test.go'],
     implemented: [
       'NTT precompile address & framework (0x15)',

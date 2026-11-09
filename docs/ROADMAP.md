@@ -2,6 +2,13 @@
 
 > Derived from the [L1 Strawmap](https://strawmap.org/) — the EF Architecture team's Ethereum protocol roadmap.
 > Last updated: 2026-02-25
+>
+> **Note (2026-11-10):** this document reflects the Feb 2026 strawmap draft. The strawmap was
+> since revised (Nov 2, 2026) — FOCIL and frame transactions (EIP-8141) are now Hegotá
+> headliners, native rollups moved to L*, multidim pricing / partitioned binary tree to I*,
+> plus new leanCL / leanDA / leanXMSS / leanSPHINCS / leanPCS items. The `/eips` pages on the
+> site follow the **Nov 2026 revision** (see `site/src/data/eips.ts` and `docs/EIP_TRACKER.md`);
+> fork placements here are kept as the historical derivation.
 
 ## Timeline Overview
 

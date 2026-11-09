@@ -178,7 +178,7 @@ export default function EipsPage() {
         </div>
 
         {/* Stats */}
-        <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-7">
+        <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-9">
           <div className="rounded-lg border border-eth-purple/20 bg-eth-surface p-3">
             <div className="text-xl font-bold text-eth-text">{stats.eipCount}</div>
             <div className="text-[10px] text-eth-dim">EIPs tracked</div>

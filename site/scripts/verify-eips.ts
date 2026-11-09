@@ -33,13 +33,23 @@ function read(p: string): string {
 
 // ── 1. EIP_SPEC_IMPL.md ────────────────────────────────────────────────
 const specImpl = read('docs/EIP_SPEC_IMPL.md');
-const docEips = new Map<number, { impl: string; tests: string; title: string }>();
+const docEips = new Map<number, { impl: string; tests: string; title: string; status?: string }>();
+const DOC_STATUS: Record<string, string> = {
+  Complete: 'complete',
+  Substantial: 'substantial',
+  Referenced: 'referenced',
+  Partial: 'partial',
+  Functional: 'functional',
+  'Real impl': 'complete',
+  Stub: 'partial',
+};
 if (specImpl) {
   for (const line of specImpl.split('\n')) {
     const m = line.match(/^\|\s*(\d{3,4})\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]*)\|\s*([^|]*)\|/);
     if (m) {
       docEips.set(Number(m[1]), {
         title: m[2].trim(),
+        status: DOC_STATUS[m[3].trim()],
         impl: m[4].trim(),
         tests: m[5].trim(),
       });
@@ -58,6 +68,9 @@ for (const [num, row] of docEips) {
   if (row.impl && !entry.implementation.length) {
     problems.push(`EIP-${num}: doc lists implementation files but data entry has none`);
   }
+  if (row.status && entry.status !== row.status) {
+    problems.push(`EIP-${num}: doc matrix status is "${row.status}" but data status is ${entry.status}`);
+  }
 }
 
 for (const e of EIPS) {
@@ -69,10 +82,15 @@ for (const e of EIPS) {
 // ── 2. CLAUDE.md Complete/Substantial lists ────────────────────────────
 const claude = read('CLAUDE.md');
 if (claude) {
-  const completeLine = claude.match(/\*\*Complete \(\d+\)\*\*[::]\s*(.+)/);
-  const substantialLine = claude.match(/\*\*Substantial \(\d+\)\*\*[::]\s*(.+)/);
+  const completeLine = claude.match(/\*\*Complete\*\*\s*\(\d+\)[::]\s*(.+)/);
+  const substantialLine = claude.match(/\*\*Substantial\*\*\s*\(\d+\)[::]\s*(.+)/);
+  if (!completeLine || !substantialLine) {
+    notes.push('CLAUDE.md Complete/Substantial lists not parsed — check heading format');
+  }
+  // Strip parentheticals first: descriptions like "EIP-7805 (FOCIL, incl. ... + EIP-8141 ...)"
+  // mention other EIP numbers that are not part of the list itself.
   const parseList = (s?: string) =>
-    (s?.match(/EIP-(\d+)/g) ?? []).map((x) => Number(x.replace('EIP-', '')));
+    (s?.replace(/\([^)]*\)/g, '').match(/EIP-(\d+)/g) ?? []).map((x) => Number(x.replace('EIP-', '')));
   const complete = parseList(completeLine?.[1]);
   const substantial = parseList(substantialLine?.[1]);
   for (const n of complete) {
