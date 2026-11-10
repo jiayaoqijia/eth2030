@@ -52,3 +52,52 @@ jobs:
         run: go test ./... -timeout=15m -count=1
         env:
           GOFLAGS: '-p=4'
+
+  ef-state-tests:
+    name: Geth-backed EF state tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ethereum/tests
+          # refs/go-ethereum at 0cba803f pins this tests/testdata revision.
+          ref: 81862e4848585a438d64f911a19b3825f0f4cd95
+          path: refs/go-ethereum/tests/testdata
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: pkg/go.sum
+      - name: Verify pinned EF vectors
+        working-directory: pkg
+        run: go test -v -count=1 -timeout=15m -run '^TestGethCategorySummary$' ./core/eftest
+        env:
+          ETH2030_REQUIRE_EF_FIXTURES: '1'
+
+  test-variants:
+    name: Go tests (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: integration
+            args: -tags integration ./core ./p2p/...
+          - variant: blst
+            args: -tags blst ./crypto/bls ./consensus ./light/bls
+          - variant: goethkzg
+            args: -tags goethkzg ./crypto/bls ./core/vm
+          - variant: race
+            args: -race ./consensus ./focil ./das/custody
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: pkg/go.sum
+      - name: Run test variant
+        working-directory: pkg
+        run: go test -count=1 -timeout=15m ${{ matrix.args }}

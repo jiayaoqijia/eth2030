@@ -693,7 +693,7 @@ func TestBlockGasLimitBounds(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := verifyGasLimit(tt.parentGL, tt.childGL)
+			err := coreblock.VerifyGasLimit(tt.parentGL, tt.childGL)
 			if tt.expectErr && err == nil {
 				t.Error("expected error, got nil")
 			}
