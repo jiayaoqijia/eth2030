@@ -10,8 +10,8 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/holiman/uint256 v1.3.2
 	github.com/supranational/blst v0.3.17
-	golang.org/x/crypto v0.58.0
-	golang.org/x/sync v0.24.0
+	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
+	golang.org/x/sync v0.25.0
 	lukechampine.com/blake3 v1.4.1
 )
 
