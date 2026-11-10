@@ -42,7 +42,8 @@ type ColumnBuilderConfig struct {
 	// MaxBlobs is the maximum number of blobs per block.
 	MaxBlobs int
 
-	// CellSize is the byte size of each cell.
+	// CellSize is the limit for legacy short gossip messages. KZG cells
+	// always use the standard size.
 	CellSize int
 
 	// MaxDedup is the capacity of the deduplication set.
@@ -270,7 +271,7 @@ func (cb *ColumnBuilder) CreateGossipMessage(slot uint64, blobIdx uint64, colIdx
 	if blobIdx >= uint64(cb.config.MaxBlobs) {
 		return nil, fmt.Errorf("%w: %d", ErrBuilderMsgBlobOOB, blobIdx)
 	}
-	if len(cellData) == 0 || len(cellData) > cb.config.CellSize {
+	if !cb.validCellSize(len(cellData)) {
 		return nil, fmt.Errorf("%w: size %d", ErrBuilderMsgDataInvalid, len(cellData))
 	}
 
@@ -296,10 +297,14 @@ func (cb *ColumnBuilder) ValidateGossipMessage(msg *ColumnGossipMessage) error {
 	if msg.BlobIndex >= uint64(cb.config.MaxBlobs) {
 		return fmt.Errorf("%w: blob %d >= %d", ErrBuilderMsgBlobOOB, msg.BlobIndex, cb.config.MaxBlobs)
 	}
-	if len(msg.CellData) == 0 || len(msg.CellData) > cb.config.CellSize {
+	if !cb.validCellSize(len(msg.CellData)) {
 		return fmt.Errorf("%w: size %d", ErrBuilderMsgDataInvalid, len(msg.CellData))
 	}
 	return nil
+}
+
+func (cb *ColumnBuilder) validCellSize(size int) bool {
+	return size == dastypes.BytesPerCell || size > 0 && size < dastypes.BytesPerCell && size <= cb.config.CellSize
 }
 
 // CheckDuplicate checks if a gossip message has already been seen.

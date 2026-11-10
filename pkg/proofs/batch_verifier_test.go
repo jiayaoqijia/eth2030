@@ -3,6 +3,7 @@ package proofs
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/eth2030/eth2030/crypto/bls"
 	"github.com/eth2030/eth2030/crypto/ipa"
@@ -50,5 +51,33 @@ func TestBatchVerifierUsesOpeningProofs(t *testing.T) {
 	})
 	if err != nil || results.TotalValid != 0 || len(results.FailedProofs()) != 2 {
 		t.Fatalf("tampered inputs = %+v, %v", results, err)
+	}
+}
+
+func TestBatchVerifierDeadlineAndEmptyID(t *testing.T) {
+	bv := NewBatchVerifier(BatchVerifierConfig{Workers: 1, Timeout: 20 * time.Millisecond, PerProofTimeout: time.Second})
+	release := make(chan struct{})
+	defer close(release)
+	bv.RegisterVerifier(ZKSNARK, func([]byte, []byte) (bool, error) {
+		<-release
+		return true, nil
+	})
+	result, err := bv.VerifyBatch([]VerifiableProof{{Type: ZKSNARK}, {ID: "queued", Type: ZKSNARK}})
+	if err != nil || result.TotalErrors != 2 || result.TotalValid != 0 || result.AllValid {
+		t.Fatalf("deadline results = %+v, %v", result, err)
+	}
+	for _, proof := range result.Results {
+		if !errors.Is(proof.Err, ErrBatchVerifyTimeout) {
+			t.Fatalf("result = %+v", proof)
+		}
+	}
+}
+
+func TestBatchVerifierCountsEmptyIDOnce(t *testing.T) {
+	bv := NewBatchVerifier(DefaultBatchVerifierConfig())
+	bv.RegisterVerifier(ZKSNARK, func([]byte, []byte) (bool, error) { return true, nil })
+	result, err := bv.VerifyBatch([]VerifiableProof{{Type: ZKSNARK}})
+	if err != nil || result.TotalValid != 1 || result.TotalErrors != 0 || !result.AllValid {
+		t.Fatalf("empty ID result = %+v, %v", result, err)
 	}
 }

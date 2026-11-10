@@ -693,9 +693,7 @@ func (tx *Transaction) SigningHash() Hash {
 	case *FrameTx:
 		return ComputeFrameSigHash(t)
 	case *PQTransaction:
-		var h Hash
-		copy(h[:], pqRealSigningHash(t))
-		return h
+		return t.SigningHash()
 	default:
 		return Hash{}
 	}

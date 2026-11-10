@@ -9,6 +9,7 @@ package proofs
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -99,6 +100,7 @@ type TypeVerifier func(data, publicInputs []byte) (bool, error)
 type BatchVerifier struct {
 	config    BatchVerifierConfig
 	verifiers map[ProofType]TypeVerifier
+	workers   chan struct{}
 	mu        sync.RWMutex
 	closed    atomic.Bool
 
@@ -109,7 +111,7 @@ type BatchVerifier struct {
 }
 
 // NewBatchVerifier creates a new batch verifier with the given configuration.
-// Default type verifiers are registered for all four proof types.
+// IPA and KZG openings have default verifiers.
 func NewBatchVerifier(config BatchVerifierConfig) *BatchVerifier {
 	if config.Workers <= 0 {
 		config.Workers = 8
@@ -123,6 +125,7 @@ func NewBatchVerifier(config BatchVerifierConfig) *BatchVerifier {
 	bv := &BatchVerifier{
 		config:    config,
 		verifiers: make(map[ProofType]TypeVerifier),
+		workers:   make(chan struct{}, config.Workers),
 	}
 	bv.verifiers[IPA] = verifyIPAOpening
 	bv.verifiers[KZG] = verifyKZGOpening
@@ -157,121 +160,88 @@ func (bv *BatchVerifier) VerifyBatch(proofs []VerifiableProof) (*BatchVerificati
 		return nil, ErrBatchVerifyEmpty
 	}
 
-	batchStart := time.Now()
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), bv.config.Timeout)
+	defer cancel()
+
 	results := make([]VerificationResult, len(proofs))
-
-	// Bounded worker pool via semaphore channel.
-	sem := make(chan struct{}, bv.config.Workers)
+	jobs := make(chan int)
 	var wg sync.WaitGroup
-
-	// Batch-level timeout.
-	done := make(chan struct{})
-	timedOut := atomic.Bool{}
-
-	go func() {
-		select {
-		case <-done:
-		case <-time.After(bv.config.Timeout):
-			timedOut.Store(true)
-		}
-	}()
-
+	for range min(bv.config.Workers, len(proofs)) {
+		wg.Go(func() {
+			for i := range jobs {
+				results[i] = bv.verifySingle(ctx, &proofs[i])
+			}
+		})
+	}
 	for i := range proofs {
-		if timedOut.Load() {
-			break
-		}
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			p := &proofs[idx]
-			results[idx] = bv.verifySingle(p, &timedOut)
-		}(i)
-	}
-
-	wg.Wait()
-	close(done)
-
-	// Aggregate results.
-	br := &BatchVerificationResult{
-		Results:  results,
-		Duration: time.Since(batchStart),
-		AllValid: true,
-	}
-	for i := range results {
-		if results[i].Valid {
-			br.TotalValid++
-			bv.totalVerified.Add(1)
-		} else {
-			br.AllValid = false
-			if results[i].Err != nil {
-				br.TotalErrors++
-			} else {
-				br.TotalInvalid++
-			}
-			bv.totalFailed.Add(1)
-		}
-	}
-
-	// Check for unprocessed proofs due to timeout.
-	for i := range results {
-		if results[i].ProofID == "" && i < len(proofs) {
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
 			results[i] = VerificationResult{
-				ProofID: proofs[i].ID,
-				Type:    proofs[i].Type,
-				Valid:   false,
-				Err:     ErrBatchVerifyTimeout,
+				ProofID: proofs[i].ID, Type: proofs[i].Type, Err: ErrBatchVerifyTimeout,
 			}
-			br.AllValid = false
-			br.TotalErrors++
-			bv.totalTimeout.Add(1)
 		}
 	}
+	close(jobs)
+	wg.Wait()
 
+	br := &BatchVerificationResult{Results: results, Duration: time.Since(start), AllValid: true}
+	for _, result := range results {
+		switch {
+		case result.Valid:
+			br.TotalValid++
+		case result.Err != nil:
+			br.TotalErrors++
+			if errors.Is(result.Err, ErrBatchVerifyTimeout) {
+				bv.totalTimeout.Add(1)
+			}
+		default:
+			br.TotalInvalid++
+		}
+	}
+	bv.totalVerified.Add(uint64(br.TotalValid))
+	bv.totalFailed.Add(uint64(br.TotalErrors + br.TotalInvalid))
+	br.AllValid = br.TotalValid == len(results)
 	return br, nil
 }
 
-// verifySingle runs verification for a single proof with per-proof timeout.
-func (bv *BatchVerifier) verifySingle(p *VerifiableProof, batchTimeout *atomic.Bool) VerificationResult {
+func (bv *BatchVerifier) verifySingle(batch context.Context, p *VerifiableProof) (result VerificationResult) {
 	start := time.Now()
+	result = VerificationResult{ProofID: p.ID, Type: p.Type}
+	defer func() { result.Duration = time.Since(start) }()
 
-	if p == nil {
-		return VerificationResult{
-			Valid: false, Duration: time.Since(start),
-			Err: ErrBatchVerifyNilProof,
-		}
-	}
-
-	result := VerificationResult{
-		ProofID: p.ID,
-		Type:    p.Type,
-	}
-
-	if batchTimeout.Load() {
+	if batch.Err() != nil {
 		result.Err = ErrBatchVerifyTimeout
-		result.Duration = time.Since(start)
-		bv.totalTimeout.Add(1)
 		return result
 	}
-
 	bv.mu.RLock()
-	verifier, ok := bv.verifiers[p.Type]
+	verifier := bv.verifiers[p.Type]
 	bv.mu.RUnlock()
-
-	if !ok {
+	if verifier == nil {
 		switch p.Type {
 		case ZKSNARK, ZKSTARK, IPA, KZG:
 			result.Err = ErrBatchVerifyNoProvider
 		default:
 			result.Err = ErrBatchVerifyUnknownType
 		}
-		result.Duration = time.Since(start)
 		return result
 	}
 
-	// Per-proof timeout.
+	select {
+	case bv.workers <- struct{}{}:
+	case <-batch.Done():
+		result.Err = ErrBatchVerifyTimeout
+		return result
+	}
+	ctx, cancel := context.WithTimeout(batch, bv.config.PerProofTimeout)
+	defer cancel()
+	if ctx.Err() != nil {
+		<-bv.workers
+		result.Err = ErrBatchVerifyTimeout
+		return result
+	}
+
 	type verifyOut struct {
 		valid bool
 		err   error
@@ -279,21 +249,22 @@ func (bv *BatchVerifier) verifySingle(p *VerifiableProof, batchTimeout *atomic.B
 	ch := make(chan verifyOut, 1)
 	data, publicInputs := bytes.Clone(p.Data), bytes.Clone(p.PublicIn)
 	go func() {
-		v, e := verifier(data, publicInputs)
-		ch <- verifyOut{v, e}
+		// A legacy callback has no context. It retains its slot even if
+		// the caller's deadline expires before the callback returns.
+		defer func() { <-bv.workers }()
+		valid, err := verifier(data, publicInputs)
+		ch <- verifyOut{valid: valid, err: err}
 	}()
-
 	select {
 	case out := <-ch:
-		result.Valid = out.valid
-		result.Err = out.err
-	case <-time.After(bv.config.PerProofTimeout):
-		result.Valid = false
-		result.Err = ErrBatchVerifyTimeout
-		bv.totalTimeout.Add(1)
+		if deadline, _ := ctx.Deadline(); ctx.Err() == nil && time.Now().Before(deadline) {
+			result.Valid = out.valid && out.err == nil
+			result.Err = out.err
+			return result
+		}
+	case <-ctx.Done():
 	}
-
-	result.Duration = time.Since(start)
+	result.Err = ErrBatchVerifyTimeout
 	return result
 }
 

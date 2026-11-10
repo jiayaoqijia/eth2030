@@ -527,3 +527,16 @@ var PrecompiledContractsIPlus = func() map[types.Address]PrecompiledContract {
 	m[types.HexToAddress(rollupexecute.PrecompileAddr)] = &rollupexecute.ExecutePrecompile{}
 	return m
 }()
+
+// The project's experimental NTT ABI uses private addresses when the
+// standard BLS and CREATE2 factory allocations are in force.
+var precompiledContractsIPlusStandardBLS = func() map[types.Address]PrecompiledContract {
+	out := standardBLSPrecompiles(PrecompiledContractsIPlus)
+	for offset := byte(0); offset < 6; offset++ {
+		out[types.Address{18: 0x02, 19: 0x10 + offset}] = PrecompiledContractsIPlus[types.Address{19: 0x0f + offset}]
+	}
+	for id := byte(0x12); id <= 0x14; id++ {
+		delete(out, types.Address{19: id})
+	}
+	return out
+}()

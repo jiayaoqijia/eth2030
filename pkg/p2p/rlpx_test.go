@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"fmt"
 	"net"
 	"testing"
@@ -81,4 +82,12 @@ func TestRLPxServersNegotiatePeerIdentity(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("servers did not register the RLPx identities")
+}
+
+func TestRLPxRejectsIncompletePrivateKey(t *testing.T) {
+	server := NewServer(Config{EnableRLPx: true, ListenAddr: "127.0.0.1:0", RLPxPrivateKey: &ecdsa.PrivateKey{}})
+	if err := server.Start(); err == nil {
+		server.Stop()
+		t.Fatal("incomplete RLPx key accepted")
+	}
 }

@@ -178,17 +178,10 @@ func (ch *CallHandler) HandleCall(params *CallHandlerParams) *CallHandlerResult 
 func (ch *CallHandler) runPrecompile(p PrecompiledContract, params *CallHandlerParams) *CallHandlerResult {
 	result := &CallHandlerResult{GasLeft: params.Gas}
 
-	gasCost := p.RequiredGas(params.Input)
-	if params.Gas < gasCost {
-		result.Err = ErrOutOfGas
-		result.GasLeft = 0
-		return result
-	}
-
-	output, err := p.Run(params.Input)
+	output, gasLeft, err := runPrecompile(p, params.Input, params.Gas)
 	result.ReturnData = output
-	result.GasLeft = params.Gas - gasCost
-	result.GasUsed = gasCost
+	result.GasLeft = gasLeft
+	result.GasUsed = params.Gas - gasLeft
 	result.Success = err == nil
 	result.Err = err
 	return result

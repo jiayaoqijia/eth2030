@@ -32,8 +32,9 @@ func NewForkPrecompileRouter() *ForkPrecompileRouter {
 	r := &ForkPrecompileRouter{
 		forkSets: make(map[string]map[types.Address]PrecompiledContract),
 	}
-	r.forkSets[ForkCancun] = copyPrecompileMap(PrecompiledContractsCancun)
-	r.forkSets[ForkGlamsterdan] = copyPrecompileMap(PrecompiledContractsGlamsterdan)
+	r.forkSets[ForkCancun] = copyPrecompileMap(precompiledContractsCancunStandardBLS)
+	r.forkSets[ForkPrague] = copyPrecompileMap(PrecompiledContractsPrague)
+	r.forkSets[ForkGlamsterdan] = copyPrecompileMap(precompiledContractsGlamsterdanStandardBLS)
 	return r
 }
 
@@ -83,12 +84,7 @@ func (r *ForkPrecompileRouter) Execute(addr types.Address, rules ForkRules, inpu
 	if !ok {
 		return nil, gas, ErrRouterNoPrecompile
 	}
-	required := p.RequiredGas(input)
-	if gas < required {
-		return nil, 0, ErrOutOfGas
-	}
-	output, err := p.Run(input)
-	return output, gas - required, err
+	return runPrecompile(p, input, gas)
 }
 
 // GasCost returns the gas cost for the precompile at addr with the given
@@ -110,16 +106,15 @@ func (r *ForkPrecompileRouter) Count(rules ForkRules) int {
 	return len(m)
 }
 
-// selectMap picks the correct precompile map based on fork rules. It checks
-// forks from newest to oldest: Glamsterdan -> Cancun -> fallback Cancun.
+// selectMap resolves standard and historical native fork configurations.
 func (r *ForkPrecompileRouter) selectMap(rules ForkRules) map[types.Address]PrecompiledContract {
 	switch {
+	case rules.LegacyNativeBLS || rules.IsIPlus:
+		return SelectPrecompiles(rules)
 	case rules.IsGlamsterdan:
-		if m, ok := r.forkSets[ForkGlamsterdan]; ok {
-			return m
-		}
-		// Fall back to Cancun if Glamsterdan not registered.
-		return r.forkSets[ForkCancun]
+		return r.forkSets[ForkGlamsterdan]
+	case rules.IsPrague:
+		return r.forkSets[ForkPrague]
 	default:
 		return r.forkSets[ForkCancun]
 	}

@@ -551,6 +551,13 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		return ErrOversizedData
 	}
 
+	if pq, ok := tx.Inner().(*types.PQTransaction); ok {
+		if err := types.ValidatePQTransactionSignature(pq); err != nil {
+			return err
+		}
+		tx.SetSender(types.PQPubKeyToAddress(pq.PQPublicKey))
+	}
+
 	// EIP-8141: FrameTx validation — check frame structure and minimum gas.
 	if tx.Type() == types.FrameTxType {
 		if tx.Gas() < types.FrameTxIntrinsicCost {

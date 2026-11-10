@@ -281,6 +281,20 @@ The project-specific lattice blob commitments and PQ aggregation still have no e
 
 ---
 
+## VIII. Cryptography Regression Corrections
+
+The native block processor and both transaction pools verify the PQ signature before using the sender. The project-specific type `0x07` keeps its existing RLP wire layout. Its signing digest uses the EIP-2718 type prefix and length-delimited unsigned fields, including the algorithm. The unsigned legacy digest is retired for native execution. Existing artifacts signed with that digest require a new signature. EIP-8051 describes a draft ML-DSA-44 precompile and does not specify this transaction type.
+
+The standard native BLS profile activates the seven EIP-2537 precompiles at Prague with Geth's ABI, gas schedule, and subgroup rules. The mainnet activation timestamp is 1746612311. Those addresses remain reserved in later forks. The experimental I+ NTT operations use project-private addresses `0x0210` through `0x0215` in this profile. The CREATE2 factory address `0x12` remains available to bytecode. Existing native chains that used the historical layout can set `LegacyNativeBLSUntil` consistently in the chain configuration to select that layout before their agreed activation timestamp. The historical BLS mappings retain the pre-migration output for replay.
+
+RLPx validates configured keys and synchronizes reads of the local identity. The PeerDAS column builder and its gossip interface accept the standard 2048-byte cells even when the legacy short-message limit is configured. ECIES empty messages use the existing Geth-compatible envelope.
+
+STARK gossip keeps the existing header and trace commitment, followed by a versioned extension with the complete proof. Legacy envelopes still decode. The receiver checks the full artifact before accepting it as an advisory tick. The experimental proof does not establish execution validity for the announced transactions. A peer tick therefore cannot add or discard entries in the locally validated set or populate its validation cache.
+
+Batch verification accounts for each input by position and respects the overall deadline. Running legacy callbacks retain their worker slots until they return. Their results are discarded after the deadline.
+
+---
+
 ## Appendix — Audit Method and Reproduction Commands
 
 Use a disposable copy of the baseline. Extract `git archive 5ffa711 pkg site .github CLAUDE.md docs/EIP_SPEC_IMPL.md` into an empty directory. This supplies the code and the website verifier's local documentation inputs. To reproduce the fixture-backed run, supply the pinned geth `GeneralStateTests` tree at the path read by `testdataDir()` in a separate copy.

@@ -409,6 +409,14 @@ func TestColumnBuilderToDataColumnSidecar(t *testing.T) {
 		commitments[i] = commitment
 	}
 
+	message, err := cb.CreateGossipMessage(1, 0, cols[1].Index, cols[1].Cells[0][:], cols[1].Proofs[0])
+	if err != nil {
+		t.Fatalf("constructed cell rejected by gossip: %v", err)
+	}
+	if err := cb.ValidateGossipMessage(message); err != nil {
+		t.Fatalf("validate constructed cell: %v", err)
+	}
+
 	sidecar := cb.ToDataColumnSidecar(cols[1], commitments)
 	if sidecar.Index != cols[1].Index || len(sidecar.Column) != len(blobs) ||
 		len(sidecar.KZGCommitments) != len(blobs) || len(sidecar.KZGProofs) != len(blobs) {

@@ -239,6 +239,9 @@ func runPrecompile(p PrecompiledContract, input []byte, gas uint64) ([]byte, uin
 		return nil, 0, ErrOutOfGas
 	}
 	output, err := p.Run(input)
+	if _, standardBLS := p.(eip2537Precompile); standardBLS && err != nil {
+		return nil, 0, err
+	}
 	return output, gas - gasCost, err
 }
 
@@ -262,17 +265,31 @@ type ForkRules struct {
 	IsEIP7708        bool // EIP-7708: ETH transfers emit a log
 	IsEIP7954        bool // EIP-7954: increased max contract code size
 	IsIPlus          bool // I+ fork: NTT/NII precompiles (EIP-7885)
+	LegacyNativeBLS  bool
 }
 
 // SelectPrecompiles returns the correct precompile map for the given fork rules.
 func SelectPrecompiles(rules ForkRules) map[types.Address]PrecompiledContract {
-	if rules.IsIPlus {
-		return PrecompiledContractsIPlus
+	if rules.LegacyNativeBLS {
+		switch {
+		case rules.IsIPlus:
+			return PrecompiledContractsIPlus
+		case rules.IsGlamsterdan:
+			return PrecompiledContractsGlamsterdan
+		default:
+			return PrecompiledContractsCancun
+		}
 	}
-	if rules.IsGlamsterdan {
-		return PrecompiledContractsGlamsterdan
+	switch {
+	case rules.IsIPlus:
+		return precompiledContractsIPlusStandardBLS
+	case rules.IsGlamsterdan:
+		return precompiledContractsGlamsterdanStandardBLS
+	case rules.IsPrague:
+		return PrecompiledContractsPrague
+	default:
+		return precompiledContractsCancunStandardBLS
 	}
-	return PrecompiledContractsCancun
 }
 
 // SelectJumpTable returns the correct jump table for the given fork rules.

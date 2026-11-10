@@ -78,7 +78,7 @@ func TestForkPrecompileRouterGlamsterdanRemoves0x12(t *testing.T) {
 	}
 
 	// But it should be active in Cancun.
-	cancunRules := ForkRules{IsCancun: true}
+	cancunRules := ForkRules{IsCancun: true, LegacyNativeBLS: true}
 	if !r.IsActive(addr12, cancunRules) {
 		t.Fatal("address 0x12 should be active in Cancun")
 	}
@@ -87,7 +87,7 @@ func TestForkPrecompileRouterGlamsterdanRemoves0x12(t *testing.T) {
 // TestForkPrecompileRouterIsActive checks IsActive for known addresses.
 func TestForkPrecompileRouterIsActive(t *testing.T) {
 	r := NewForkPrecompileRouter()
-	rules := ForkRules{IsCancun: true}
+	rules := ForkRules{IsCancun: true, LegacyNativeBLS: true}
 
 	tests := []struct {
 		addr   types.Address
@@ -193,13 +193,9 @@ func TestForkPrecompileRouterCount(t *testing.T) {
 	cancunCount := r.Count(ForkRules{IsCancun: true})
 	glamCount := r.Count(ForkRules{IsGlamsterdan: true, IsCancun: true})
 
-	// Glamsterdan should have one fewer precompile (0x12 removed).
-	if glamCount >= cancunCount {
-		t.Fatalf("Glamsterdan count (%d) should be less than Cancun (%d)", glamCount, cancunCount)
-	}
-	if cancunCount-glamCount != 1 {
-		t.Fatalf("expected exactly 1 fewer precompile in Glamsterdan, got %d fewer",
-			cancunCount-glamCount)
+	// Glamsterdan retains the seven standard BLS contracts activated at Prague.
+	if glamCount-cancunCount != 7 {
+		t.Fatalf("expected seven BLS additions, got %d", glamCount-cancunCount)
 	}
 }
 

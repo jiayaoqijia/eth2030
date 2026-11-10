@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	gethrlp "github.com/ethereum/go-ethereum/rlp"
 	"io"
 	"math/big"
 	"sync"
@@ -65,8 +66,27 @@ type MempoolAggregationTick struct {
 	TxMerkleRoot types.Hash
 }
 
+const tickProofVersion = 1
+
+// The extension follows the original trace commitment field. A legacy
+// decoder can still parse the envelope and ignore the extension.
+type tickProofWire struct {
+	FRICommitments           [][32]byte
+	QueryResponses           []proofs.FRIQueryResponse
+	TraceLength              uint64
+	BlowupFactor             uint8
+	NumQueries               uint8
+	FieldModulus             *big.Int
+	ConstraintCount          uint64
+	ConstraintEvalCommitment [32]byte
+}
+
 // MarshalBinary encodes a MempoolAggregationTick for P2P transmission.
 func (t *MempoolAggregationTick) MarshalBinary() ([]byte, error) {
+	if len(t.PeerID) > 65535 || len(t.ValidTxHashes) > MaxTickSize/32 ||
+		len(t.DiscardList) > MaxTickSize/32 || len(t.ValidBitfield) > MaxTickSize {
+		return nil, ErrAggTickTooLarge
+	}
 	var buf bytes.Buffer
 
 	// Write tick number (8 bytes).
@@ -114,16 +134,36 @@ func (t *MempoolAggregationTick) MarshalBinary() ([]byte, error) {
 	// Write aggregate proof presence + trace commitment.
 	if t.AggregateProof != nil {
 		buf.WriteByte(1) // has proof
-		buf.Write(t.AggregateProof.TraceCommitment[:])
+		proof := t.AggregateProof
+		buf.Write(proof.TraceCommitment[:])
+		if proof.TraceLength != 0 {
+			if proof.ConstraintCount < 0 {
+				return nil, ErrAggInvalidTick
+			}
+			buf.WriteByte(tickProofVersion)
+			if err := gethrlp.Encode(&buf, tickProofWire{
+				proof.FRICommitments, proof.QueryResponses, proof.TraceLength,
+				proof.BlowupFactor, proof.NumQueries, proof.FieldModulus,
+				uint64(proof.ConstraintCount), proof.ConstraintEvalCommitment,
+			}); err != nil {
+				return nil, err
+			}
+		}
 	} else {
 		buf.WriteByte(0) // no proof
 	}
 
+	if buf.Len() > MaxTickSize {
+		return nil, ErrAggTickTooLarge
+	}
 	return buf.Bytes(), nil
 }
 
 // UnmarshalBinary decodes a MempoolAggregationTick from P2P data.
 func (t *MempoolAggregationTick) UnmarshalBinary(data []byte) error {
+	if len(data) > MaxTickSize {
+		return ErrAggTickTooLarge
+	}
 	if len(data) < 18 { // minimum: tick(8) + timestamp(8) + peerID_len(2)
 		return errors.New("stark_aggregation: tick data too short")
 	}
@@ -158,6 +198,9 @@ func (t *MempoolAggregationTick) UnmarshalBinary(data []byte) error {
 	if err := binary.Read(r, binary.BigEndian, &txCount); err != nil {
 		return err
 	}
+	if uint64(txCount)*32 > uint64(r.Len()) {
+		return io.ErrUnexpectedEOF
+	}
 	t.ValidTxHashes = make([]types.Hash, txCount)
 	for i := uint32(0); i < txCount; i++ {
 		if _, err := io.ReadFull(r, t.ValidTxHashes[i][:]); err != nil {
@@ -170,6 +213,9 @@ func (t *MempoolAggregationTick) UnmarshalBinary(data []byte) error {
 	if err := binary.Read(r, binary.BigEndian, &discardCount); err != nil {
 		return err
 	}
+	if uint64(discardCount)*32 > uint64(r.Len()) {
+		return io.ErrUnexpectedEOF
+	}
 	t.DiscardList = make([]types.Hash, discardCount)
 	for i := uint32(0); i < discardCount; i++ {
 		if _, err := io.ReadFull(r, t.DiscardList[i][:]); err != nil {
@@ -181,6 +227,9 @@ func (t *MempoolAggregationTick) UnmarshalBinary(data []byte) error {
 	var bfLen uint32
 	if err := binary.Read(r, binary.BigEndian, &bfLen); err != nil {
 		return err
+	}
+	if uint64(bfLen)*1 > uint64(r.Len()) {
+		return io.ErrUnexpectedEOF
 	}
 	t.ValidBitfield = make([]byte, bfLen)
 	if _, err := io.ReadFull(r, t.ValidBitfield); err != nil {
@@ -197,11 +246,39 @@ func (t *MempoolAggregationTick) UnmarshalBinary(data []byte) error {
 	if err := binary.Read(r, binary.BigEndian, &hasProof); err != nil {
 		return err
 	}
-	if hasProof == 1 {
-		t.AggregateProof = &proofs.STARKProofData{}
-		if _, err := io.ReadFull(r, t.AggregateProof.TraceCommitment[:]); err != nil {
+	t.AggregateProof = nil
+	switch hasProof {
+	case 0:
+		if r.Len() != 0 {
+			return ErrAggInvalidTick
+		}
+	case 1:
+		var proof proofs.STARKProofData
+		if _, err := io.ReadFull(r, proof.TraceCommitment[:]); err != nil {
 			return err
 		}
+		if r.Len() != 0 {
+			version, err := r.ReadByte()
+			if err != nil || version != tickProofVersion {
+				return ErrAggInvalidTick
+			}
+			var wire tickProofWire
+			if err := gethrlp.NewStream(r, uint64(r.Len())).Decode(&wire); err != nil || r.Len() != 0 ||
+				wire.ConstraintCount > uint64(MaxTickSize) || wire.TraceLength > uint64(MaxTickSize/32) {
+				return ErrAggInvalidTick
+			}
+			proof.FRICommitments = wire.FRICommitments
+			proof.QueryResponses = wire.QueryResponses
+			proof.TraceLength = wire.TraceLength
+			proof.BlowupFactor = wire.BlowupFactor
+			proof.NumQueries = wire.NumQueries
+			proof.FieldModulus = wire.FieldModulus
+			proof.ConstraintCount = int(wire.ConstraintCount)
+			proof.ConstraintEvalCommitment = wire.ConstraintEvalCommitment
+		}
+		t.AggregateProof = &proof
+	default:
+		return ErrAggInvalidTick
 	}
 
 	return nil
@@ -398,36 +475,25 @@ func (sa *STARKAggregator) MergeTick(remote *MempoolAggregationTick) error {
 	// Check actual serialized tick size against bandwidth limit.
 	serialized, err := remote.MarshalBinary()
 	if err != nil {
-		return ErrAggInvalidTick
+		return err
 	}
 	if len(serialized) > MaxTickSize {
 		return ErrAggTickTooLarge
 	}
 
-	// Verify the remote STARK proof.
-	valid, err := sa.prover.VerifySTARKProof(remote.AggregateProof, nil)
+	proof := remote.AggregateProof
+	if len(remote.ValidTxHashes) == 0 || proof.TraceLength != uint64(len(remote.ValidTxHashes)) ||
+		proof.NumQueries == 0 || len(proof.QueryResponses) != int(proof.NumQueries) ||
+		remote.TxMerkleRoot != computeTxMerkleRoot(remote.ValidTxHashes) {
+		return ErrAggMergeFailed
+	}
+	valid, err := sa.prover.VerifySTARKProof(proof, nil)
 	if err != nil || !valid {
 		return ErrAggMergeFailed
 	}
 
-	sa.mu.Lock()
-	defer sa.mu.Unlock()
-
-	// Remove discarded txs.
-	for _, hash := range remote.DiscardList {
-		delete(sa.validTxs, hash)
-	}
-
-	// Merge remote-proven transactions into the local valid set.
-	for _, txHash := range remote.ValidTxHashes {
-		if _, exists := sa.validTxs[txHash]; !exists {
-			sa.validTxs[txHash] = &ValidatedTx{
-				TxHash:       txHash,
-				ValidatedAt:  remote.Timestamp,
-				RemoteProven: true,
-			}
-		}
-	}
+	// The current trace proves no execution statement about the hashes.
+	// A peer tick cannot add or discard entries in the local validated set.
 
 	return nil
 }
@@ -463,9 +529,6 @@ func (sa *STARKAggregator) BroadcastTick(tick *MempoolAggregationTick) {
 func (sa *STARKAggregator) MergeTickAtSlot(remote *MempoolAggregationTick, slot uint64) error {
 	if err := sa.MergeTick(remote); err != nil {
 		return err
-	}
-	for _, h := range remote.ValidTxHashes {
-		sa.peerCache.MarkPeerValidated(h, remote.PeerID, slot)
 	}
 	sa.peerCache.AdvanceSlot(slot)
 	return nil

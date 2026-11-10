@@ -1,13 +1,11 @@
 package types_test
 
 import (
-	"encoding/binary"
 	"math/big"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/pqc"
-	"golang.org/x/crypto/sha3"
 )
 
 // newTestPQTx creates a test PQ transaction.
@@ -16,28 +14,9 @@ func newTestPQTx() *types.PQTransaction {
 	return types.NewPQTransaction(big.NewInt(1), 42, &to, big.NewInt(100), 100000, big.NewInt(10), []byte("test payload"))
 }
 
-// pqTestSigningHash reproduces pqRealSigningHash for test-side signing.
 func pqTestSigningHash(tx *types.PQTransaction) []byte {
-	d := sha3.NewLegacyKeccak256()
-	if tx.ChainID != nil {
-		d.Write(tx.ChainID.Bytes())
-	}
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], tx.Nonce)
-	d.Write(buf[:])
-	if tx.To != nil {
-		d.Write(tx.To[:])
-	}
-	if tx.Value != nil {
-		d.Write(tx.Value.Bytes())
-	}
-	binary.BigEndian.PutUint64(buf[:], tx.Gas)
-	d.Write(buf[:])
-	if tx.GasPrice != nil {
-		d.Write(tx.GasPrice.Bytes())
-	}
-	d.Write(tx.Data)
-	return d.Sum(nil)
+	hash := tx.SigningHash()
+	return hash[:]
 }
 
 // signMLDSATx signs a test tx with ML-DSA and returns a wired-up tx.
@@ -95,6 +74,7 @@ func TestPQTxValidatorRealValidateFalcon(t *testing.T) {
 		t.Fatalf("Falcon keygen: %v", err)
 	}
 	tx := newTestPQTx()
+	tx.PQSignatureType = types.PQSigTypeFalcon
 	sig, err := signer.Sign(kp.SecretKey, pqTestSigningHash(tx))
 	if err != nil {
 		t.Fatalf("Falcon sign: %v", err)
@@ -118,6 +98,7 @@ func TestPQTxValidatorRealValidateSPHINCS(t *testing.T) {
 		t.Fatalf("SPHINCS+ keygen: %v", err)
 	}
 	tx := newTestPQTx()
+	tx.PQSignatureType = types.PQSigTypeSPHINCS
 	sig, err := signer.Sign(kp.SecretKey, pqTestSigningHash(tx))
 	if err != nil {
 		t.Fatalf("SPHINCS+ sign: %v", err)
@@ -169,6 +150,7 @@ func TestPQTxValidatorRealWrongAlgorithm(t *testing.T) {
 		t.Fatalf("Falcon keygen: %v", err)
 	}
 	tx := newTestPQTx()
+	tx.PQSignatureType = types.PQSigTypeFalcon
 	sig, err := falconSigner.Sign(kp.SecretKey, pqTestSigningHash(tx))
 	if err != nil {
 		t.Fatalf("Falcon sign: %v", err)
@@ -394,6 +376,7 @@ func TestPQTxValidatorRealBatchEmpty(t *testing.T) {
 
 func TestPQTxValidatorRealNoVerifier(t *testing.T) {
 	v := types.NewPQTxValidatorReal()
+	v.RegisterSigner(types.PQSigTypeMLDSA, nil)
 	tx := newTestPQTx()
 	tx.PQSignatureType = types.PQSigTypeMLDSA
 	tx.PQPublicKey = make([]byte, types.DilithiumPubKeySize)

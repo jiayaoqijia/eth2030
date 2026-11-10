@@ -185,6 +185,15 @@ func (sp *STARKProver) VerifySTARKProof(proof *STARKProofData, publicInputs []Fi
 		return false, ErrSTARKFRIFailed
 	}
 
+	if proof.NumQueries == 0 || len(proof.QueryResponses) != int(proof.NumQueries) {
+		return false, ErrSTARKVerifyFailed
+	}
+	for _, commitment := range proof.FRICommitments {
+		if commitment == ([32]byte{}) {
+			return false, ErrSTARKVerifyFailed
+		}
+	}
+
 	// Verify each query response.
 	for _, qr := range proof.QueryResponses {
 		if !sp.verifyQuery(proof, qr) {

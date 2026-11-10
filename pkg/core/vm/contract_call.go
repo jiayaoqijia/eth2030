@@ -188,12 +188,7 @@ func (pr *PrecompileRouter) RunPrecompile(addr types.Address, input []byte, gas 
 	if !ok {
 		return nil, gas, fmt.Errorf("no precompile at address %s", addr.Hex())
 	}
-	required := p.RequiredGas(input)
-	if gas < required {
-		return nil, 0, ErrOutOfGas
-	}
-	output, err := p.Run(input)
-	return output, gas - required, err
+	return runPrecompile(p, input, gas)
 }
 
 // CallContext holds the contextual information needed to execute a CALL-family

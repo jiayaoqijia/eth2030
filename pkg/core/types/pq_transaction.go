@@ -103,6 +103,33 @@ func (tx *PQTransaction) SignWithPQ(sigType uint8, pubKey, signature []byte) {
 	copy(tx.PQSignature, signature)
 }
 
+// SigningHash hashes the typed unsigned envelope with a length-delimited
+// RLP payload. Signatures are excluded and the algorithm is authenticated.
+func (tx *PQTransaction) SigningHash() Hash {
+	payload, err := rlp.EncodeToBytes(struct {
+		ChainID         *big.Int
+		Nonce           uint64
+		To              []byte
+		Value           *big.Int
+		Gas             uint64
+		GasPrice        *big.Int
+		Data            []byte
+		PQSignatureType uint8
+	}{
+		bigOrZero(tx.ChainID), tx.Nonce, addressPtrToBytes(tx.To), bigOrZero(tx.Value),
+		tx.Gas, bigOrZero(tx.GasPrice), tx.Data, tx.PQSignatureType,
+	})
+	if err != nil {
+		return Hash{}
+	}
+	h := sha3.NewLegacyKeccak256()
+	h.Write([]byte{PQTransactionType})
+	h.Write(payload)
+	var digest Hash
+	copy(digest[:], h.Sum(nil))
+	return digest
+}
+
 // Hash computes the Keccak-256 hash of the transaction.
 func (tx *PQTransaction) Hash() Hash {
 	d := sha3.NewLegacyKeccak256()

@@ -1,5 +1,13 @@
 # Lean4 Verification Check-list
 
+## Cryptography Regression Fixes
+
+- [x] Wire PQ signature verification through transaction admission and native execution.
+- [x] Activate canonical BLS precompiles at Prague and preserve historical native execution rules.
+- [x] Correct RLPx identity, PeerDAS cell validation, and ECIES empty messages.
+- [x] Repair proof batch deadlines and STARK gossip round-tripping.
+- [x] Verify the regression probes, upstream vectors, and the full Go suite.
+
 ## Public Cryptography Library Migration (2026-11-10)
 
 - [x] Replace secp256k1 signing and recovery, BN254 precompile arithmetic, and BLAKE2b compression.

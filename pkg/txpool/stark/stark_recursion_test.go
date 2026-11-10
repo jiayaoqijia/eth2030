@@ -7,7 +7,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
-func TestMergeTick_MergesRemoteTxs(t *testing.T) {
+func TestMergeTick_PreservesLocalValidation(t *testing.T) {
 	local := NewSTARKAggregator("node-local")
 	remote := NewSTARKAggregator("node-remote")
 
@@ -32,7 +32,7 @@ func TestMergeTick_MergesRemoteTxs(t *testing.T) {
 		t.Fatalf("MergeTick failed: %v", err)
 	}
 
-	// Local aggregator should now have both hashes.
+	// Remote hints cannot change the local validated set.
 	local.mu.RLock()
 	_, hasLocal := local.validTxs[localHash]
 	_, hasRemote := local.validTxs[remoteHash]
@@ -41,47 +41,40 @@ func TestMergeTick_MergesRemoteTxs(t *testing.T) {
 	if !hasLocal {
 		t.Error("local tx hash missing after merge")
 	}
-	if !hasRemote {
-		t.Error("remote tx hash missing after merge")
+	if hasRemote {
+		t.Error("remote tx was incorrectly treated as validated")
 	}
-	if local.PendingCount() != 2 {
-		t.Errorf("expected 2 pending txs, got %d", local.PendingCount())
+	if local.PendingCount() != 1 {
+		t.Errorf("expected 1 pending tx, got %d", local.PendingCount())
 	}
 }
 
-func TestMergeTick_RemoteProvenFlag(t *testing.T) {
-	local := NewSTARKAggregator("node-local")
-	remote := NewSTARKAggregator("node-remote")
-
-	// Add a local tx.
-	var localHash types.Hash
-	localHash[0] = 0x01
-	local.AddValidatedTx(localHash, []byte("proof"), 21000)
-
-	// Add a remote tx.
-	var remoteHash types.Hash
-	remoteHash[0] = 0x02
-	remote.AddValidatedTx(remoteHash, []byte("proof"), 42000)
-
-	remoteTick, err := remote.GenerateTick()
+func TestMergeTick_ProofWireRoundTrip(t *testing.T) {
+	local := NewSTARKAggregator("local")
+	remote := NewSTARKAggregator("remote")
+	hash := types.Hash{1}
+	remote.AddValidatedTx(hash, []byte("proof"), 21000)
+	tick, err := remote.GenerateTick()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := local.MergeTick(remoteTick); err != nil {
+	wire, err := tick.MarshalBinary()
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	local.mu.RLock()
-	defer local.mu.RUnlock()
-
-	// Local tx should not be remote-proven.
-	if local.validTxs[localHash].RemoteProven {
-		t.Error("local tx should have RemoteProven=false")
+	var decoded MempoolAggregationTick
+	if err := decoded.UnmarshalBinary(wire); err != nil {
+		t.Fatal(err)
 	}
-
-	// Remote tx should be remote-proven.
-	if !local.validTxs[remoteHash].RemoteProven {
-		t.Error("remote tx should have RemoteProven=true")
+	if err := local.MergeTickAtSlot(&decoded, 1); err != nil {
+		t.Fatal(err)
+	}
+	if local.PendingCount() != 0 || local.PeerCache().IsPeerValidated(hash) {
+		t.Fatal("remote hint gained validation authority")
+	}
+	decoded.AggregateProof.QueryResponses = nil
+	if err := local.MergeTickAtSlot(&decoded, 2); err == nil {
+		t.Fatal("incomplete proof was accepted")
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/crypto/bls"
+	"github.com/ethereum/go-ethereum/common"
+	gethvm "github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto/blake2b"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -571,4 +573,30 @@ var PrecompiledContractsGlamsterdan = map[types.Address]PrecompiledContract{
 	types.BytesToAddress([]byte{0x13}): &bls12MapFp2ToG2{},
 	// EIP-7212: P256VERIFY precompile.
 	types.BytesToAddress([]byte{0x01, 0x00}): &p256Verify{},
+}
+
+// PrecompiledContractsPrague adds the EIP-2537 contracts at their assigned
+// addresses, with the encoding and gas tables from the pinned Geth release.
+var precompiledContractsCancunStandardBLS = func() map[types.Address]PrecompiledContract {
+	out := copyPrecompileMap(PrecompiledContractsCancun)
+	for id := byte(0x0b); id <= 0x13; id++ {
+		delete(out, types.Address{19: id})
+	}
+	return out
+}()
+
+type eip2537Precompile struct{ PrecompiledContract }
+
+var PrecompiledContractsPrague = standardBLSPrecompiles(precompiledContractsCancunStandardBLS)
+var precompiledContractsGlamsterdanStandardBLS = standardBLSPrecompiles(PrecompiledContractsGlamsterdan)
+
+func standardBLSPrecompiles(base map[types.Address]PrecompiledContract) map[types.Address]PrecompiledContract {
+	out := copyPrecompileMap(base)
+	for id := byte(0x0b); id <= 0x11; id++ {
+		out[types.Address{19: id}] = eip2537Precompile{gethvm.PrecompiledContractsPrague[common.Address{19: id}]}
+	}
+	// The legacy G2 map at 0x13 is outside the standard set.
+	delete(out, types.Address{19: 0x12})
+	delete(out, types.Address{19: 0x13})
+	return out
 }

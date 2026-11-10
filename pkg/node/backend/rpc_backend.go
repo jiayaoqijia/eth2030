@@ -325,6 +325,7 @@ func (b *RPCBackend) EVMCall(from types.Address, to *types.Address, data []byte,
 			IsEIP7708:        rules.IsEIP7708,
 			IsEIP7954:        rules.IsEIP7954,
 			IsIPlus:          rules.IsIPlus,
+			LegacyNativeBLS:  rules.LegacyNativeBLS,
 		}
 		evm.SetJumpTable(vm.SelectJumpTable(forkRules))
 		evm.SetPrecompiles(vm.SelectPrecompiles(forkRules))

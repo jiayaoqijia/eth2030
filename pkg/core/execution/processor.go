@@ -867,18 +867,23 @@ func applyTransactionFull(config *corconfig.ChainConfig, getHash vm.GetHashFunc,
 func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
 	// Enforce I+ fork guard for PQ transactions.
 	rules := config.Rules(header.Number, config.IsMerge(), header.Time)
-	if tx.Type() == types.PQTransactionType && !rules.IsIPlus {
-		return nil, 0, fmt.Errorf("PQ transactions require I+ fork")
+	if pq, ok := tx.Inner().(*types.PQTransaction); ok {
+		if !rules.IsIPlus {
+			return nil, 0, fmt.Errorf("PQ transactions require I+ fork")
+		}
+		if config.ChainID == nil || pq.ChainID == nil || pq.ChainID.Cmp(config.ChainID) != 0 {
+			return nil, 0, errors.New("PQ transaction chain ID mismatch")
+		}
+		if err := types.ValidatePQTransactionSignature(pq); err != nil {
+			return nil, 0, err
+		}
+		tx.SetSender(types.PQPubKeyToAddress(pq.PQPublicKey))
 	}
 
 	// Recover sender if not already cached.
 	if tx.Sender() == nil {
 		if aatx, ok := tx.Inner().(*types.AATx); ok {
 			tx.SetSender(aatx.Sender)
-		} else if tx.Type() == types.PQTransactionType {
-			if pk := tx.PQPublicKey(); len(pk) > 0 {
-				tx.SetSender(types.PQPubKeyToAddress(pk))
-			}
 		} else if config.ChainID != nil {
 			signer := types.NewLondonSigner(config.ChainID.Uint64())
 			if addr, err := signer.Sender(tx); err == nil {
@@ -1400,6 +1405,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 			IsEIP7708:        rules.IsEIP7708,
 			IsEIP7954:        rules.IsEIP7954,
 			IsIPlus:          rules.IsIPlus,
+			LegacyNativeBLS:  rules.LegacyNativeBLS,
 		}
 		evm.SetJumpTable(vm.SelectJumpTable(forkRules))
 		precompileAddrs = vm.SelectPrecompiles(forkRules)

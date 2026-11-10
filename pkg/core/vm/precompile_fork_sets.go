@@ -113,12 +113,7 @@ func (fps *ForkPrecompileSet) Run(addr types.Address, input []byte, gas uint64) 
 	if !ok {
 		return nil, gas, fmt.Errorf("%w: %s", ErrPrecompileNotFound, addr.Hex())
 	}
-	required := p.RequiredGas(input)
-	if gas < required {
-		return nil, 0, ErrOutOfGas
-	}
-	output, err := p.Run(input)
-	return output, gas - required, err
+	return runPrecompile(p, input, gas)
 }
 
 // Addresses returns the sorted list of active precompile addresses.
@@ -244,7 +239,7 @@ func addr2(hi, lo byte) types.Address {
 
 // registerDefaults populates the manager with canonical fork precompile sets.
 func (m *PrecompileForkManager) registerDefaults() {
-	// Cancun set: standard 0x01-0x0a plus BLS 0x0b-0x13 plus P256 at 0x0100.
+	// Cancun set includes the pre-Prague contracts.
 	cancunActivations := []PrecompileActivation{
 		{addr(0x01), "ecRecover", ForkHomestead, &ecrecover{}},
 		{addr(0x02), "sha256", ForkHomestead, &sha256hash{}},
@@ -256,18 +251,22 @@ func (m *PrecompileForkManager) registerDefaults() {
 		{addr(0x08), "ecPairing", ForkByzantium, &bn256Pairing{}},
 		{addr(0x09), "blake2f", ForkIstanbul, &blake2F{}},
 		{addr(0x0a), "pointEval", ForkCancun, &kzgPointEvaluation{}},
-		{addr(0x0b), "bls12G1Add", ForkCancun, &bls12G1Add{}},
-		{addr(0x0c), "bls12G1Mul", ForkCancun, &bls12G1Mul{}},
-		{addr(0x0d), "bls12G1MSM", ForkCancun, &bls12G1MSM{}},
-		{addr(0x0e), "bls12G2Add", ForkCancun, &bls12G2Add{}},
-		{addr(0x0f), "bls12G2Mul", ForkCancun, &bls12G2Mul{}},
-		{addr(0x10), "bls12G2MSM", ForkCancun, &bls12G2MSM{}},
-		{addr(0x11), "bls12Pairing", ForkCancun, &bls12Pairing{}},
-		{addr(0x12), "bls12MapFpToG1", ForkCancun, &bls12MapFpToG1{}},
-		{addr(0x13), "bls12MapFp2ToG2", ForkCancun, &bls12MapFp2ToG2{}},
+
 		{addr2(0x01, 0x00), "p256Verify", ForkCancun, &p256Verify{}},
 	}
 	m.sets[ForkCancun] = newForkPrecompileSet(ForkCancun, cancunActivations)
+
+	blsActivations := []PrecompileActivation{
+		{addr(0x0b), "bls12G1Add", ForkPrague, PrecompiledContractsPrague[addr(0x0b)]},
+		{addr(0x0c), "bls12G1MSM", ForkPrague, PrecompiledContractsPrague[addr(0x0c)]},
+		{addr(0x0d), "bls12G2Add", ForkPrague, PrecompiledContractsPrague[addr(0x0d)]},
+		{addr(0x0e), "bls12G2MSM", ForkPrague, PrecompiledContractsPrague[addr(0x0e)]},
+		{addr(0x0f), "bls12Pairing", ForkPrague, PrecompiledContractsPrague[addr(0x0f)]},
+		{addr(0x10), "bls12MapFpToG1", ForkPrague, PrecompiledContractsPrague[addr(0x10)]},
+		{addr(0x11), "bls12MapFp2ToG2", ForkPrague, PrecompiledContractsPrague[addr(0x11)]},
+	}
+	pragueActivations := append(append([]PrecompileActivation(nil), cancunActivations...), blsActivations...)
+	m.sets[ForkPrague] = newForkPrecompileSet(ForkPrague, pragueActivations)
 
 	// Glamsterdan set: same addresses but with repriced gas for ecAdd, blake2f,
 	// pointEval, and ecPairing. Also removes 0x12 (moved to system contract
@@ -283,16 +282,10 @@ func (m *PrecompileForkManager) registerDefaults() {
 		{addr(0x08), "ecPairing", ForkGlamsterdan, &bn256PairingGlamsterdan{}},
 		{addr(0x09), "blake2f", ForkGlamsterdan, &blake2FGlamsterdan{}},
 		{addr(0x0a), "pointEval", ForkGlamsterdan, &kzgPointEvaluationGlamsterdan{}},
-		{addr(0x0b), "bls12G1Add", ForkCancun, &bls12G1Add{}},
-		{addr(0x0c), "bls12G1Mul", ForkCancun, &bls12G1Mul{}},
-		{addr(0x0d), "bls12G1MSM", ForkCancun, &bls12G1MSM{}},
-		{addr(0x0e), "bls12G2Add", ForkCancun, &bls12G2Add{}},
-		{addr(0x0f), "bls12G2Mul", ForkCancun, &bls12G2Mul{}},
-		{addr(0x10), "bls12G2MSM", ForkCancun, &bls12G2MSM{}},
-		{addr(0x11), "bls12Pairing", ForkCancun, &bls12Pairing{}},
+
 		// 0x12 removed: EIP-7997 deterministic CREATE2 factory (system contract).
-		{addr(0x13), "bls12MapFp2ToG2", ForkCancun, &bls12MapFp2ToG2{}},
+
 		{addr2(0x01, 0x00), "p256Verify", ForkCancun, &p256Verify{}},
 	}
-	m.sets[ForkGlamsterdan] = newForkPrecompileSet(ForkGlamsterdan, glamActivations)
+	m.sets[ForkGlamsterdan] = newForkPrecompileSet(ForkGlamsterdan, append(glamActivations, blsActivations...))
 }

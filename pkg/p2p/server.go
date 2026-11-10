@@ -150,8 +150,18 @@ func (srv *Server) Start() error {
 			if err != nil {
 				return err
 			}
-			srv.config.RLPxPrivateKey = key
+		} else {
+			if key.D == nil || key.D.Sign() <= 0 || key.D.BitLen() > 256 {
+				return errors.New("p2p: invalid RLPx private key")
+			}
+			derived, err := gethcrypto.ToECDSA(key.D.FillBytes(make([]byte, 32)))
+			if err != nil || key.Curve != gethcrypto.S256() ||
+				key.X == nil || key.Y == nil || !key.PublicKey.Equal(&derived.PublicKey) {
+				return errors.New("p2p: invalid RLPx private key")
+			}
+			key = derived
 		}
+		srv.config.RLPxPrivateKey = key
 		srv.localID = hex.EncodeToString(gethcrypto.FromECDSAPub(&key.PublicKey)[1:])
 	}
 
@@ -342,6 +352,8 @@ func (srv *Server) Running() bool {
 
 // LocalID returns the local node identifier used in the devp2p handshake.
 func (srv *Server) LocalID() string {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
 	return srv.localID
 }
 
@@ -380,7 +392,7 @@ func (srv *Server) localHello() *wire.HelloPacket {
 	for i, p := range srv.config.Protocols {
 		caps[i] = wire.Cap{Name: p.Name, Version: p.Version}
 	}
-	id := srv.localID
+	id := srv.LocalID()
 	if srv.config.EnableRLPx {
 		id = string(gethcrypto.FromECDSAPub(&srv.config.RLPxPrivateKey.PublicKey)[1:])
 	}

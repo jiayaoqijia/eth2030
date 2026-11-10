@@ -31,16 +31,16 @@ const (
 // PQ signature and public key size constants per algorithm.
 const (
 	// ML-DSA-65 sizes.
-	PQMLDSAPubKeySize = 1952
-	PQMLDSASigSize    = 3293
+	PQMLDSAPubKeySize = DilithiumPubKeySize
+	PQMLDSASigSize    = DilithiumSigSize
 
 	// Falcon-512 sizes.
-	PQFalconPubKeySize = 897
-	PQFalconSigSize    = 690
+	PQFalconPubKeySize = FalconPubKeySize
+	PQFalconSigSize    = FalconSigSize
 
 	// SPHINCS+-SHA256 sizes.
-	PQSPHINCSPubKeySize = 32
-	PQSPHINCSPSigSize   = 49216
+	PQSPHINCSPubKeySize = SPHINCSPlusPubKeySize
+	PQSPHINCSPSigSize   = SPHINCSPlusSigSize
 )
 
 // Gas cost table for PQ signature verification (per EIP-8051 draft).
@@ -224,7 +224,7 @@ func (v *PQTxValidator) ValidatePQSignature(tx *PQTransaction) error {
 	}
 
 	// Compute the signing message from the transaction hash.
-	txHash := tx.Hash()
+	txHash := tx.SigningHash()
 	if !entry.Verify(tx.PQPublicKey, txHash[:], tx.PQSignature) {
 		return ErrPQValidateVerifyFailed
 	}
@@ -352,46 +352,6 @@ func (p *PQTxPool) GetPQTx(hash Hash) *PQTransaction {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.pending[hash]
-}
-
-// --- Default verification functions ---
-// These check signature size and non-trivial content. In production,
-// they would call into the crypto/pqc package's real verification.
-
-func pqDefaultVerifyMLDSA(pk, msg, sig []byte) bool {
-	if len(pk) != PQMLDSAPubKeySize || len(sig) != PQMLDSASigSize || len(msg) == 0 {
-		return false
-	}
-	return pqSigHasContent(sig)
-}
-
-func pqDefaultVerifyFalcon(pk, msg, sig []byte) bool {
-	if len(pk) != PQFalconPubKeySize || len(sig) != PQFalconSigSize || len(msg) == 0 {
-		return false
-	}
-	return pqSigHasContent(sig)
-}
-
-func pqDefaultVerifySPHINCS(pk, msg, sig []byte) bool {
-	if len(pk) != PQSPHINCSPubKeySize || len(sig) != PQSPHINCSPSigSize || len(msg) == 0 {
-		return false
-	}
-	return pqSigHasContent(sig)
-}
-
-// pqSigHasContent checks that the first 32 bytes of a signature contain
-// at least one non-zero byte, rejecting trivially empty signatures.
-func pqSigHasContent(sig []byte) bool {
-	check := 32
-	if len(sig) < check {
-		check = len(sig)
-	}
-	for _, b := range sig[:check] {
-		if b != 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // PQAlgorithmString returns the string representation of a PQ algorithm.

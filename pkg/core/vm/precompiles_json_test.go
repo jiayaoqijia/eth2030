@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -257,178 +258,30 @@ func TestJsonPointEvaluation(t *testing.T) {
 	}
 }
 
-// --- BLS12-381 precompile success fixture tests ---
-// Our BLS12-381 implementation uses different gas constants than the go-ethereum
-// Pectra-era fixtures. Gas checks are skipped. Some operations (G2, MapG1, MapG2,
-// pairing) also produce different outputs due to differing hash-to-curve or
-// cofactor clearing implementations; those are individually skipped.
+// --- EIP-2537 success vectors ---
 
-func TestJsonBLSG1Add(t *testing.T) {
-	fixtures := loadPrecompileFixtures(t, "blsG1Add.json")
-	p := getPrecompile(0x0b)
-	for _, tc := range fixtures {
+func runPragueBLSFixtures(t *testing.T, file string, address byte, checkGas bool) {
+	t.Helper()
+	p := SelectPrecompiles(ForkRules{IsPrague: true})[types.Address{19: address}]
+	for _, tc := range loadPrecompileFixtures(t, file) {
 		t.Run(tc.Name, func(t *testing.T) {
 			runPrecompileOutputTest(t, p, tc)
-			// Gas schedule differs (our: 500, fixture: 375).
-		})
-	}
-}
-
-func TestJsonBLSG1Mul(t *testing.T) {
-	fixtures := loadPrecompileFixtures(t, "blsG1Mul.json")
-	p := getPrecompile(0x0c)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileOutputTest(t, p, tc)
-			// Gas schedule differs.
-		})
-	}
-}
-
-func TestJsonBLSG1MultiExp(t *testing.T) {
-	fixtures := loadPrecompileFixtures(t, "blsG1MultiExp.json")
-	p := getPrecompile(0x0d)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileOutputTest(t, p, tc)
-			// Gas schedule differs.
-		})
-	}
-}
-
-func TestJsonBLSG2Add(t *testing.T) {
-	// Our BLS12-381 G2 implementation produces different outputs than go-ethereum's
-	// for some test vectors (point decoding/on-curve check differences).
-	fixtures := loadPrecompileFixtures(t, "blsG2Add.json")
-	p := getPrecompile(0x0e)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			input := hexDecode(t, tc.Input)
-			out, err := p.Run(input)
-			if err != nil {
-				if tc.Expected == "" {
-					return
-				}
-				// Our G2 decoding rejects some valid points; skip those.
-				t.Skipf("G2 point decoding differs from go-ethereum: %v", err)
-			}
-			gotHex := hex.EncodeToString(out)
-			if !strings.EqualFold(gotHex, tc.Expected) {
-				t.Skipf("G2 output differs from go-ethereum (our impl uses different G2 encoding)")
+			if checkGas {
+				runPrecompileGasTest(t, p, tc)
 			}
 		})
 	}
 }
 
-func TestJsonBLSG2Mul(t *testing.T) {
-	// Our BLS12-381 G2 implementation may differ from go-ethereum's for some vectors.
-	fixtures := loadPrecompileFixtures(t, "blsG2Mul.json")
-	p := getPrecompile(0x0f)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			input := hexDecode(t, tc.Input)
-			out, err := p.Run(input)
-			if err != nil {
-				if tc.Expected == "" {
-					return
-				}
-				t.Skipf("G2 point decoding differs from go-ethereum: %v", err)
-			}
-			gotHex := hex.EncodeToString(out)
-			if !strings.EqualFold(gotHex, tc.Expected) {
-				t.Skipf("G2 output differs from go-ethereum")
-			}
-		})
-	}
-}
-
-func TestJsonBLSG2MultiExp(t *testing.T) {
-	// Our BLS12-381 G2 MSM may produce different results.
-	fixtures := loadPrecompileFixtures(t, "blsG2MultiExp.json")
-	p := getPrecompile(0x10)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			input := hexDecode(t, tc.Input)
-			out, err := p.Run(input)
-			if err != nil {
-				if tc.Expected == "" {
-					return
-				}
-				t.Skipf("G2 MSM point decoding differs: %v", err)
-			}
-			gotHex := hex.EncodeToString(out)
-			if !strings.EqualFold(gotHex, tc.Expected) {
-				t.Skipf("G2 MSM output differs from go-ethereum")
-			}
-		})
-	}
-}
-
-func TestJsonBLSPairing(t *testing.T) {
-	// BLS pairing involves G2 points; our G2 decoding differs.
-	fixtures := loadPrecompileFixtures(t, "blsPairing.json")
-	p := getPrecompile(0x11)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			input := hexDecode(t, tc.Input)
-			out, err := p.Run(input)
-			if err != nil {
-				if tc.Expected == "" {
-					return
-				}
-				t.Skipf("pairing G2 decoding differs: %v", err)
-			}
-			gotHex := hex.EncodeToString(out)
-			if !strings.EqualFold(gotHex, tc.Expected) {
-				t.Skipf("pairing output differs from go-ethereum")
-			}
-		})
-	}
-}
-
-func TestJsonBLSMapG1(t *testing.T) {
-	// Our hash-to-G1 implementation produces different outputs than go-ethereum's.
-	fixtures := loadPrecompileFixtures(t, "blsMapG1.json")
-	p := getPrecompile(0x12)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			input := hexDecode(t, tc.Input)
-			out, err := p.Run(input)
-			if err != nil {
-				if tc.Expected == "" {
-					return
-				}
-				t.Skipf("MapFpToG1 error: %v", err)
-			}
-			gotHex := hex.EncodeToString(out)
-			if !strings.EqualFold(gotHex, tc.Expected) {
-				t.Skipf("MapFpToG1 output differs (different hash-to-curve impl)")
-			}
-		})
-	}
-}
-
-func TestJsonBLSMapG2(t *testing.T) {
-	// Our hash-to-G2 implementation produces different outputs than go-ethereum's.
-	fixtures := loadPrecompileFixtures(t, "blsMapG2.json")
-	p := getPrecompile(0x13)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			input := hexDecode(t, tc.Input)
-			out, err := p.Run(input)
-			if err != nil {
-				if tc.Expected == "" {
-					return
-				}
-				t.Skipf("MapFp2ToG2 error: %v", err)
-			}
-			gotHex := hex.EncodeToString(out)
-			if !strings.EqualFold(gotHex, tc.Expected) {
-				t.Skipf("MapFp2ToG2 output differs (different hash-to-curve impl)")
-			}
-		})
-	}
-}
+func TestJsonBLSG1Add(t *testing.T)      { runPragueBLSFixtures(t, "blsG1Add.json", 0x0b, true) }
+func TestJsonBLSG1Mul(t *testing.T)      { runPragueBLSFixtures(t, "blsG1Mul.json", 0x0c, false) }
+func TestJsonBLSG1MultiExp(t *testing.T) { runPragueBLSFixtures(t, "blsG1MultiExp.json", 0x0c, true) }
+func TestJsonBLSG2Add(t *testing.T)      { runPragueBLSFixtures(t, "blsG2Add.json", 0x0d, true) }
+func TestJsonBLSG2Mul(t *testing.T)      { runPragueBLSFixtures(t, "blsG2Mul.json", 0x0e, false) }
+func TestJsonBLSG2MultiExp(t *testing.T) { runPragueBLSFixtures(t, "blsG2MultiExp.json", 0x0e, true) }
+func TestJsonBLSPairing(t *testing.T)    { runPragueBLSFixtures(t, "blsPairing.json", 0x0f, true) }
+func TestJsonBLSMapG1(t *testing.T)      { runPragueBLSFixtures(t, "blsMapG1.json", 0x10, true) }
+func TestJsonBLSMapG2(t *testing.T)      { runPragueBLSFixtures(t, "blsMapG2.json", 0x11, true) }
 
 // --- Fail fixture tests ---
 
@@ -442,100 +295,60 @@ func TestJsonFailBlake2F(t *testing.T) {
 	}
 }
 
-func TestJsonFailBLSG1Add(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsG1Add.json")
-	p := getPrecompile(0x0b)
-	for _, tc := range fixtures {
+func runPragueBLSFailureFixtures(t *testing.T, file string, address byte) {
+	t.Helper()
+	p := SelectPrecompiles(ForkRules{IsPrague: true})[types.Address{19: address}]
+	for _, tc := range loadPrecompileFailFixtures(t, file) {
 		t.Run(tc.Name, func(t *testing.T) {
 			runPrecompileFailTest(t, p, tc)
 		})
 	}
 }
 
-func TestJsonFailBLSG1Mul(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsG1Mul.json")
-	p := getPrecompile(0x0c)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			// Our impl doesn't check G1 subgroup membership for mul.
-			if strings.Contains(tc.Name, "not_in_correct_subgroup") {
-				t.Skip("G1 subgroup check not implemented")
-			}
-			runPrecompileFailTest(t, p, tc)
-		})
-	}
-}
-
+func TestJsonFailBLSG1Add(t *testing.T) { runPragueBLSFailureFixtures(t, "fail-blsG1Add.json", 0x0b) }
 func TestJsonFailBLSG1MultiExp(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsG1MultiExp.json")
-	p := getPrecompile(0x0d)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			// Our impl doesn't check G1 subgroup membership for MSM.
-			if strings.Contains(tc.Name, "not_in_correct_subgroup") {
-				t.Skip("G1 subgroup check not implemented")
-			}
-			runPrecompileFailTest(t, p, tc)
-		})
-	}
+	runPragueBLSFailureFixtures(t, "fail-blsG1MultiExp.json", 0x0c)
 }
-
-func TestJsonFailBLSG2Add(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsG2Add.json")
-	p := getPrecompile(0x0e)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileFailTest(t, p, tc)
-		})
-	}
-}
-
-func TestJsonFailBLSG2Mul(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsG2Mul.json")
-	p := getPrecompile(0x0f)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileFailTest(t, p, tc)
-		})
-	}
-}
-
+func TestJsonFailBLSG2Add(t *testing.T) { runPragueBLSFailureFixtures(t, "fail-blsG2Add.json", 0x0d) }
 func TestJsonFailBLSG2MultiExp(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsG2MultiExp.json")
-	p := getPrecompile(0x10)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileFailTest(t, p, tc)
-		})
-	}
+	runPragueBLSFailureFixtures(t, "fail-blsG2MultiExp.json", 0x0e)
 }
-
 func TestJsonFailBLSPairing(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsPairing.json")
-	p := getPrecompile(0x11)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileFailTest(t, p, tc)
-		})
-	}
+	runPragueBLSFailureFixtures(t, "fail-blsPairing.json", 0x0f)
 }
+func TestJsonFailBLSMapG1(t *testing.T) { runPragueBLSFailureFixtures(t, "fail-blsMapG1.json", 0x10) }
+func TestJsonFailBLSMapG2(t *testing.T) { runPragueBLSFailureFixtures(t, "fail-blsMapG2.json", 0x11) }
 
-func TestJsonFailBLSMapG1(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsMapG1.json")
-	p := getPrecompile(0x12)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileFailTest(t, p, tc)
-		})
+func TestNativeBLSActivationAndLegacyReplay(t *testing.T) {
+	input := make([]byte, 128)
+	input[63], input[127] = 1, 2
+	if _, ok := SelectPrecompiles(ForkRules{IsCancun: true})[types.Address{19: 0x0b}]; ok {
+		t.Fatal("BLS active before Prague")
 	}
-}
-
-func TestJsonFailBLSMapG2(t *testing.T) {
-	fixtures := loadPrecompileFailFixtures(t, "fail-blsMapG2.json")
-	p := getPrecompile(0x13)
-	for _, tc := range fixtures {
-		t.Run(tc.Name, func(t *testing.T) {
-			runPrecompileFailTest(t, p, tc)
-		})
+	for _, rules := range []ForkRules{{IsPrague: true}, {IsGlamsterdan: true}, {IsIPlus: true}} {
+		set := SelectPrecompiles(rules)
+		if _, ok := set[types.Address{19: 0x12}]; ok {
+			t.Fatal("precompile shadows the CREATE2 factory")
+		}
+		out, gas, err := runPrecompile(set[types.Address{19: 0x11}], input, 30_000)
+		if err != nil || len(out) != 256 || gas != 6_200 {
+			t.Fatalf("standard G2 map length=%d gas=%d err=%v", len(out), gas, err)
+		}
+		if _, gas, err := runPrecompile(set[types.Address{19: 0x11}], input[:127], 30_000); err == nil || gas != 0 {
+			t.Fatalf("invalid BLS input gas=%d err=%v", gas, err)
+		}
+	}
+	router := NewPrecompileRouter(SelectPrecompiles(ForkRules{IsPrague: true}))
+	if _, gas, err := router.RunPrecompile(types.Address{19: 0x11}, input[:127], 30_000); err == nil || gas != 0 {
+		t.Fatalf("routed invalid BLS input gas=%d err=%v", gas, err)
+	}
+	set := SelectPrecompiles(ForkRules{IsGlamsterdan: true, LegacyNativeBLS: true})
+	out, err := set[types.Address{19: 0x13}].Run(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(out)
+	if hex.EncodeToString(digest[:8]) != "0a57d5b455807f1e" {
+		t.Fatalf("historical G2 mapping digest = %x", digest[:8])
 	}
 }

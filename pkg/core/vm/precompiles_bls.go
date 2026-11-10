@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/bls"
 )
 
 // EIP-2537 BLS12-381 precompile addresses (0x0b - 0x13).
@@ -65,7 +66,7 @@ func (c *bls12G1Add) Run(input []byte) ([]byte, error) {
 	if len(input) != 2*bls12G1PointSize {
 		return nil, ErrBLS12InvalidInput
 	}
-	return crypto.BLS12G1Add(input)
+	return bls.LegacyBLS12G1Add(input)
 }
 
 // --- bls12G1Mul (address 0x0c) ---
@@ -120,7 +121,7 @@ func (c *bls12G2Add) Run(input []byte) ([]byte, error) {
 	if len(input) != 2*bls12G2PointSize {
 		return nil, ErrBLS12InvalidInput
 	}
-	return crypto.BLS12G2Add(input)
+	return bls.LegacyBLS12G2Add(input)
 }
 
 // --- bls12G2Mul (address 0x0f) ---
@@ -194,7 +195,7 @@ func (c *bls12MapFpToG1) Run(input []byte) ([]byte, error) {
 	if len(input) != bls12FpSize {
 		return nil, ErrBLS12InvalidInput
 	}
-	return crypto.BLS12MapFpToG1(input)
+	return bls.LegacyBLS12MapFpToG1(input)
 }
 
 // --- bls12MapFp2ToG2 (address 0x13) ---
@@ -210,7 +211,7 @@ func (c *bls12MapFp2ToG2) Run(input []byte) ([]byte, error) {
 	if len(input) != bls12Fp2Size {
 		return nil, ErrBLS12InvalidInput
 	}
-	return crypto.BLS12MapFp2ToG2(input)
+	return bls.LegacyBLS12MapFp2ToG2(input)
 }
 
 // --- helpers ---

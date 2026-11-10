@@ -1,5 +1,12 @@
 # Project Status
 
+## Cryptography Regression Fixes (2026-11-10)
+
+- Authenticated native PQ execution and transaction admission with a shared typed signing digest and the existing transaction wire format.
+- Matched the pinned Geth Prague activation and EIP-2537 contract layout. Historical native BLS replay uses an explicit chain configuration cutoff.
+- Corrected RLPx identity handling, PeerDAS cell-size consistency, empty ECIES messages, and proof batch deadlines. STARK gossip now transmits the complete proof and remains advisory.
+- The clean staged snapshot passed 206 Go test packages, builds, vet, tagged tests, Go-only tests, and targeted race checks. The BLS tests passed 914 success and failure vectors. The pinned EF gate reported 36,264 passes and 20 known outcomes with no unexpected failures or skips.
+
 ## Ethereum Client Cryptography Follow-Up (2026-11-10)
 
 - Traced Geth's secp256k1, EVM curves, KZG, Engine JWT, and keystore providers and the separate Lighthouse BLS and Verkle paths.

@@ -115,7 +115,8 @@ func decodeFp2(data []byte) (*blsFp2, error) {
 	if len(data) != 2*blsFpEncSize {
 		return nil, errBLS12InvalidField
 	}
-	// EIP-2537: Fp2 encoding is im || re (imaginary part first).
+	// The historical native ABI uses im || re. Standard EIP-2537 calls
+	// use the Geth precompile and its re || im encoding.
 	im, err := decodeFp(data[:blsFpEncSize])
 	if err != nil {
 		return nil, err
@@ -190,15 +191,24 @@ func encodeG2(p *BlsG2Point) []byte {
 
 // BLS12G1Add performs G1 point addition (precompile 0x0b).
 func BLS12G1Add(input []byte) ([]byte, error) {
+	return addG1(input, false)
+}
+
+// LegacyBLS12G1Add applies the historical native subgroup check.
+func LegacyBLS12G1Add(input []byte) ([]byte, error) {
+	return addG1(input, true)
+}
+
+func addG1(input []byte, subgroup bool) ([]byte, error) {
 	if len(input) != 2*blsG1EncSize {
 		return nil, errBLS12InvalidPoint
 	}
 
-	p1, err := decodeG1Point(input[:blsG1EncSize], false)
+	p1, err := decodeG1Point(input[:blsG1EncSize], subgroup)
 	if err != nil {
 		return nil, err
 	}
-	p2, err := decodeG1Point(input[blsG1EncSize:], false)
+	p2, err := decodeG1Point(input[blsG1EncSize:], subgroup)
 	if err != nil {
 		return nil, err
 	}
@@ -280,15 +290,24 @@ func BLS12G1MSM(input []byte) ([]byte, error) {
 
 // BLS12G2Add performs G2 point addition (precompile 0x0e).
 func BLS12G2Add(input []byte) ([]byte, error) {
+	return addG2(input, false)
+}
+
+// LegacyBLS12G2Add applies the historical native subgroup check.
+func LegacyBLS12G2Add(input []byte) ([]byte, error) {
+	return addG2(input, true)
+}
+
+func addG2(input []byte, subgroup bool) ([]byte, error) {
 	if len(input) != 2*blsG2EncSize {
 		return nil, errBLS12InvalidG2
 	}
 
-	p1, err := decodeG2Point(input[:blsG2EncSize], false)
+	p1, err := decodeG2Point(input[:blsG2EncSize], subgroup)
 	if err != nil {
 		return nil, err
 	}
-	p2, err := decodeG2Point(input[blsG2EncSize:], false)
+	p2, err := decodeG2Point(input[blsG2EncSize:], subgroup)
 	if err != nil {
 		return nil, err
 	}
