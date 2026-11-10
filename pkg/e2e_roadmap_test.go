@@ -382,12 +382,11 @@ func TestE2E_Roadmap_QuickSlotsTiming(t *testing.T) {
 		t.Fatalf("slots per epoch: got %d, want 4", cfg.SlotsPerEpoch)
 	}
 
-	genesis := time.Now().Add(-48 * time.Second) // 8 slots ago
+	genesis := time.Unix(1_700_000_000, 0)
 	sched := consensus.NewQuickSlotScheduler(cfg, genesis)
 
-	slot := sched.CurrentSlot()
-	if slot < 7 || slot > 9 {
-		t.Errorf("current slot: got %d, want ~8", slot)
+	if slot := sched.SlotAt(genesis.Add(48 * time.Second)); slot != 8 {
+		t.Errorf("slot after 48 seconds: got %d, want 8", slot)
 	}
 
 	epoch := sched.SlotToEpoch(8)

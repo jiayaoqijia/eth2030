@@ -131,7 +131,7 @@ func TestBloomContainsNegative(t *testing.T) {
 	// Test with an item that was not added. There's a small chance of a false
 	// positive, but with a 2048-bit filter and only 3 bits set, it's very unlikely.
 	if BloomContains(bloom, []byte("not-included-item-xyz-12345")) {
-		t.Log("false positive in bloom filter (unlikely but possible)")
+		t.Error("fixed negative input matched the Bloom filter")
 	}
 }
 
@@ -172,7 +172,7 @@ func TestLogsBloom(t *testing.T) {
 	// Check that some unrelated data is not found.
 	unrelated := HexToAddress("0xbeef")
 	if BloomContains(bloom, unrelated.Bytes()) {
-		t.Log("false positive for unrelated address (unlikely but possible)")
+		t.Error("fixed unrelated address matched the logs Bloom filter")
 	}
 }
 

@@ -747,6 +747,6 @@ func TestSelectSampleColumnsDifferentSlots(t *testing.T) {
 		}
 	}
 	if allSame {
-		t.Log("warning: different slots produced identical columns (unlikely)")
+		t.Error("fixed slots produced identical sample columns")
 	}
 }

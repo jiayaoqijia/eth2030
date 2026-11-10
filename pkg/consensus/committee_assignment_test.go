@@ -107,7 +107,7 @@ func TestSwapOrNotShuffleDifferentSeeds(t *testing.T) {
 	// Not a guarantee, but very unlikely to be equal for any reasonable
 	// test case.
 	if r1 == r2 {
-		t.Log("warning: different seeds produced same shuffle result (unlikely but possible)")
+		t.Error("fixed seeds produced identical shuffled indices")
 	}
 }
 
@@ -271,32 +271,36 @@ func TestComputeProposerAssignmentsNoValidators(t *testing.T) {
 }
 
 func TestProposerWeightedSelection(t *testing.T) {
-	ca := NewCommitteeAssigner(DefaultCommitteeAssignerConfig())
+	config := DefaultCommitteeAssignerConfig()
+	config.MaxEffectiveBalanceCA = 2048 * GweiPerETH
+	ca := NewCommitteeAssigner(config)
 	seed := testSeed()
 
 	// Create 8 validators, one with much higher balance.
 	indices := makeActiveIndices(8)
 	balances := makeEffBalances(indices, 32*GweiPerETH)
+	uniform, err := ca.ComputeProposerAssignments(0, indices, balances, seed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	balances[0] = 2048 * GweiPerETH // max effective balance validator
 
-	assignments, err := ca.ComputeProposerAssignments(0, indices, balances, seed)
+	assignments, err := NewCommitteeAssigner(config).ComputeProposerAssignments(0, indices, balances, seed)
 	if err != nil {
 		t.Fatalf("ComputeProposerAssignments: %v", err)
 	}
 
-	// Count how many times validator 0 is selected.
-	count0 := 0
-	for _, a := range assignments {
-		if a.Proposer == 0 {
-			count0++
+	countFirst := func(assignments []ProposerAssignment) int {
+		count := 0
+		for _, a := range assignments {
+			if a.Proposer == 0 {
+				count++
+			}
 		}
+		return count
 	}
-
-	// With a much higher balance, validator 0 should be selected more often.
-	// Not a strict test due to randomness, but with 32x higher balance and
-	// 32 slots, we'd expect them at least a few times.
-	if count0 == 0 {
-		t.Log("warning: high-balance validator not selected as proposer in any slot")
+	if got, baseline := countFirst(assignments), countFirst(uniform); got <= baseline {
+		t.Fatalf("validator 0 selected %d times with higher balance, want more than %d", got, baseline)
 	}
 }
 

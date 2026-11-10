@@ -7,9 +7,14 @@ import (
 
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/chain"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/mev"
+	"github.com/eth2030/eth2030/core/rawdb"
+	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/payload"
+	"github.com/eth2030/eth2030/proofs"
+	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/txpool"
 )
 
@@ -20,32 +25,48 @@ type mockNodeDeps struct {
 	config     *Config
 }
 
-func (m *mockNodeDeps) Blockchain() *chain.Blockchain           { return m.blockchain }
-func (m *mockNodeDeps) TxPool() *txpool.TxPool                  { return m.txPool }
-func (m *mockNodeDeps) Config() *Config                         { return m.config }
-func (m *mockNodeDeps) GasOracle() GasOracleDeps                { return nil }
-func (m *mockNodeDeps) EthHandler() EthHandlerDeps              { return nil }
-func (m *mockNodeDeps) TxJournal() TxJournalDeps                { return nil }
-func (m *mockNodeDeps) MEVConfig() *mev.MEVProtectionConfig     { return nil }
-func (m *mockNodeDeps) FCStateManager() FCStateManagerDeps      { return nil }
-func (m *mockNodeDeps) StarkFrameProver() ValidationFrameProver { return nil }
-func (m *mockNodeDeps) P2PServer() P2PServerDeps                { return nil }
+func (m *mockNodeDeps) Blockchain() *chain.Blockchain                  { return m.blockchain }
+func (m *mockNodeDeps) TxPool() *txpool.TxPool                         { return m.txPool }
+func (m *mockNodeDeps) Config() *Config                                { return m.config }
+func (m *mockNodeDeps) GasOracle() GasOracleDeps                       { return nil }
+func (m *mockNodeDeps) EthHandler() EthHandlerDeps                     { return nil }
+func (m *mockNodeDeps) TxJournal() TxJournalDeps                       { return nil }
+func (m *mockNodeDeps) MEVConfig() *mev.MEVProtectionConfig            { return nil }
+func (m *mockNodeDeps) FCStateManager() FCStateManagerDeps             { return nil }
+func (m *mockNodeDeps) StarkFrameProver() proofs.ValidationFrameProver { return nil }
+func (m *mockNodeDeps) P2PServer() P2PServerDeps                       { return nil }
 
-// ValidationFrameProver is an alias for testing without importing proofs package.
-type ValidationFrameProver = interface {
-	ProveValidationFrame(frameCalldata, output []byte) (any, error)
-	ProveAllValidationFrames(frames [][]byte) (any, error)
-	Verify(proof any) bool
+func newTestBackendNode(t *testing.T) *mockNodeDeps {
+	t.Helper()
+	genesis := types.NewBlock(&types.Header{Number: new(big.Int), GasLimit: 30_000_000}, &types.Body{})
+	bc, err := chain.NewBlockchain(coreconfig.TestConfig, genesis, state.NewMemoryStateDB(), rawdb.NewMemoryDB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &mockNodeDeps{blockchain: bc, config: &Config{CacheEnginePayloads: 7}}
 }
 
 func TestNewRPCBackend(t *testing.T) {
-	// This test requires a real blockchain, so we skip if not available.
-	// The actual functionality is tested via integration tests.
+	node := newTestBackendNode(t)
+	engine := NewEngineBackend(node)
+	t.Cleanup(engine.Close)
+	backend := NewRPCBackend(node, engine)
+	header := backend.HeaderByNumber(rpc.LatestBlockNumber)
+	if want := node.blockchain.CurrentBlock().Hash(); header == nil || header.Hash() != want {
+		t.Fatalf("latest header = %v, want genesis %s", header, want)
+	}
 }
 
 func TestNewEngineBackend(t *testing.T) {
-	// This test requires a real blockchain, so we skip if not available.
-	// The actual functionality is tested via integration tests.
+	node := newTestBackendNode(t)
+	backend := NewEngineBackend(node)
+	t.Cleanup(backend.Close)
+	if got, want := backend.GetHeadHash(), node.blockchain.CurrentBlock().Hash(); got != want {
+		t.Fatalf("head = %s, want genesis %s", got, want)
+	}
+	if backend.maxPayloads != node.config.CacheEnginePayloads {
+		t.Fatalf("payload cache limit = %d, want %d", backend.maxPayloads, node.config.CacheEnginePayloads)
+	}
 }
 
 func TestExtractBlockTips(t *testing.T) {

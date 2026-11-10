@@ -80,7 +80,7 @@ func TestComputeShuffledIndexDifferentSeeds(t *testing.T) {
 
 	// Different seeds should (with overwhelming probability) produce different results.
 	if r1 == r2 {
-		t.Log("warning: different seeds produced same result (extremely unlikely)")
+		t.Error("fixed seeds produced identical shuffled indices")
 	}
 }
 

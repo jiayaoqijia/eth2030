@@ -318,9 +318,9 @@ func TestValidator_RejectsBALMismatch(t *testing.T) {
 	}
 }
 
-// TestValidator_RejectsMissingBALHash verifies that post-Amsterdam blocks
-// must include a BlockAccessListHash.
-func TestValidator_RejectsMissingBALHash(t *testing.T) {
+// TestValidator_AcceptsMissingBALHashForCLCompatibility covers the legacy
+// payload path where the EL computes the BAL and the CL omits its hash.
+func TestValidator_AcceptsMissingBALHashForCLCompatibility(t *testing.T) {
 	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	header := &types.Header{
@@ -330,8 +330,8 @@ func TestValidator_RejectsMissingBALHash(t *testing.T) {
 
 	computedHash := types.HexToHash("0xcafebabe")
 	err := v.ValidateBlockAccessList(header, &computedHash)
-	if err == nil {
-		t.Fatal("expected error for missing BAL hash in post-Amsterdam block")
+	if err != nil {
+		t.Fatalf("legacy payload with a computed BAL was rejected: %v", err)
 	}
 }
 
@@ -499,9 +499,8 @@ func TestBlockchain_RejectsWrongBALHash(t *testing.T) {
 	}
 }
 
-// TestBAL_OnlyRequiredWhenForkActive verifies the conditional behavior:
-// BAL hash required post-Amsterdam, not required pre-Amsterdam.
-func TestBAL_OnlyRequiredWhenForkActive(t *testing.T) {
+// TestBAL_HashValidationAcrossFork covers BAL hash validation at activation.
+func TestBAL_HashValidationAcrossFork(t *testing.T) {
 	// Create two configs: one with Amsterdam, one without.
 	amsterdamTime := uint64(100)
 	config := &config.ChainConfig{
@@ -527,10 +526,10 @@ func TestBAL_OnlyRequiredWhenForkActive(t *testing.T) {
 		t.Errorf("pre-Amsterdam should not require BAL: %v", err)
 	}
 
-	// Post-Amsterdam block (time 200): should require BAL hash.
+	// Post-Amsterdam legacy CL payloads may omit the header hash.
 	postHeader := &types.Header{Time: 200, BlockAccessListHash: nil}
-	if err := v.ValidateBlockAccessList(postHeader, nil); err == nil {
-		t.Error("post-Amsterdam block without BAL hash should be rejected")
+	if err := v.ValidateBlockAccessList(postHeader, nil); err != nil {
+		t.Errorf("legacy post-Amsterdam payload rejected: %v", err)
 	}
 
 	// Post-Amsterdam block with correct BAL hash: should pass.

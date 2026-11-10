@@ -423,13 +423,22 @@ func TestCREpochTransitionRotation(t *testing.T) {
 	seed1 := sha256.Sum256([]byte("epoch0_seed"))
 	seed2 := sha256.Sum256([]byte("epoch1_seed"))
 
-	ec0, _ := mgr.ComputeEpochCommittees(0, indices, seed1)
-	ec1, _ := mgr.ComputeEpochCommittees(1, indices, seed2)
-
-	a0, _ := ec0.GetAssignment(ValidatorIndex(42))
-	a1, _ := ec1.GetAssignment(ValidatorIndex(42))
-	if a0.Slot == a1.Slot && a0.CommitteeIndex == a1.CommitteeIndex && a0.Position == a1.Position {
-		t.Log("warning: identical assignment across epochs with different seeds")
+	ec0, err := mgr.ComputeEpochCommittees(0, indices, seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ec1, err := mgr.ComputeEpochCommittees(1, indices, seed2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a0, ok0 := ec0.GetAssignment(ValidatorIndex(42))
+	a1, ok1 := ec1.GetAssignment(ValidatorIndex(42))
+	if !ok0 || !ok1 {
+		t.Fatal("missing validator assignment")
+	}
+	if uint64(a0.Slot)%ec0.SlotsPerEpoch == uint64(a1.Slot)%ec1.SlotsPerEpoch &&
+		a0.CommitteeIndex == a1.CommitteeIndex && a0.Position == a1.Position {
+		t.Fatal("fixed epoch seeds produced identical relative assignments")
 	}
 }
 

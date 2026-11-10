@@ -128,7 +128,7 @@ func TestBloomTestNonMembership(t *testing.T) {
 	bloom.Add([]byte("included"))
 	// This specific string should not be a false positive with high probability.
 	if bloom.Test([]byte("definitely-not-added-xyz-98765")) {
-		t.Log("false positive in bloom test (unlikely but possible)")
+		t.Error("fixed negative input matched the Bloom filter")
 	}
 }
 

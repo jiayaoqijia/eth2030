@@ -560,67 +560,33 @@ func TestCallWithValue_StipendAdded(t *testing.T) {
 	}
 }
 
-// TestCallWithValue_StipendNotReturnedToCaller verifies that the stipend gas
-// is not returned to the caller when the callee doesn't use it all.
-func TestCallWithValue_StipendNotReturnedToCaller(t *testing.T) {
-	// Test the opCall stipend accounting directly.
-	evm, stateDB := newIntegrationEVM()
-
-	callerAddr := types.BytesToAddress([]byte{0xA1})
-	targetAddr := types.BytesToAddress([]byte{0xA2})
-
-	stateDB.CreateAccount(callerAddr)
-	stateDB.AddBalance(callerAddr, big.NewInt(1000000))
-	stateDB.CreateAccount(targetAddr)
-
-	// Target: just STOP (uses ~0 gas, returns all gas including stipend)
-	stateDB.SetCode(targetAddr, []byte{byte(STOP)})
-	stateDB.AddAddressToAccessList(callerAddr)
-	stateDB.AddAddressToAccessList(targetAddr)
-
-	// Call with value=1.
-	// The opCall implementation adds stipend to callGas and subtracts it from
-	// returnGas, so the caller should NOT get the stipend back.
-	initialGas := uint64(1000000)
-	_, gasLeft, err := evm.Call(
-		types.BytesToAddress([]byte{0x99}),
-		callerAddr,
-		nil,
-		initialGas,
-		big.NewInt(0),
-	)
-	gasWithoutValueTransfer := initialGas - gasLeft
-	_ = err
-
-	evm2, stateDB2 := newIntegrationEVM()
-	stateDB2.CreateAccount(callerAddr)
-	stateDB2.AddBalance(callerAddr, big.NewInt(1000000))
-	stateDB2.CreateAccount(targetAddr)
-	stateDB2.SetCode(targetAddr, []byte{byte(STOP)})
-	stateDB2.AddAddressToAccessList(callerAddr)
-	stateDB2.AddAddressToAccessList(targetAddr)
-
-	// Build call-with-value bytecode: forward gas=10000, value=1
-	callCode := buildCallCode(targetAddr, 10000, 1)
-	stateDB2.SetCode(callerAddr, callCode)
-
-	_, gasLeft2, err := evm2.Call(
-		types.BytesToAddress([]byte{0x99}),
-		callerAddr,
-		nil,
-		initialGas,
-		big.NewInt(0),
-	)
-	if err != nil {
-		t.Fatalf("call with value test failed: %v", err)
+// TestCallWithValue_RefundsUnusedStipend checks legacy CALL value gas accounting.
+func TestCallWithValue_RefundsUnusedStipend(t *testing.T) {
+	const initialGas = uint64(1_000_000)
+	gasUsed := func(value uint64) uint64 {
+		evm, statedb := newIntegrationEVM()
+		caller := types.BytesToAddress([]byte{0xa1})
+		target := types.BytesToAddress([]byte{0xa2})
+		statedb.CreateAccount(caller)
+		statedb.AddBalance(caller, big.NewInt(1_000_000))
+		statedb.SetCode(caller, buildCallCode(target, 10_000, value))
+		statedb.CreateAccount(target)
+		statedb.SetCode(target, []byte{byte(STOP)})
+		statedb.AddAddressToAccessList(caller)
+		statedb.AddAddressToAccessList(target)
+		_, left, err := evm.Call(types.BytesToAddress([]byte{0x99}), caller, nil, initialGas, new(big.Int))
+		if err != nil {
+			t.Fatalf("CALL with value %d: %v", value, err)
+		}
+		if balance := statedb.GetBalance(target); balance.Uint64() != value {
+			t.Fatalf("target balance = %s, want %d", balance, value)
+		}
+		return initialGas - left
 	}
-
-	gasWithValueTransfer := initialGas - gasLeft2
-
-	// The call with value should cost more than without (value transfer gas).
-	// The stipend should NOT be returned to the caller.
-	if gasWithValueTransfer <= gasWithoutValueTransfer {
-		t.Logf("note: gasWithValue=%d, gasWithout=%d", gasWithValueTransfer, gasWithoutValueTransfer)
+	withoutValue, withValue := gasUsed(0), gasUsed(1)
+	// EIP-7069 describes legacy CALL with a STOP callee as 9000 - 2300.
+	if want := withoutValue + CallValueTransferGas - CallStipend; withValue != want {
+		t.Fatalf("value CALL used %d gas, want %d with unused stipend refunded", withValue, want)
 	}
 }
 

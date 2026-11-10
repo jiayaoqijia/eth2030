@@ -360,7 +360,7 @@ func TestAssignCustodyDifferentNodes(t *testing.T) {
 		}
 	}
 	if allSame {
-		t.Log("warning: different node IDs got identical subnets (statistically unlikely)")
+		t.Error("fixed node IDs produced identical subnets")
 	}
 }
 
