@@ -101,7 +101,7 @@ func (ba *BLSAgg) VerifyPoP(pubkey [BLSPubkeySize]byte, pop ProofOfPossession) b
 	hm := HashToG2(pubkey[:], DSTPoPMessage)
 	negG1 := blsG1Neg(BlsG1Generator())
 
-	return blsMultiPairing(
+	return blsSignaturePairing(
 		[]*BlsG1Point{pk, negG1},
 		[]*BlsG2Point{hm, sig},
 	)
@@ -253,7 +253,7 @@ func (ss *BLSSignatureSet) Verify() bool {
 	g1Points[n] = blsG1Neg(BlsG1Generator())
 	g2Points[n] = aggSig
 
-	return blsMultiPairing(g1Points, g2Points)
+	return blsSignaturePairing(g1Points, g2Points)
 }
 
 // --- Advanced Aggregation Utilities ---
@@ -325,7 +325,7 @@ func (ba *BLSAgg) VerifyWithDST(
 	hm := HashToG2(msg, dst)
 	negG1 := blsG1Neg(BlsG1Generator())
 
-	return blsMultiPairing(
+	return blsSignaturePairing(
 		[]*BlsG1Point{pk, negG1},
 		[]*BlsG2Point{hm, s},
 	)

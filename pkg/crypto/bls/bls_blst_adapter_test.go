@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"fmt"
+	"math/big"
 	"testing"
 )
 
@@ -419,7 +420,7 @@ func TestBLSTBackend(t *testing.T) {
 	for i := range ikm {
 		ikm[i] = byte(i + 1)
 	}
-	sk, pk, err := BlstKeyGen(ikm)
+	pk, sk, err := BlstKeyGen(ikm)
 	if err != nil {
 		t.Fatalf("BlstKeyGen: %v", err)
 	}
@@ -439,6 +440,14 @@ func TestBLSTBackend(t *testing.T) {
 	// Verify (single).
 	if !backend.Verify(pk, msg, sig) {
 		t.Error("Verify failed for valid signature")
+	}
+	pure := &PureGoBLSBackend{}
+	if !pure.Verify(pk, msg, sig) {
+		t.Error("PureGo rejected a blst signature from an independently generated key")
+	}
+	fromPure := BLSSign(new(big.Int).SetBytes(sk), msg)
+	if !bytes.Equal(fromPure[:], sig) || !backend.Verify(pk, msg, fromPure[:]) {
+		t.Error("PureGo and blst produced different signatures for the same key and message")
 	}
 
 	// FastAggregateVerify with single key.
@@ -480,7 +489,7 @@ func TestBLSAttestation(t *testing.T) {
 	for i := 0; i < numAttesters; i++ {
 		ikm := make([]byte, 32)
 		ikm[0] = byte(i + 1)
-		sk, pk, err := BlstKeyGen(ikm)
+		pk, sk, err := BlstKeyGen(ikm)
 		if err != nil {
 			t.Fatalf("BlstKeyGen[%d]: %v", i, err)
 		}

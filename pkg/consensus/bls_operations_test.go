@@ -169,7 +169,6 @@ func TestHashAttestationData(t *testing.T) {
 }
 
 func TestVerifyProposerSignature(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	secret := big.NewInt(55555)
 	pk := crypto.BLSPubkeyFromSecret(secret)
 
@@ -222,7 +221,6 @@ func TestVerifyProposerSignatureNilHeader(t *testing.T) {
 }
 
 func TestVerifyAttestationSignature(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	secret1 := big.NewInt(10001)
 	secret2 := big.NewInt(10002)
 	pk1 := crypto.BLSPubkeyFromSecret(secret1)
@@ -299,7 +297,6 @@ func TestVerifyAttestationSignatureNilData(t *testing.T) {
 }
 
 func TestVerifySyncCommitteeBLSSignature(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	secret1 := big.NewInt(20001)
 	secret2 := big.NewInt(20002)
 	pk1 := crypto.BLSPubkeyFromSecret(secret1)

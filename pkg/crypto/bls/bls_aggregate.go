@@ -7,8 +7,7 @@ package bls
 // by the beacon chain spec (Altair+).
 //
 // Public keys are 48-byte compressed G1 points. Signatures are 96-byte
-// compressed G2 points. Hash-to-curve uses the BLS12-381 map operations
-// from bls12381_map.go with cofactor clearing.
+// compressed G2 points. The signature path uses RFC 9380 hash-to-curve.
 //
 // Signature scheme: signatures live in G2, public keys in G1.
 // e(pk, H(m)) == e(G1, sig) for single verification.
@@ -17,6 +16,8 @@ package bls
 import (
 	"crypto/sha256"
 	"math/big"
+
+	bls381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
 )
 
 // BLS aggregate signature sizes.
@@ -175,56 +176,40 @@ func AggregateSignatures(sigs [][96]byte) [96]byte {
 	return SerializeG2(agg)
 }
 
-// HashToG2 hashes a message to a G2 point using a domain separation tag.
-// Follows a simplified hash-to-field + map-to-curve approach:
-//  1. Expand message to two Fp2 elements using SHA-256
-//  2. Map each to G2 via the map-to-curve function
-//  3. Add them and clear cofactor
+// HashToG2 hashes a message using the BLS12-381 G2 SSWU ciphersuite.
 func HashToG2(msg []byte, dst []byte) *BlsG2Point {
-	// Expand message to 4 field elements (2 Fp2 elements = 4 Fp).
-	u0c0 := hashToField(msg, dst, 0)
-	u0c1 := hashToField(msg, dst, 1)
-	u1c0 := hashToField(msg, dst, 2)
-	u1c1 := hashToField(msg, dst, 3)
-
-	u0 := &blsFp2{c0: u0c0, c1: u0c1}
-	u1 := &blsFp2{c0: u1c0, c1: u1c1}
-
-	// Map to curve.
-	q0 := blsMapFp2ToG2(u0)
-	q1 := blsMapFp2ToG2(u1)
-
-	// Add the two points.
-	q := blsG2Add(q0, q1)
-
-	// Clear cofactor.
-	cofactor, _ := new(big.Int).SetString(
-		"5d543a95414e7f1091d50792876a202cd91de4547085abaa68a205b2e5a7ddfa628f1cb4d9e82ef21537e293a6691ae1616ec6e786f0c70cf1c38e31c7238e5", 16)
-	q = blsG2ScalarMul(q, cofactor)
-
-	return q
+	if len(dst) > 255 {
+		h := sha256.New()
+		h.Write([]byte("H2C-OVERSIZE-DST-"))
+		h.Write(dst)
+		dst = h.Sum(nil)
+	}
+	point, err := bls381.HashToG2(msg, dst)
+	if err != nil {
+		return BlsG2Infinity()
+	}
+	return blsG2FromAffine(
+		&blsFp2{c0: point.X.A0.BigInt(new(big.Int)), c1: point.X.A1.BigInt(new(big.Int))},
+		&blsFp2{c0: point.Y.A0.BigInt(new(big.Int)), c1: point.Y.A1.BigInt(new(big.Int))},
+	)
 }
 
-// hashToField derives a field element from msg+dst+index using SHA-256
-// based expand_message_xmd (simplified).
-func hashToField(msg, dst []byte, index byte) *big.Int {
-	h := sha256.New()
-	h.Write(dst)
-	h.Write(msg)
-	h.Write([]byte{index, 0})
-	hash1 := h.Sum(nil)
-
-	h.Reset()
-	h.Write(dst)
-	h.Write(hash1)
-	h.Write([]byte{index, 1})
-	hash2 := h.Sum(nil)
-
-	// Concatenate to get 64 bytes, then reduce mod p.
-	combined := make([]byte, 64)
-	copy(combined[:32], hash1)
-	copy(combined[32:], hash2)
-	return new(big.Int).Mod(new(big.Int).SetBytes(combined), blsP)
+// blsSignaturePairing verifies the product of the signature pairings.
+// The decoder checks that each input belongs to the correct subgroup.
+func blsSignaturePairing(g1 []*BlsG1Point, g2 []*BlsG2Point) bool {
+	p := make([]bls381.G1Affine, len(g1))
+	q := make([]bls381.G2Affine, len(g2))
+	for i := range g1 {
+		pubkey, signature := SerializeG1(g1[i]), SerializeG2(g2[i])
+		if _, err := p[i].SetBytes(pubkey[:]); err != nil {
+			return false
+		}
+		if _, err := q[i].SetBytes(signature[:]); err != nil {
+			return false
+		}
+	}
+	ok, err := bls381.PairingCheck(p, q)
+	return err == nil && ok
 }
 
 // blsSignDST is the domain separation tag for BLS signatures.
@@ -258,7 +243,7 @@ func BLSVerify(pubkey [BLSPubkeySize]byte, msg []byte, sig [BLSSignatureSize]byt
 	g1 := BlsG1Generator()
 	negG1 := blsG1Neg(g1)
 
-	return blsMultiPairing(
+	return blsSignaturePairing(
 		[]*BlsG1Point{pk, negG1},
 		[]*BlsG2Point{hm, s},
 	)
@@ -296,7 +281,7 @@ func VerifyAggregate(pubkeys [][48]byte, msgs [][]byte, sig [96]byte) bool {
 	g1Points[n] = blsG1Neg(BlsG1Generator())
 	g2Points[n] = s
 
-	return blsMultiPairing(g1Points, g2Points)
+	return blsSignaturePairing(g1Points, g2Points)
 }
 
 // FastAggregateVerify verifies an aggregate signature where all signers
@@ -331,7 +316,7 @@ func FastAggregateVerify(pubkeys [][48]byte, msg []byte, sig [96]byte) bool {
 
 	// Check e(aggPK, H(m)) * e(-G1, sig) == 1.
 	negG1 := blsG1Neg(BlsG1Generator())
-	return blsMultiPairing(
+	return blsSignaturePairing(
 		[]*BlsG1Point{aggPK, negG1},
 		[]*BlsG2Point{hm, s},
 	)
@@ -339,11 +324,8 @@ func FastAggregateVerify(pubkeys [][48]byte, msg []byte, sig [96]byte) bool {
 
 // BLSPubkeyFromSecret derives the public key from a secret scalar.
 // pk = secret * G1
-// The key pair is registered for fallback verification in the pure-Go backend.
 func BLSPubkeyFromSecret(secret *big.Int) [BLSPubkeySize]byte {
 	g1 := BlsG1Generator()
 	pk := blsG1ScalarMul(g1, secret)
-	serialized := SerializeG1(pk)
-	registerBLSPubkey(serialized, secret)
-	return serialized
+	return SerializeG1(pk)
 }
