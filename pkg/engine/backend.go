@@ -1340,15 +1340,15 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		b.storePayload(id, &pendingPayload{
 			block:        blk,
 			receipts:     receipts,
-				bal:          blockBAL,
-				blockValue:   new(big.Int),
-				parentHash:   fcState.HeadBlockHash,
-				timestamp:    attrs.Timestamp,
-				feeRecipient: attrs.SuggestedFeeRecipient,
-				prevRandao:   attrs.PrevRandao,
-				withdrawals:  attrs.Withdrawals,
-				slotNumber:   attrs.SlotNumber,
-			})
+			bal:          blockBAL,
+			blockValue:   new(big.Int),
+			parentHash:   fcState.HeadBlockHash,
+			timestamp:    attrs.Timestamp,
+			feeRecipient: attrs.SuggestedFeeRecipient,
+			prevRandao:   attrs.PrevRandao,
+			withdrawals:  attrs.Withdrawals,
+			slotNumber:   attrs.SlotNumber,
+		})
 
 		// Dual-write to actors for migration.
 		actorPayload := &actor.PendingPayload{

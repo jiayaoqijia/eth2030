@@ -76,8 +76,8 @@ func TestParsePayloadAttributesNull(t *testing.T) {
 
 func TestValidateCustodyColumns(t *testing.T) {
 	cases := []struct {
-		raw    string
-		fails  bool
+		raw   string
+		fails bool
 	}{
 		{"null", false},
 		{`"0x01"`, false},
