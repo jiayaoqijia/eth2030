@@ -334,3 +334,27 @@ func (s *Sim) Block(n uint64) *types.Block {
 	}
 	return blk
 }
+
+// CommitWithWithdrawals builds an empty block carrying beacon withdrawals
+// (EIP-4895) and inserts it.
+func (s *Sim) CommitWithWithdrawals(wds ...*types.Withdrawal) *BlockResult {
+	s.t.Helper()
+	parent := s.bc.CurrentBlock()
+	ts := s.nextTime()
+	s.now = ts
+	attrs := &block.BuildBlockAttributes{
+		Timestamp:    ts,
+		FeeRecipient: s.beneficiary,
+		BeaconRoot:   new(types.Hash),
+		GasLimit:     parent.GasLimit(),
+		Withdrawals:  wds,
+	}
+	blk, receipts, err := s.builder.BuildBlock(parent.Header(), attrs)
+	if err != nil {
+		s.t.Fatalf("eiptest: BuildBlock(withdrawals): %v", err)
+	}
+	if err := s.bc.InsertBlock(blk); err != nil {
+		s.t.Fatalf("eiptest: InsertBlock(withdrawals block %d): %v", blk.NumberU64(), err)
+	}
+	return &BlockResult{Sim: s, Block: blk, Receipts: receipts}
+}

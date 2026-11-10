@@ -300,6 +300,12 @@ func NewAsyncBuilder(config *coreconfig.ChainConfig, txPool block.TxPoolReader, 
 // SetValidateParent sets the parent validation function.
 // This should be called before starting the builder to enable
 // validation that prevents building on stale parents during reorgs.
+// SetTxPool wires (or replaces) the transaction pool used for payload
+// building. Safe to call before Start; the worker reads the field per build.
+func (b *AsyncBuilder) SetTxPool(pool block.TxPoolReader) {
+	b.txPool = pool
+}
+
 func (b *AsyncBuilder) SetValidateParent(fn ValidateParentFunc) {
 	b.validateParent = fn
 }

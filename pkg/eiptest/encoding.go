@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/rlp"
 )
 
 // Encoding is the encoding probe: RLP/SSZ round-trip checks and table-driven
@@ -25,7 +24,9 @@ func (s *Sim) Encoding() *Encoding { return &Encoding{s: s} }
 // hash, sender, type and calldata. Fails t on any mismatch.
 func (e *Encoding) RLPRoundTrip(t *testing.T, tx *types.Transaction) *types.Transaction {
 	t.Helper()
-	enc, err := rlp.EncodeToBytes(tx)
+	// Use the Transaction's own EncodeRLP (typed envelope with type prefix);
+	// the generic rlp.EncodeToBytes does not route through it.
+	enc, err := tx.EncodeRLP()
 	if err != nil {
 		t.Fatalf("rlp encode: %v", err)
 	}
@@ -179,3 +180,9 @@ func MustHex(t *testing.T, s string) []byte {
 
 // Hex renders bytes as a 0x-prefixed hex string.
 func Hex(b []byte) string { return "0x" + hex.EncodeToString(b) }
+
+// BlockToSSZ and SSZToBlock expose the types package block SSZ codec to
+// external test packages.
+func BlockToSSZ(b *types.Block) ([]byte, error) { return types.BlockToSSZ(b) }
+
+func SSZToBlock(data []byte) (*types.Block, error) { return types.SSZToBlock(data) }

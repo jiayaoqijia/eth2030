@@ -232,6 +232,7 @@ func UnsignedAA(sender types.Address, chainID *big.Int, nonce uint64, executionD
 	inner := &types.AATx{
 		ChainID: chainID, Nonce: nonce, Sender: sender,
 		SenderExecutionData: executionData,
+		SenderValidationGas: 30_000,
 		SenderExecutionGas:  gas,
 		MaxFeePerGas:        gasFeeCap, MaxPriorityFeePerGas: gasTipCap,
 	}
@@ -324,3 +325,9 @@ func Uint64ToHash(v uint64) types.Hash {
 	h[24] = byte(v >> 56)
 	return h
 }
+
+// bigIntGwei returns n gwei in wei.
+func bigIntGwei(n int64) *big.Int { return new(big.Int).Mul(big.NewInt(n), Gwei) }
+
+// GweiWei returns n gwei in wei (helper for test fee constants).
+func GweiWei(n int64) *big.Int { return new(big.Int).Mul(big.NewInt(n), Gwei) }

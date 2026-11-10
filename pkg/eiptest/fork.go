@@ -39,6 +39,7 @@ func (p *ForkProbe) Before() *ForkPhase {
 	off, _ := p.s.forkOffset(p.fork)
 	target := p.s.genesis.Time() + off - p.seconds
 	p.s.AdvanceTo(target)
+	p.s.Commit() // materialize the pre-boundary head
 	return &ForkPhase{s: p.s, fork: p.fork, label: "before"}
 }
 
@@ -49,6 +50,7 @@ func (p *ForkProbe) AtBoundary() *ForkPhase {
 	off, _ := p.s.forkOffset(p.fork)
 	target := p.s.genesis.Time() + off
 	p.s.AdvanceTo(target)
+	p.s.Commit() // the boundary block activates the new rules
 	return &ForkPhase{s: p.s, fork: p.fork, label: "boundary"}
 }
 

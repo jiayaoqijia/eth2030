@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1185,9 +1187,30 @@ func (b *EngineBackend) ProcessBlockV5(
 		computedEncoded, _ := computedBAL.EncodeRLP()
 
 		var providedBALBytes []byte
-		if err := json.Unmarshal(payload.BlockAccessList, &providedBALBytes); err != nil {
+		// The builder encodes blockAccessList as a 0x-prefixed hex STRING
+		// (lighthouse >= 8.4 hex_prog_var_list convention — see
+		// payload/conversion.go BlockToPayloadV5). Decode that form; a bare
+		// JSON byte array is also accepted for compatibility.
+		rawBAL := payload.BlockAccessList
+		if len(rawBAL) > 0 && rawBAL[0] == '"' {
+			var balHex string
+			if err := json.Unmarshal(rawBAL, &balHex); err != nil {
+				errMsg := fmt.Sprintf("invalid blockAccessList string encoding: %v", err)
+				backendLog.Warn("payload_bal_invalid",
+					"event", "payload_bal_invalid",
+					"blockHash", payload.BlockHash.Hex(),
+					"reason", "BAL string decode failed",
+					"error", errMsg,
+				)
+				return PayloadStatusV1{
+					Status:          StatusInvalid,
+					ValidationError: &errMsg,
+				}, nil
+			}
+			providedBALBytes, _ = hex.DecodeString(strings.TrimPrefix(balHex, "0x"))
+		} else if err := json.Unmarshal(rawBAL, &providedBALBytes); err != nil {
 			// If the blockAccessList isn't valid JSON bytes, it may be null.
-			if string(payload.BlockAccessList) != "null" {
+			if string(rawBAL) != "null" {
 				errMsg := fmt.Sprintf("invalid blockAccessList encoding: %v", err)
 				backendLog.Warn("payload_bal_invalid",
 					"event", "payload_bal_invalid",
@@ -1200,7 +1223,8 @@ func (b *EngineBackend) ProcessBlockV5(
 					ValidationError: &errMsg,
 				}, nil
 			}
-		} else if !bytes.Equal(computedEncoded, providedBALBytes) {
+		}
+		if !bytes.Equal(computedEncoded, providedBALBytes) {
 			// BAL mismatch is logged but does not invalidate the block.
 			// EIP-7928 BALs are advisory for parallel execution hints;
 			// a mismatch may occur due to serialization differences or
@@ -1318,7 +1342,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}
 
-		builder := block.NewBlockBuilder(b.config, nil, nil)
+		builder := block.NewBlockBuilder(b.config, nil, b.txPool)
 		builder.SetState(b.statedb.Dup())
 		parentHeader := parentBlock.Header()
 
@@ -1626,9 +1650,13 @@ func (b *EngineBackend) GetInclusionList() *types.InclusionList {
 	return &types.InclusionList{Transactions: selected}
 }
 
-// SetTxPool wires a transaction pool reader for inclusion list generation.
+// SetTxPool wires a transaction pool reader for inclusion list generation
+// AND payload building (the async builder consumes pending txs per build).
 func (b *EngineBackend) SetTxPool(pool block.TxPoolReader) {
 	b.txPool = pool
+	if b.asyncBuilder != nil {
+		b.asyncBuilder.SetTxPool(pool)
+	}
 }
 
 // ilsAsFocil converts stored types.InclusionList entries to focil.InclusionList format.

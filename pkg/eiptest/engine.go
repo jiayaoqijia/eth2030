@@ -84,14 +84,19 @@ func (p *EngineProbe) FCU() (engine.PayloadID, error) {
 	if result.PayloadID == nil {
 		return engine.PayloadID{}, errNoPayloadID
 	}
-	p.queue.txs = nil
+	// NOTE: the queue is drained by GetPayload (after the async builder has
+	// consumed it), not here — clearing before the build races the builder.
 	return *result.PayloadID, nil
 }
 
 // GetPayload retrieves the built payload for the given ID (V6 response with
 // blobs bundle when applicable).
 func (p *EngineProbe) GetPayload(id engine.PayloadID) (*engine.GetPayloadV6Response, error) {
-	return p.backend.GetPayloadV6ByID(id)
+	resp, err := p.backend.GetPayloadV6ByID(id)
+	if err == nil {
+		p.queue.txs = nil // builder consumed the queue
+	}
+	return resp, err
 }
 
 // Process submits a payload through newPayload (V5) and returns the status.

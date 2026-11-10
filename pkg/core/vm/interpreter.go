@@ -514,6 +514,15 @@ func (evm *EVM) Call(caller types.Address, addr types.Address, input []byte, gas
 
 	// Get the code to execute.
 	code := evm.StateDB.GetCode(addr)
+	// EIP-7702: a delegated EOA's "code" is the 0xef0100 || delegate
+	// designator. Resolve it and execute the delegate's code in the EOA's
+	// execution context (storage/balance stay with the EOA). The delegation
+	// is followed exactly once — resolved code is never re-resolved.
+	if types.HasDelegationPrefix(code) {
+		if delegate, ok := types.ParseDelegation(code); ok {
+			code = evm.StateDB.GetCode(delegate)
+		}
+	}
 	if len(code) == 0 {
 		// No code to execute, the call succeeds with no return data.
 		if debug && evm.depth == 0 {
