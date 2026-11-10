@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## English Documentation Review (2026-11-10)
+
+- [x] Scan project-owned documentation for Chinese text.
+- [x] Manually translate `docs/CODEBASE_AUDIT.md` and any other Chinese documentation.
+- [x] Record the English documentation requirement in `AGENTS.md`.
+- [x] Verify the translation, repeat the language scan, and run local builds.
+
 ## Inclusion List JSON Refactor (2026-03-21)
 - [x] Extract small inclusion-list JSON parsing helpers in `pkg/engine/inclusion_list.go`.
 - [x] Reuse the helpers from the custom marshal/unmarshal code.

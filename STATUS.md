@@ -1,5 +1,12 @@
 # Project Status
 
+## English Documentation Review (2026-11-10)
+
+- Manually translated `docs/CODEBASE_AUDIT.md` into English, retaining the reported findings and reproduction commands.
+- Added the English documentation requirement to `AGENTS.md`.
+- Found no remaining Chinese text in the project-owned text files. Extracted text from the five tracked PDFs and visually checked pages without a text layer.
+- Verified the Go module with `go build ./...` and the website with `npm run build`.
+
 ## Update Plan Phases 2+3: Dependency Upgrades + Lighthouse Sync (2026-11-06)
 
 ### Current Status: COMPLETE (with recorded Gloas/Heze devnet dependency)

@@ -79,6 +79,7 @@ kurtosis service logs eth2030-devnet el-1-geth-lighthouse 2>&1 | grep -E "WARN|E
 
 ## Working Rules
 
+- Write all project documentation in English, including new documents and updates to existing documents.
 - Always `git add` and commit after creating or editing files
 - Verify builds locally before claiming completion
 - Update `STATUS.md` for task tracking
