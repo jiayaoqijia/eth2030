@@ -238,6 +238,8 @@ The changes were already committed when the report entered Git. `bb29933` change
 
 The local verification used Go 1.27.3. It covered formatting, vet, builds, the full Go test suite with and without fixtures, the added CI commands, and both container entry points. GitHub Actions and its Go 1.26 runner were outside the local verification. The baseline reproduction commands below retain their original scope.
 
+The first package cleanup removed `txpool/validation`, `txpool/queue`, `txpool/replacement`, `txpool/fees`, `das/gf`, and `proofs/groth16`. The production dependency sets for both executables matched before and after the removal with default tags and with `integration,blst,goethkzg`. `das/proof`, `das/rpo`, and `p2p/netutil` remain pending roadmap decisions.
+
 ---
 
 ## Appendix — Audit Method and Reproduction Commands

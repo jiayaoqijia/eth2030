@@ -1,5 +1,10 @@
 # Lean4 Verification Check-list
 
+## Unused Package Cleanup (2026-11-10)
+
+- [x] Remove the six packages selected in the first cleanup batch and update package indexes.
+- [x] Verify builds, tests, and the executable dependency graphs from a clean snapshot.
+
 ## Codebase Audit Follow-Up (2026-11-10)
 
 - [x] Verify native EIP-4844 point evaluation with the Ethereum ceremony setup and align binary build tags.

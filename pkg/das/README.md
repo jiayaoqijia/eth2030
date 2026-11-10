@@ -129,7 +129,6 @@ Adaptive sampling that reduces required samples when network conditions allow, p
 | [`erasure/`](./erasure/) | Reed-Solomon erasure coding for blob reconstruction |
 | [`field/`](./field/) | BLS12-381 field arithmetic (Montgomery form) |
 | [`futures/`](./futures/) | Short-dated blob futures market |
-| [`gf/`](./gf/) | Galois field arithmetic primitives |
 | [`gossip/`](./gossip/) | Cell gossip handler and subnet pub/sub routing |
 | [`network/`](./network/) | DAS network layer and peer coordination |
 | [`pqblob/`](./pqblob/) | Post-quantum lattice-based blob commitments |

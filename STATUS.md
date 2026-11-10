@@ -1,5 +1,10 @@
 # Project Status
 
+## Unused Package Cleanup (2026-11-10)
+
+- Removed six packages with no in-repository importers in the [first cleanup batch](docs/CODEBASE_AUDIT.md#v-follow-up-results).
+- Verified the clean snapshot with Go builds, vet, module tidy, default and tagged tests, and the website path check. Both executables retained the same production dependency sets in the compared configurations.
+
 ## Codebase Audit Follow-Up (2026-11-10)
 
 - Completed the [audit follow-up](docs/CODEBASE_AUDIT.md#v-follow-up-results) on `fix/codebase-audit-follow-up`.
