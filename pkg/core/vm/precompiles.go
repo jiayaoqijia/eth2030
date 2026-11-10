@@ -8,7 +8,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
-	"github.com/ethereum/go-ethereum/crypto/kzg4844"
+	"github.com/eth2030/eth2030/crypto/bls"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -520,8 +520,8 @@ func (c *kzgPointEvaluation) Run(input []byte) ([]byte, error) {
 	}
 
 	// Verify against the Ethereum ceremony setup.
-	if err := kzg4844.VerifyProof(kzg4844.Commitment(commitment), kzg4844.Point(input[32:64]),
-		kzg4844.Claim(input[64:96]), kzg4844.Proof(input[144:192])); err != nil {
+	if err := bls.VerifyKZGPointProof([48]byte(commitment), [32]byte(input[32:64]),
+		[32]byte(input[64:96]), [48]byte(input[144:192])); err != nil {
 		return nil, errors.New("kzg: proof verification failed")
 	}
 

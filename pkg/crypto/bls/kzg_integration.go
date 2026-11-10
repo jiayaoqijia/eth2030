@@ -360,6 +360,18 @@ func NewGoEthKZGBackend() (*GoEthKZGBackend, error) {
 	return &GoEthKZGBackend{ctx: globalGoEthKZGContext}, nil
 }
 
+// VerifyKZGPointProof verifies an EIP-4844 point opening with the same
+// Ethereum ceremony context used for blob and PeerDAS operations.
+func VerifyKZGPointProof(commitment [KZGBytesPerCommitment]byte,
+	point, claim [KZGBytesPerFieldElement]byte, proof [KZGBytesPerProof]byte,
+) error {
+	backend, err := NewGoEthKZGBackend()
+	if err != nil {
+		return err
+	}
+	return backend.ctx.VerifyKZGProof(commitment, point, claim, proof)
+}
+
 func (b *GoEthKZGBackend) Name() string { return "go-eth-kzg" }
 
 // BlobToCommitment computes the KZG commitment for a blob using the
