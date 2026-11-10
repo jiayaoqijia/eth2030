@@ -73,6 +73,16 @@ func TestVRFProposer_VerifyWrongInput(t *testing.T) {
 	}
 }
 
+func TestVRFProposer_VerifyWrongPublicKey(t *testing.T) {
+	key := GenerateVRFKeyPair([]byte("owner"))
+	other := GenerateVRFKeyPair([]byte("another validator"))
+	input := ComputeVRFElectionInput(10, 100)
+	output, proof := VRFProve(key.SecretKey, input)
+	if VRFVerify(other.PublicKey, input, output, proof) {
+		t.Fatal("proof verified under a different validator key")
+	}
+}
+
 func TestVRFProposer_VerifyWrongOutput(t *testing.T) {
 	kp := GenerateVRFKeyPair([]byte("wrong-output-seed"))
 	input := ComputeVRFElectionInput(10, 100)
@@ -89,12 +99,10 @@ func TestVRFProposer_VerifyWrongOutput(t *testing.T) {
 func TestVRFProposer_VerifyWrongProof(t *testing.T) {
 	kp := GenerateVRFKeyPair([]byte("wrong-proof-seed"))
 	input := ComputeVRFElectionInput(10, 100)
-	output, _ := VRFProve(kp.SecretKey, input)
+	output, wrongProof := VRFProve(kp.SecretKey, input)
 
 	// Verification with tampered proof should fail.
-	var wrongProof VRFProof
-	wrongProof.Gamma[0] = 0xFF
-	wrongProof.Challenge[0] = 0xAA
+	wrongProof[0] ^= 1
 	if VRFVerify(kp.PublicKey, input, output, wrongProof) {
 		t.Error("expected verification to fail with wrong proof")
 	}

@@ -1,8 +1,10 @@
 package proofs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -82,10 +84,11 @@ type blockProofState struct {
 // MandatoryProofSystem enforces the mandatory 3-of-5 proof requirement.
 // Thread-safe.
 type MandatoryProofSystem struct {
-	mu      sync.RWMutex
-	config  MandatoryProofConfig
-	provers map[types.Hash]*proverInfo      // registered provers
-	blocks  map[types.Hash]*blockProofState // per-block proof state
+	mu        sync.RWMutex
+	config    MandatoryProofConfig
+	provers   map[types.Hash]*proverInfo      // registered provers
+	blocks    map[types.Hash]*blockProofState // per-block proof state
+	verifiers map[string]func(*ProofSubmission) bool
 }
 
 // NewMandatoryProofSystem creates a new mandatory proof system.
@@ -103,9 +106,10 @@ func NewMandatoryProofSystem(config MandatoryProofConfig) *MandatoryProofSystem 
 		config.ProofDeadlineSlots = 32
 	}
 	return &MandatoryProofSystem{
-		config:  config,
-		provers: make(map[types.Hash]*proverInfo),
-		blocks:  make(map[types.Hash]*blockProofState),
+		config:    config,
+		provers:   make(map[types.Hash]*proverInfo),
+		blocks:    make(map[types.Hash]*blockProofState),
+		verifiers: make(map[string]func(*ProofSubmission) bool),
 	}
 }
 
@@ -265,71 +269,54 @@ func (m *MandatoryProofSystem) SubmitProof(submission *ProofSubmission) error {
 	return nil
 }
 
-// VerifyProof verifies a submitted proof by dispatching to the appropriate
-// type-specific verifier. For SNARK proofs, the Groth16 verifier or SNARK
-// circuit commitment verifier is used. For other types, a cryptographic
-// binding commitment (Keccak256 over proof type, data, block hash, and
-// prover ID) is verified to ensure proof integrity and non-malleability.
+// RegisterVerifier installs the verifier for a proof type. The verifier
+// supplies trusted circuit keys and the expected statement for the block.
+func (m *MandatoryProofSystem) RegisterVerifier(proofType string, verify func(*ProofSubmission) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if verify == nil {
+		delete(m.verifiers, proofType)
+		return
+	}
+	m.verifiers[proofType] = verify
+}
+
+// VerifyProof verifies the stored submission with the registered provider.
 func (m *MandatoryProofSystem) VerifyProof(submission *ProofSubmission) bool {
 	if submission == nil || len(submission.ProofData) == 0 {
 		return false
 	}
-	if submission.ProofType == "" {
+	m.mu.RLock()
+	state := m.blocks[submission.BlockHash]
+	provider := m.verifiers[submission.ProofType]
+	if state == nil || provider == nil {
+		m.mu.RUnlock()
 		return false
 	}
-	if submission.BlockHash == (types.Hash{}) || submission.ProverID == (types.Hash{}) {
+	idx := slices.IndexFunc(state.submissions, func(stored *ProofSubmission) bool {
+		return stored.ProverID == submission.ProverID && stored.ProofType == submission.ProofType &&
+			bytes.Equal(stored.ProofData, submission.ProofData)
+	})
+	if idx < 0 {
+		m.mu.RUnlock()
 		return false
 	}
+	stored := *state.submissions[idx]
+	stored.ProofData = bytes.Clone(stored.ProofData)
+	m.mu.RUnlock()
 
-	// Dispatch to type-specific verification.
-	if !verifySubmissionByType(submission) {
+	blockHash, proverID := stored.BlockHash, stored.ProverID
+	if !provider(&stored) {
 		return false
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	state, ok := m.blocks[submission.BlockHash]
-	if !ok {
+	if m.blocks[blockHash] != state {
 		return false
 	}
-	state.verified[submission.ProverID] = true
+	state.verified[proverID] = true
 	return true
-}
-
-// verifySubmissionByType dispatches proof verification to the correct verifier
-// based on the proof type string. Returns true if the proof passes verification.
-func verifySubmissionByType(sub *ProofSubmission) bool {
-	switch sub.ProofType {
-	case "ZK-SNARK":
-		// Try BLS12-381 Groth16 deserialization for 192-byte proofs.
-		if len(sub.ProofData) == 192 {
-			proof, err := DeserializeBLSGroth16Proof(sub.ProofData)
-			if err == nil && proof != nil {
-				if err := ValidateGroth16Proof(proof); err == nil {
-					return true
-				}
-			}
-		}
-		return verifyBindingCommitment(sub)
-	case "ZK-STARK", "IPA", "KZG":
-		return verifyBindingCommitment(sub)
-	default:
-		return verifyBindingCommitment(sub)
-	}
-}
-
-// verifyBindingCommitment verifies proof integrity using a cryptographic
-// binding commitment: Keccak256(proofType || proofData || blockHash || proverID).
-// The commitment must be non-zero.
-func verifyBindingCommitment(sub *ProofSubmission) bool {
-	h := crypto.Keccak256Hash(
-		[]byte(sub.ProofType),
-		sub.ProofData,
-		sub.BlockHash[:],
-		sub.ProverID[:],
-	)
-	return h != (types.Hash{})
 }
 
 // CheckRequirement returns the current proof requirement status for a block.

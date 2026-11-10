@@ -17,7 +17,7 @@ func computeExpectedOutput(t *testing.T, seed []byte, epochNum uint64, difficult
 	if err != nil {
 		t.Fatalf("failed to compute expected VDF output: %v", err)
 	}
-	return result.Output
+	return result.EncodeSolution()
 }
 
 func TestNewVDFConsensus(t *testing.T) {

@@ -9,7 +9,17 @@
 - [x] Move Groth16 verification, AA circuit startup, Banderwagon group arithmetic, and EVM transforms to gnark.
 - [x] Remove superseded implementations and standalone placeholder backends after checking callers.
 - [x] Verify a clean snapshot with Go builds, vet, fixture-backed tests, and the tagged suites.
-- [ ] Migrate the remaining IPA, Poseidon, VDF, threshold, and experimental proof formats.
+- [ ] Complete experimental proof protocols in the follow-up below.
+
+## Ethereum Client Cryptography Follow-Up (2026-11-10)
+
+- [x] Trace the libraries used by the pinned Geth and consensus references to their actual callers.
+- [x] Migrate experimental IPA openings, Poseidon, VDF and VRF to public providers.
+- [x] Migrate encrypted-mempool share reconstruction and retire unused standalone schemes.
+- [x] Verify actual IPA and KZG openings in batch and require configured SNARK and STARK providers.
+- [x] Carry complete ML-DSA keys and signatures through the gossip codec.
+- [x] Verify the full source snapshot with pinned EF fixtures, build, vet, tagged, Go-only, and targeted race checks.
+- [ ] Migrate the remaining application-specific STARK, lattice commitment and aggregation protocols.
 
 ## Unused Package Cleanup (2026-11-10)
 

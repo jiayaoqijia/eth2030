@@ -6,17 +6,11 @@ package crypto
 // "github.com/eth2030/eth2030/crypto/vdf" directly.
 
 import (
-	"math/big"
-
 	"github.com/eth2030/eth2030/crypto/vdf"
 )
 
 // VDF type aliases — keep crypto.XXX working for all existing importers.
 type (
-	VDFParams          = vdf.VDFParams
-	VDFProof           = vdf.VDFProof
-	VDFEvaluator       = vdf.VDFEvaluator
-	WesolowskiVDF      = vdf.WesolowskiVDF
 	VDFv2Config        = vdf.VDFv2Config
 	VDFv2Result        = vdf.VDFv2Result
 	AggregatedVDFProof = vdf.AggregatedVDFProof
@@ -31,23 +25,6 @@ type (
 const MaxChainLength = vdf.MaxChainLength
 
 // VDF function wrappers — delegate to crypto/vdf implementations.
-
-// DefaultVDFParams returns the default VDF parameters.
-func DefaultVDFParams() *VDFParams { return vdf.DefaultVDFParams() }
-
-// ValidateVDFParams checks that VDF parameters are secure.
-func ValidateVDFParams(params *VDFParams) error { return vdf.ValidateVDFParams(params) }
-
-// ValidateVDFProof checks that a VDF proof has non-empty fields.
-func ValidateVDFProof(proof *VDFProof) error { return vdf.ValidateVDFProof(proof) }
-
-// NewWesolowskiVDF creates a new VDF evaluator with the given parameters.
-func NewWesolowskiVDF(params *VDFParams) *WesolowskiVDF { return vdf.NewWesolowskiVDF(params) }
-
-// NewWesolowskiVDFWithModulus creates a VDF evaluator with an explicit modulus.
-func NewWesolowskiVDFWithModulus(params *VDFParams, n *big.Int) *WesolowskiVDF {
-	return vdf.NewWesolowskiVDFWithModulus(params, n)
-}
 
 // DefaultVDFv2Config returns sensible defaults for the enhanced VDF.
 func DefaultVDFv2Config() VDFv2Config { return vdf.DefaultVDFv2Config() }

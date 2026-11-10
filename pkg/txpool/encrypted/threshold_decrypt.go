@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	ethcrypto "github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/threshold"
 )
 
 var (
@@ -236,18 +237,18 @@ func ComputeDecryptionKey(shares []DecryptionShare) []byte {
 	}
 
 	// Convert to crypto.Share format for Lagrange interpolation.
-	cryptoShares := make([]ethcrypto.Share, len(shares))
+	cryptoShares := make([]threshold.Share, len(shares))
 	for i, s := range shares {
 		val := new(big.Int).SetBytes(s.ShareBytes)
 		// Use 1-based index (Lagrange interpolation requires non-zero indices).
-		cryptoShares[i] = ethcrypto.Share{
+		cryptoShares[i] = threshold.Share{
 			Index: s.ValidatorIndex + 1,
 			Value: val,
 		}
 	}
 
 	// Attempt Lagrange interpolation to recover f(0).
-	secret, err := ethcrypto.LagrangeInterpolate(cryptoShares)
+	secret, err := threshold.LagrangeInterpolate(cryptoShares)
 	if err == nil && secret != nil {
 		return ethcrypto.Keccak256(secret.Bytes())
 	}

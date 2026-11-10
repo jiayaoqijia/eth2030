@@ -230,18 +230,6 @@ func RegisterProvers(sys *proofs.MandatoryProofSystem, n int) ([]types.Hash, err
 	return ids, nil
 }
 
-// MakeProofSubmission creates a proof submission for a given prover and block.
-func MakeProofSubmission(proverID, blockHash types.Hash) *proofs.ProofSubmission {
-	proofData := crypto.Keccak256Hash(proverID[:], blockHash[:])
-	return &proofs.ProofSubmission{
-		ProverID:  proverID,
-		ProofType: "zksnark",
-		ProofData: proofData[:],
-		BlockHash: blockHash,
-		Timestamp: 1700000000,
-	}
-}
-
 // MakeExecutionProof creates a test execution proof for aggregation.
 func MakeExecutionProof(blockNum uint64) proofs.ExecutionProof {
 	blockHash := DeterministicHash(blockNum)

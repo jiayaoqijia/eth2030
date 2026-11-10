@@ -152,6 +152,11 @@ func TestVerifyChain_Cache(t *testing.T) {
 	if !chain.VerifyChain(proof) {
 		t.Fatal("cached chain should verify")
 	}
+	tampered := &proof.Proofs[0]
+	tampered.Proof[0] ^= 1
+	if chain.VerifyChain(proof) {
+		t.Fatal("altered proof reused the verification cache")
+	}
 	chain.ClearCache()
 	if chain.CacheSize() != 0 {
 		t.Error("cache should be empty after clear")

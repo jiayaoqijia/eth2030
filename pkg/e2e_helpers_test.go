@@ -194,24 +194,6 @@ func TestRoadmapHelper_RegisterProvers(t *testing.T) {
 	}
 }
 
-func TestRoadmapHelper_MakeProofSubmission(t *testing.T) {
-	prover := e2e.DeterministicHash(1)
-	block := e2e.DeterministicHash(2)
-	sub := e2e.MakeProofSubmission(prover, block)
-	if sub == nil {
-		t.Fatal("MakeProofSubmission returned nil")
-	}
-	if sub.ProverID != prover {
-		t.Error("prover ID mismatch")
-	}
-	if sub.BlockHash != block {
-		t.Error("block hash mismatch")
-	}
-	if len(sub.ProofData) == 0 {
-		t.Error("empty proof data")
-	}
-}
-
 func TestRoadmapHelper_MakeExecutionProof(t *testing.T) {
 	proof := e2e.MakeExecutionProof(100)
 	if proof.BlockHash == (types.Hash{}) {

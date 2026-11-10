@@ -1,7 +1,4 @@
-// Dilithium post-quantum lattice-based signature scheme for PQ attestations.
-// This implements a simulated Dilithium-style scheme (L+ upgrade) with
-// configurable security levels. The cryptographic operations use Keccak256
-// as a stand-in for real lattice math until a production library is integrated.
+// ML-DSA-65 signing and key generation for PQ attestations.
 package pqc
 
 import "errors"
@@ -59,9 +56,7 @@ type DilithiumKeyPair struct {
 	Params    *DilithiumParams
 }
 
-// GenerateDilithiumKey generates a new Dilithium key pair using default params.
-// SecretKey is 32 random bytes (seed). PublicKey is derived as
-// Keccak256(SecretKey || "dilithium-pk") to simulate lattice key derivation.
+// GenerateDilithiumKey generates a packed ML-DSA-65 key pair.
 func GenerateDilithiumKey() (*DilithiumKeyPair, error) {
 	key, err := (&DilithiumSigner{}).GenerateKey()
 	if err != nil {

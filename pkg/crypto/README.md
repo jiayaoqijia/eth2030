@@ -4,20 +4,7 @@ Cryptographic primitives for the ETH2030 Ethereum client.
 
 ## Overview
 
-Package `crypto` provides all cryptographic building blocks used across the
-ETH2030 codebase: classical primitives (Keccak-256, secp256k1 ECDSA, BN254),
-advanced elliptic curve operations (BLS12-381 with gnark-crypto backend,
-Banderwagon/IPA for Verkle proofs), post-quantum signatures (ML-DSA-65/FIPS 204,
-Dilithium3, Falcon512, SPHINCS+, XMSS/WOTS+), threshold cryptography (Shamir SSS,
-Feldman VSS, ElGamal encryption for the encrypted mempool), and Verifiable Delay
-Functions (Wesolowski scheme for beacon chain randomness).
-
-The package follows a split-package architecture: each major cryptographic domain
-lives in a dedicated subpackage (`bls/`, `bn254/`, `ipa/`, `pqc/`, `secp256k1/`,
-`threshold/`, `vdf/`, `merkle/`). The root `crypto` package re-exports all
-subpackage symbols via compat files so that existing imports of
-`github.com/eth2030/eth2030/crypto` continue to work unchanged. New code should
-import subpackages directly.
+The root package and its subpackages provide classical signing, Ethereum curve and KZG operations, Verkle polynomial openings, post-quantum signing and KEM, prime-field share reconstruction, and class-group verifiable delay functions.
 
 ## Table of Contents
 
@@ -98,48 +85,14 @@ The `ipa` subpackage implements Inner Product Arguments over the Banderwagon gro
   verifier.
 - `GoIPABackend` and `PureGoIPABackend` for pluggable backends.
 
-### VDF / Wesolowski (via `vdf/`)
+### VDF and threshold reconstruction
 
-The `vdf` subpackage implements Wesolowski's Verifiable Delay Function for
-unbiasable beacon chain randomness (M+ roadmap):
-
-- `VDFEvaluator` interface: `Evaluate(input, iterations)` and `Verify(proof)`.
-- `WesolowskiVDF` — concrete Wesolowski implementation. Default params: T=2^20
-  squarings, Lambda=128 bits.
-- `VDFv2` — enhanced VDF with configurable challenge generation.
-- `VDFChain` — chains VDF evaluations for multi-step beacons.
-- `VDFBeacon` — wraps `VDFChain` to produce a sequential randomness beacon.
-- `BeaconOutput` — beacon output with epoch and value.
-
-### Threshold Cryptography (via `threshold/`)
-
-The `threshold` subpackage implements t-of-n threshold schemes for the encrypted
-mempool (Hegotá threshold decryption + ordering):
-
-- `ThresholdScheme` — t-of-n Shamir Secret Sharing with Feldman VSS verification.
-- `Share` / `VerifiableShare` — share types with VSS commitments.
-- `KeyGenResult` — distributed key generation output.
-- `ShareEncrypt` / `ShareDecrypt` / `CombineShares` — ElGamal encryption with
-  threshold decryption shares.
-- `LagrangeInterpolate` — reconstruct secret from t shares.
-- `VerifyShare` — Feldman VSS share verification.
+The [VDF package](vdf/README.md) uses Harmony's class-group Wesolowski proof library for the experimental epoch reveal, encrypted-mempool timer and beacon. The [threshold package](threshold/README.md) reconstructs existing encrypted-mempool shares with TNO Shamir.
 
 ### Post-Quantum Cryptography (via `pqc/`)
 
-The `pqc` subpackage provides a complete post-quantum signature stack:
+The [PQ package](pqc/README.md) uses CIRCL for ML-DSA, SLH-DSA and ML-KEM, and go-fn-dsa for FN-DSA-512.
 
-- **Dilithium3** (`dilithium.go`, `dilithium_sign.go`, `dilithium_enhanced.go`):
-  real CRYSTALS-Dilithium lattice operations (1952-byte pubkeys, 3293-byte
-  signatures). `DilithiumSigner` implements `PQSigner`.
-- **Falcon512** (`falcon.go`, `falcon_signer.go`): FALCON-512 NTRU-lattice
-  signatures (897-byte pubkeys, ~690-byte signatures). `FalconSigner` implements
-  `PQSigner`.
-- **SPHINCS+** (`sphincs_sign.go`, `sphincs_signer.go`): SPHINCS+-SHA256
-  stateless hash-based signatures (32-byte pubkeys, 49216-byte signatures).
-- **ML-DSA-65** (`mldsa_signer.go`): FIPS 204 lattice signer backed by
-  `github.com/cloudflare/circl`.
-- **Unified hash signer** (`unified_hash_signer.go`, `l1_hash_sig.go`): XMSS/WOTS+
-  hash-based multi-signature scheme for PQ L1 hash-based security (M+ roadmap).
 - **Hybrid signer** (`hybrid.go`, `hybrid_threshold.go`): ECDSA + PQ hybrid signing
   for gradual migration.
 - **PQ algorithm registry** (`pq_algorithm_registry.go`): runtime-selectable
@@ -174,11 +127,11 @@ cache used by the transaction pool.
 |------------|-------------|
 | [`bls/`](./bls/) | BLS12-381: G1/G2 ops, pairing, MSM, aggregation, KZG (EIP-2537, EIP-4844) |
 | [`bn254/`](./bn254/) | BN254: add, scalar-mul, pairing check (EIP-196/197 precompiles) |
-| [`ipa/`](./ipa/) | Banderwagon group, IPA proofs, Pedersen commitments (Verkle trees) |
+| [`ipa/`](./ipa/) | Verkle polynomial openings via go-ipa |
 | [`merkle/`](./merkle/) | SHA-256 Merkle tree, proofs, multi-proofs (beacon state roots) |
-| [`pqc/`](./pqc/) | Post-quantum: ML-DSA-65, Dilithium3, Falcon512, SPHINCS+, XMSS/WOTS+, hybrid |
+| [`pqc/`](./pqc/) | Post-quantum: ML-DSA, FN-DSA, SLH-DSA, ML-KEM, and hybrid signing |
 | [`secp256k1/`](./secp256k1/) | secp256k1 ECDSA, ECIES, P256, address derivation |
-| [`threshold/`](./threshold/) | t-of-n threshold: Shamir SSS, Feldman VSS, ElGamal (encrypted mempool) |
+| [`threshold/`](./threshold/) | Prime-field share reconstruction for the encrypted mempool |
 | [`vdf/`](./vdf/) | Wesolowski VDF, VDF chain, randomness beacon (M+ roadmap) |
 
 ## Usage
@@ -211,14 +164,10 @@ kp, _ := signer.GenerateKey()
 sig, _ := signer.Sign(kp.SecretKey, msg)
 ok := signer.Verify(kp.PublicKey, msg, sig)
 
-// Threshold cryptography.
-scheme, _ := crypto.NewThresholdScheme(3, 5) // 3-of-5
-// ...distribute shares, encrypt, decrypt...
-
 // Wesolowski VDF.
-vdf := crypto.NewWesolowskiVDF(crypto.DefaultVDFParams())
-proof, _ := vdf.Evaluate(seed, 1<<20)
-ok = vdf.Verify(proof)
+import "github.com/eth2030/eth2030/crypto/vdf"
+result, _ := vdf.Evaluate(seed, 100)
+output, ok := vdf.VerifySolution(seed, 100, result.EncodeSolution())
 ```
 
 ## Documentation References

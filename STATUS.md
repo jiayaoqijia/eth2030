@@ -1,5 +1,14 @@
 # Project Status
 
+## Ethereum Client Cryptography Follow-Up (2026-11-10)
+
+- Traced Geth's secp256k1, EVM curves, KZG, Engine JWT, and keystore providers and the separate Lighthouse BLS and Verkle paths.
+- Switched IPA openings, Poseidon, VDF, VRF, and prime-field share reconstruction to public libraries. Retired unused local signers and the old threshold prototype.
+- Added real opening verification for IPA and KZG batches and required registered verifiers for SNARK and STARK statements. The PQ attestation codec carries the full ML-DSA key and signature.
+- The clean staged source passed all 206 test-bearing Go packages, build, vet, tagged tests, Go-only tests, and targeted race checks. The pinned EF gate recorded 36,264 passes and 20 known outcomes with zero unexpected failures or skips.
+- A Geth provider probe selected Go KZG and C KZG in turn, generated and verified an opening with each, and compared their commitment bytes.
+- Recorded the format changes and outstanding STARK, lattice and aggregation work in the [codebase audit](docs/CODEBASE_AUDIT.md#vii-ethereum-client-references-and-follow-up-migration).
+
 ## Public Cryptography Library Migration (2026-11-10)
 
 - Moved secp256k1, BN254 precompiles, BLAKE2b compression, ECIES, keystore and RLPx transport to go-ethereum. Engine JWT authentication uses golang-jwt.

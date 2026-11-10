@@ -11,8 +11,8 @@ import (
 	"github.com/eth2030/eth2030/consensus"
 	"github.com/eth2030/eth2030/consensus/pq"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/crypto/pqc"
+	"github.com/eth2030/eth2030/crypto/vdf"
 	"github.com/eth2030/eth2030/das"
 	"github.com/eth2030/eth2030/light"
 	"github.com/eth2030/eth2030/proofs"
@@ -403,6 +403,7 @@ func TestE2E_PQBinary_MandatoryProofThreeOfFive(t *testing.T) {
 	}
 
 	blockHash := e2e.DeterministicHash(999)
+	proof := mandatoryProofFixture(t, sys, blockHash)
 	assigned, err := sys.AssignProvers(blockHash)
 	if err != nil {
 		t.Fatalf("AssignProvers: %v", err)
@@ -413,7 +414,7 @@ func TestE2E_PQBinary_MandatoryProofThreeOfFive(t *testing.T) {
 
 	// Submit only 2 (insufficient).
 	for i := 0; i < 2; i++ {
-		sub := e2e.MakeProofSubmission(assigned[i], blockHash)
+		sub := &proofs.ProofSubmission{ProverID: assigned[i], BlockHash: blockHash, ProofType: "zksnark", ProofData: proof}
 		if err := sys.SubmitProof(sub); err != nil {
 			t.Fatalf("SubmitProof[%d]: %v", i, err)
 		}
@@ -426,7 +427,7 @@ func TestE2E_PQBinary_MandatoryProofThreeOfFive(t *testing.T) {
 	}
 
 	// Submit a 3rd.
-	sub3 := e2e.MakeProofSubmission(assigned[2], blockHash)
+	sub3 := &proofs.ProofSubmission{ProverID: assigned[2], BlockHash: blockHash, ProofType: "zksnark", ProofData: proof}
 	if err := sys.SubmitProof(sub3); err != nil {
 		t.Fatalf("SubmitProof[2]: %v", err)
 	}
@@ -675,15 +676,15 @@ func TestE2E_PQBinary_BlobReconstructionFromCells(t *testing.T) {
 // TestE2E_PQBinary_VDFProposerSelection tests VDF evaluation and use
 // for deterministic proposer randomness.
 func TestE2E_PQBinary_VDFProposerSelection(t *testing.T) {
-	params := &crypto.VDFParams{T: 50, Lambda: 128}
-	vdf := crypto.NewWesolowskiVDF(params)
+	const iterations = 50
+	evaluator := vdf.NewVDFv2(vdf.DefaultVDFv2Config())
 
 	// Different slots produce different randomness.
-	proof1, err := vdf.Evaluate([]byte("slot-1-seed"), params.T)
+	proof1, err := evaluator.Evaluate([]byte("slot-1-seed"), iterations)
 	if err != nil {
 		t.Fatalf("Evaluate slot-1: %v", err)
 	}
-	proof2, err := vdf.Evaluate([]byte("slot-2-seed"), params.T)
+	proof2, err := evaluator.Evaluate([]byte("slot-2-seed"), iterations)
 	if err != nil {
 		t.Fatalf("Evaluate slot-2: %v", err)
 	}
@@ -693,10 +694,10 @@ func TestE2E_PQBinary_VDFProposerSelection(t *testing.T) {
 	}
 
 	// Both should verify.
-	if !vdf.Verify(proof1) {
+	if !evaluator.Verify(proof1) {
 		t.Error("proof1 should verify")
 	}
-	if !vdf.Verify(proof2) {
+	if !evaluator.Verify(proof2) {
 		t.Error("proof2 should verify")
 	}
 }

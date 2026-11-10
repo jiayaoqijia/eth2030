@@ -8,13 +8,15 @@
 package proofs
 
 import (
+	"bytes"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/bls"
+	"github.com/eth2030/eth2030/crypto/ipa"
 )
 
 // Batch verifier errors.
@@ -24,6 +26,8 @@ var (
 	ErrBatchVerifyUnknownType = errors.New("batch_verify: unknown proof type")
 	ErrBatchVerifyClosed      = errors.New("batch_verify: verifier is closed")
 	ErrBatchVerifyNilProof    = errors.New("batch_verify: nil proof in batch")
+	ErrBatchVerifyNoProvider  = errors.New("batch_verify: a proof verifier must be registered")
+	ErrBatchVerifyEncoding    = errors.New("batch_verify: invalid proof or public input encoding")
 )
 
 // VerifiableProof wraps a proof with metadata for batch routing.
@@ -120,11 +124,8 @@ func NewBatchVerifier(config BatchVerifierConfig) *BatchVerifier {
 		config:    config,
 		verifiers: make(map[ProofType]TypeVerifier),
 	}
-	// Register default stub verifiers.
-	bv.verifiers[ZKSNARK] = defaultSNARKVerify
-	bv.verifiers[ZKSTARK] = defaultSTARKVerify
-	bv.verifiers[IPA] = defaultIPAVerify
-	bv.verifiers[KZG] = defaultKZGVerify
+	bv.verifiers[IPA] = verifyIPAOpening
+	bv.verifiers[KZG] = verifyKZGOpening
 	return bv
 }
 
@@ -132,6 +133,10 @@ func NewBatchVerifier(config BatchVerifierConfig) *BatchVerifier {
 func (bv *BatchVerifier) RegisterVerifier(pt ProofType, fn TypeVerifier) {
 	bv.mu.Lock()
 	defer bv.mu.Unlock()
+	if fn == nil {
+		delete(bv.verifiers, pt)
+		return
+	}
 	bv.verifiers[pt] = fn
 }
 
@@ -256,7 +261,12 @@ func (bv *BatchVerifier) verifySingle(p *VerifiableProof, batchTimeout *atomic.B
 	bv.mu.RUnlock()
 
 	if !ok {
-		result.Err = ErrBatchVerifyUnknownType
+		switch p.Type {
+		case ZKSNARK, ZKSTARK, IPA, KZG:
+			result.Err = ErrBatchVerifyNoProvider
+		default:
+			result.Err = ErrBatchVerifyUnknownType
+		}
 		result.Duration = time.Since(start)
 		return result
 	}
@@ -267,8 +277,9 @@ func (bv *BatchVerifier) verifySingle(p *VerifiableProof, batchTimeout *atomic.B
 		err   error
 	}
 	ch := make(chan verifyOut, 1)
+	data, publicInputs := bytes.Clone(p.Data), bytes.Clone(p.PublicIn)
 	go func() {
-		v, e := verifier(p.Data, p.PublicIn)
+		v, e := verifier(data, publicInputs)
 		ch <- verifyOut{v, e}
 	}()
 
@@ -291,68 +302,28 @@ func (bv *BatchVerifier) Stats() (verified, failed, timedOut uint64) {
 	return bv.totalVerified.Load(), bv.totalFailed.Load(), bv.totalTimeout.Load()
 }
 
-// --- Type-specific verifiers ---
-// These use real cryptographic verification where possible:
-// - SNARK: attempts BLS12-381 Groth16 deserialization + pairing, falls back to
-//   binding commitment verification.
-// - STARK/IPA: verifies cryptographic binding commitment (Keccak256 over
-//   proof data, public inputs, and domain separator).
-// - KZG: verifies cryptographic binding commitment.
-
-func defaultSNARKVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
+// IPA public inputs are the compressed commitment and two little-endian
+// scalars (evaluation point and claimed value).
+func verifyIPAOpening(proof, inputs []byte) (bool, error) {
+	if len(inputs) != 96 || len(proof) != ipa.ProofSize {
+		return false, ErrBatchVerifyEncoding
 	}
-	// Try BLS12-381 Groth16 verification for 192-byte proofs.
-	if len(data) == 192 {
-		proof, err := DeserializeBLSGroth16Proof(data)
-		if err == nil && proof != nil {
-			if err := ValidateGroth16Proof(proof); err == nil {
-				return true, nil
-			}
-		}
-	}
-	// Binding commitment verification: Keccak256(domain || data || publicInputs)
-	// must produce a non-zero hash.
-	h := crypto.Keccak256([]byte("snark-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
+	return ipa.Verify([32]byte(inputs[:32]), [32]byte(inputs[32:64]), [32]byte(inputs[64:]), proof)
 }
 
-func defaultSTARKVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
+// KZG public inputs are the Ethereum ceremony commitment and two big-endian
+// scalars (evaluation point and claimed value).
+func verifyKZGOpening(proof, inputs []byte) (bool, error) {
+	const commitment = bls.KZGBytesPerCommitment
+	const scalar = bls.KZGBytesPerFieldElement
+	if len(inputs) != commitment+2*scalar || len(proof) != bls.KZGBytesPerProof {
+		return false, ErrBatchVerifyEncoding
 	}
-	// Binding commitment verification with STARK domain separator.
-	h := crypto.Keccak256([]byte("stark-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
-}
-
-func defaultIPAVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
-	}
-	// Binding commitment verification with IPA domain separator.
-	h := crypto.Keccak256([]byte("ipa-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
-}
-
-func defaultKZGVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
-	}
-	// Binding commitment verification with KZG domain separator.
-	h := crypto.Keccak256([]byte("kzg-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
+	err := bls.VerifyKZGPointProof(
+		[commitment]byte(inputs[:commitment]),
+		[scalar]byte(inputs[commitment:commitment+scalar]),
+		[scalar]byte(inputs[commitment+scalar:]),
+		[bls.KZGBytesPerProof]byte(proof),
+	)
+	return err == nil, err
 }

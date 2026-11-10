@@ -252,14 +252,32 @@ The Ethereum ceremony context from go-eth-kzg supplies point openings, blob comm
 
 CIRCL supplies ML-DSA-44, ML-DSA-65, ML-DSA-87, SLH-DSA-SHA2-128f, and ML-KEM-768. The historical Falcon-512 algorithm ID now selects FN-DSA-512 from go-fn-dsa. Earlier project-local PQ keys, signatures, ciphertexts, and ECIES ciphertexts use different encodings. Integrations with those artifacts need new keys, signatures, or ciphertexts in the library formats. RLPx peers need an enode public key for an authenticated outbound handshake. The native application-level hello still uses its own framing and capability negotiation.
 
-The migration is partial in the following areas.
+## VII. Ethereum Client References and Follow-Up Migration
 
-| Remaining code | Compatibility work |
+The Go module used by the executable is go-ethereum v1.17.10. The checked-in reference submodule is commit `0cba803fba` and pins slightly different library versions. The table separates module declarations from the source that selects or invokes a provider. [Geth module manifest](https://github.com/ethereum/go-ethereum/blob/v1.17.10/go.mod)
+
+| Area | Upstream code path and provider |
 |---|---|
-| IPA proof creation and verification | The existing variable-length vectors, generator set, point encoding, and transcript differ from go-ipa's 256-element evaluation-domain protocol. The underlying group arithmetic now uses gnark-crypto. |
-| Poseidon and Poseidon2 | The existing custom round constants, matrices, and sponge semantics determine the circuit outputs. A provider switch requires selecting parameters and versioning any affected outputs. |
-| VDF and threshold cryptography | The RSA group, challenge transcript and proof encoding determine VDF compatibility. The encrypted transaction threshold path uses the existing prime-field share representation. A replacement must preserve those contracts or coordinate a format transition. |
-| STARK, proof aggregation, and other experimental proof and hash-signature interfaces | These paths still use project-defined statements, transcripts, and artifact formats. The library-backed KZG and Groth16 interfaces do not establish migration of the generic proof dispatchers. |
+| ECDSA and recovery | The normal cgo build calls the bundled libsecp256k1 wrapper. The Go-only build uses Decred secp256k1 v4. [cgo](https://github.com/ethereum/go-ethereum/blob/v1.17.10/crypto/signature_cgo.go) · [Go-only](https://github.com/ethereum/go-ethereum/blob/v1.17.10/crypto/signature_nocgo.go) |
+| EVM curves and compression | The BN254 wrapper and BLS12-381 precompiles use gnark-crypto. Geth supplies the BLAKE2b compression adapter. [BN254](https://github.com/ethereum/go-ethereum/tree/v1.17.10/crypto/bn256/gnark) · [EVM dispatch](https://github.com/ethereum/go-ethereum/blob/v1.17.10/core/vm/contracts.go) |
+| Blob and cell proofs | Geth defaults to crate-crypto go-eth-kzg. The optional c-kzg implementation requires a cgo build with the `ckzg` tag and runtime selection. [Provider selection](https://github.com/ethereum/go-ethereum/blob/v1.17.10/crypto/kzg4844/kzg4844.go) |
+| Engine authentication and keystore | Geth uses golang-jwt v4 for Engine JWTs and golang.org/x/crypto scrypt in its Web3 keystore. The RLPx transport uses Geth's ECIES and secp256k1 packages. [Engine](https://github.com/ethereum/go-ethereum/blob/v1.17.10/node/jwt_handler.go) · [Keystore](https://github.com/ethereum/go-ethereum/blob/v1.17.10/accounts/keystore/passphrase.go) · [RLPx](https://github.com/ethereum/go-ethereum/tree/v1.17.10/p2p/rlpx) |
+| Consensus signatures | The pinned Lighthouse BLS crate lists blst and its blst implementation is a consensus-signature provider. This is a separate path from the execution-layer BLS precompiles. [Lighthouse BLS crate](https://github.com/sigp/lighthouse/tree/95f12d0927831971ca9e1acf7ca7e87fdda56f4a/crypto/bls) |
+| Verkle | The separate ethereum/go-verkle reference uses crate-crypto/go-ipa for its multiproofs. Geth v1.17.10 has no dependency on either module. ETH2030 uses go-ipa for a 256-evaluation single-opening API with its own transcript label. [Verkle reference](https://github.com/ethereum/go-verkle/blob/aa0a270/proof_ipa.go) · [Go IPA](https://github.com/crate-crypto/go-ipa) |
+
+The follow-up removed the project-local IPA proof, point encoding, and transcript. The batch verifier now checks actual IPA and Ethereum ceremony KZG openings. SNARK and STARK batch entries require a registered provider with the expected statement. Mandatory block proofs require a registered provider and a matching stored submission. Unused recursive aggregator adapters that accepted digest-only placeholders were removed. Its Merkle batches remain commitments to included artifacts.
+
+The zkVM now uses iden3 Poseidon and gnark-crypto Poseidon2 over BN254. The new hashes bind the input count and the Poseidon2 byte input uses its own domain. This changes digests derived from the old custom permutations. The local circuit builder uses Poseidon as an oracle value in its existing constraint format. [Poseidon provider](https://github.com/iden3/go-iden3-crypto/blob/v0.0.17/poseidon/poseidon.go) · [Poseidon2 provider](https://pkg.go.dev/github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon2)
+
+The class-group Wesolowski library now supplies proof generation and verification for the experimental VDF package. The epoch reveal and encrypted-mempool timer accept the serialized output followed by its proof. Old RSA proofs, Keccak chain results, and hash-target puzzle solutions use retired formats. Beacon and batch digests commit to the output, proof, seed and iteration count. [Harmony VDF](https://github.com/harmony-one/vdf/tree/v1.0.0/src/vdf_go)
+
+The encrypted-mempool key reconstruction now uses TNO Shamir with the existing prime and one-based share indices. The standalone Feldman and ElGamal prototype had no repository consumers and was retired. The ML-DSA attestation gossip codec now carries the full key and signature in a versioned packet. The removed XMSS, WOTS, Lamport, and LeanSig serialization prototypes had no remaining runtime consumers after that codec change. SLH-DSA signatures continue to use CIRCL. [TNO Shamir](https://github.com/TNO-MPC/shamir) · [LeanSig reference](https://github.com/leanEthereum/leanSig)
+
+Experimental proposer election uses curve25519-voi ECVRF-EDWARDS25519-SHA512-ELL2 with 80-byte proofs. It derives the 32-byte proposer score from the library output. The pinned Ethereum consensus specification uses BLS verification for RANDAO reveals. [ECVRF provider](https://pkg.go.dev/github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/ecvrf) · [Consensus RANDAO specification](https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#randao)
+
+STARK generation and its application-specific aggregation still use the existing experimental code. The node constructs the STARK mempool aggregator and can enable validation-frame proof generation. Neither Geth nor the inspected Lighthouse path supplies an interchangeable prover. The public Winterfell and Plonky3 APIs require a concrete algebraic statement, prover and verifier configuration, and a new artifact format for these consumers. The local BN254 Poseidon2 hash also differs from the small-field permutation used by LeanSig. [Node construction](../pkg/node/node.go) · [Winterfell](https://github.com/meta/winterfell) · [Plonky3](https://github.com/Plonky3/Plonky3)
+
+The project-specific lattice blob commitments and PQ aggregation still have no equivalent in the inspected Ethereum client paths. Ethereum's blob and cell commitments use the KZG protocol described above.
 
 ---
 

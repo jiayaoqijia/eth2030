@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/crypto"
+	cryptovdf "github.com/eth2030/eth2030/crypto/vdf"
 )
 
 // Errors for VDF consensus operations.
@@ -70,7 +71,6 @@ type VDFConsensus struct {
 	config       VDFConsensusConfig
 	epochs       map[uint64]*epochState
 	currentEpoch uint64
-	vdf          *crypto.VDFv2
 }
 
 // NewVDFConsensus creates a new VDF consensus engine with the given config.
@@ -88,12 +88,9 @@ func NewVDFConsensus(config VDFConsensusConfig) *VDFConsensus {
 		config.MinParticipation = 0.5
 	}
 
-	vdf := crypto.NewVDFv2(crypto.DefaultVDFv2Config())
-
 	return &VDFConsensus{
 		config: config,
 		epochs: make(map[uint64]*epochState),
-		vdf:    vdf,
 	}
 }
 
@@ -131,14 +128,14 @@ func (vc *VDFConsensus) BeginEpoch(epochNum uint64, seed []byte) error {
 
 // RevealOutput records a validator's VDF output for the given epoch. The output
 // is verified against the epoch seed before being accepted.
-func (vc *VDFConsensus) RevealOutput(epochNum uint64, validatorID string, output []byte) error {
+func (vc *VDFConsensus) RevealOutput(epochNum uint64, validatorID string, solution []byte) error {
 	if epochNum == 0 {
 		return errVDFZeroEpoch
 	}
 	if validatorID == "" {
 		return errVDFEmptyValidatorID
 	}
-	if len(output) == 0 {
+	if len(solution) == 0 {
 		return errVDFEmptyOutput
 	}
 
@@ -160,19 +157,11 @@ func (vc *VDFConsensus) RevealOutput(epochNum uint64, validatorID string, output
 	// Build the expected input by domain-separating with the epoch.
 	domainInput := crypto.Keccak256(es.seed, epochUint64Bytes(epochNum))
 
-	result, err := vc.vdf.Evaluate(domainInput, vc.config.VDFDifficulty)
-	if err != nil {
+	output, valid := cryptovdf.VerifySolution(domainInput, vc.config.VDFDifficulty, solution)
+	if !valid {
 		return ErrVDFInvalidOutput
 	}
-
-	// Compare the submitted output to the expected output.
-	if !sliceEqual(result.Output, output) {
-		return ErrVDFInvalidOutput
-	}
-
-	outputCopy := make([]byte, len(output))
-	copy(outputCopy, output)
-	es.reveals[validatorID] = outputCopy
+	es.reveals[validatorID] = output
 
 	return nil
 }

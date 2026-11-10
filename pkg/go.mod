@@ -3,15 +3,20 @@ module github.com/eth2030/eth2030
 go 1.26.8
 
 require (
+	github.com/TNO-MPC/shamir v1.0.1
 	github.com/cloudflare/circl v1.6.3
 	github.com/consensys/gnark v0.16.5
 	github.com/consensys/gnark-crypto v0.22.1-0.20261109214502-1b28c4e97311
 	github.com/crate-crypto/go-eth-kzg v1.5.0
+	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a
 	github.com/ethereum/go-ethereum v1.17.10
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/harmony-one/vdf v1.0.0
 	github.com/holiman/uint256 v1.3.2
+	github.com/iden3/go-iden3-crypto v0.0.17
+	github.com/oasisprotocol/curve25519-voi v0.0.0-20251114093237-2ab5a27a1729
 	github.com/pornin/go-fn-dsa v0.3.0
 	github.com/supranational/blst v0.3.17
 	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
