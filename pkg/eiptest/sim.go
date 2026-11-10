@@ -38,6 +38,7 @@ type Sim struct {
 	timeStep   uint64
 	beneficiary types.Address
 	keyAccounts []*Account
+	scheduledForks map[Fork]uint64 // fork -> genesis-relative offset
 }
 
 // New creates a Sim with the given options and runs its lifecycle checks
@@ -108,14 +109,15 @@ func newSim(o *simOptions) (*Sim, error) {
 	}
 
 	s := &Sim{
-		cfg:         cfg,
-		bc:          bc,
-		db:          db,
-		builder:     block.NewBlockBuilder(cfg, bc, nil),
-		genesis:     res.Block,
-		now:         o.genesisTime,
-		timeStep:    12,
-		keyAccounts: standard,
+		cfg:            cfg,
+		bc:             bc,
+		db:             db,
+		builder:        block.NewBlockBuilder(cfg, bc, nil),
+		genesis:        res.Block,
+		now:            o.genesisTime,
+		timeStep:       12,
+		keyAccounts:    standard,
+		scheduledForks: o.forkTimes,
 	}
 	return s, nil
 }
@@ -181,6 +183,35 @@ func (s *Sim) nextTime() uint64 {
 // crossed by advancing time past the boundary.
 func (s *Sim) AdvanceTime(d uint64) {
 	s.now += d
+}
+
+// AdvanceTo moves the simulated clock to the absolute timestamp. The next
+// Commit block carries exactly this time (bounded by the parent time).
+func (s *Sim) AdvanceTo(abs uint64) {
+	if abs < s.now {
+		abs = s.now
+	}
+	s.now = abs
+}
+
+// forkActiveAt reports whether the fork rules are active at the given
+// timestamp, via the config's fork checkers.
+func (s *Sim) forkActiveAt(fork Fork, ts uint64) bool {
+	switch fork {
+	case ForkAmsterdam:
+		return s.cfg.IsAmsterdam(ts)
+	case ForkGlamsterdan:
+		return s.cfg.IsGlamsterdan(ts)
+	case ForkHogota:
+		return s.cfg.IsHogota(ts)
+	case ForkIPlus:
+		return s.cfg.IsIPlus(ts)
+	case ForkBPO1:
+		return s.cfg.IsBPO1(ts)
+	case ForkBPO2:
+		return s.cfg.IsBPO2(ts)
+	}
+	return false
 }
 
 // SetBeneficiary sets the fee recipient for subsequent blocks.

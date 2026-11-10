@@ -278,6 +278,14 @@ func (b *EngineBackend) getHeadHash() types.Hash {
 	return b.headHash
 }
 
+// GetBlockByHash returns a block stored by the backend, or nil if unknown.
+func (b *EngineBackend) GetBlockByHash(hash types.Hash) *types.Block {
+	if blk, ok := b.getBlock(hash); ok {
+		return blk
+	}
+	return nil
+}
+
 func (b *EngineBackend) getForkchoiceState() (headHash, safeHash, finalHash types.Hash) {
 	b.stateMu.RLock()
 	defer b.stateMu.RUnlock()
