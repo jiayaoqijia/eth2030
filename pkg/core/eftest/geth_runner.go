@@ -236,7 +236,6 @@ func (st *GethStateTest) RunWithGeth(subtest StateSubtest) *GethRunResult {
 	evmTimestamp := hexToUint64(st.json.Env.CurrentTimestamp)
 	processor := geth.NewGethBlockProcessorWithEth2028(config, nil)
 	evm := processor.MakeEVM(blockCtx, stState.StateDB, evmBlockNum, evmTimestamp)
-	snapshot := stState.StateDB.Snapshot()
 	gasPool := gethcore.NewGasPool(hexToUint64(st.json.Env.CurrentGasLimit))
 
 	_, applyErr := gethcore.ApplyMessage(evm, msg, gasPool)
@@ -251,7 +250,8 @@ func (st *GethStateTest) RunWithGeth(subtest StateSubtest) *GethRunResult {
 	}
 
 	if applyErr != nil {
-		stState.StateDB.RevertToSnapshot(snapshot)
+		result.Error = fmt.Errorf("unexpected transaction error: %w", applyErr)
+		return result
 	}
 
 	// Touch coinbase.
