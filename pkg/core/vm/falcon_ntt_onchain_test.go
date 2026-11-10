@@ -18,13 +18,13 @@ import (
 func TestFalconNTTOnChain(t *testing.T) {
 	// Step 1: Generate a Falcon-512 key pair and sign a message.
 	signer := &pqc.FalconSigner{}
-	kp, err := signer.GenerateKeyReal()
+	kp, err := signer.GenerateKey()
 	if err != nil {
 		t.Fatalf("Falcon key generation failed: %v", err)
 	}
 
 	msg := []byte("ETH2030 Falcon-512 on-chain NTT verification test vector")
-	sig, err := signer.SignReal(kp.SecretKey, msg)
+	sig, err := signer.Sign(kp.SecretKey, msg)
 	if err != nil {
 		t.Fatalf("Falcon sign failed: %v", err)
 	}
@@ -70,8 +70,8 @@ func TestFalconNTTOnChain(t *testing.T) {
 		t.Fatal("NTT round-trip failed: INTT(NTT(x)) != x")
 	}
 
-	// Step 6: Verify the Falcon-512 signature via native lattice norm check.
-	if !signer.VerifyReal(kp.PublicKey, msg, sig) {
+	// Step 6: Verify the Falcon-512 signature with the FN-DSA provider.
+	if !signer.Verify(kp.PublicKey, msg, sig) {
 		t.Fatal("Falcon signature verification failed")
 	}
 

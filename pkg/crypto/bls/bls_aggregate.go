@@ -26,126 +26,34 @@ const (
 	BLSSignatureSize = 96
 )
 
-// SerializeG1 compresses a G1 point to 48 bytes (compressed form).
-// Uses the high bit of the first byte as flags:
-//   - bit 7 (0x80): compressed flag (always set)
-//   - bit 6 (0x40): infinity flag
-//   - bit 5 (0x20): sort flag (y > -y, i.e., lexicographic choice)
+// SerializeG1 compresses a G1 point to 48 bytes.
 func SerializeG1(p *BlsG1Point) [BLSPubkeySize]byte {
-	var out [BLSPubkeySize]byte
-	if p.blsG1IsInfinity() {
-		out[0] = 0xC0 // compressed + infinity
-		return out
-	}
-	x, y := p.blsG1ToAffine()
-	// Write x coordinate in big-endian 48 bytes.
-	xBytes := x.Bytes()
-	copy(out[BLSPubkeySize-len(xBytes):], xBytes)
-	// Set compressed flag.
-	out[0] |= 0x80
-	// Set sort flag if y > (p-1)/2 (lexicographic largest).
-	halfP := new(big.Int).Rsh(blsP, 1)
-	if y.Cmp(halfP) > 0 {
-		out[0] |= 0x20
-	}
-	return out
+	point := p.gnarkAffine()
+	return point.Bytes()
 }
 
-// DeserializeG1 decompresses a 48-byte compressed G1 point.
-// Returns nil if the point is invalid.
+// DeserializeG1 decompresses a G1 point and verifies subgroup membership.
 func DeserializeG1(data [BLSPubkeySize]byte) *BlsG1Point {
-	if data[0]&0x80 == 0 {
-		return nil // not compressed
-	}
-	if data[0]&0x40 != 0 {
-		// Point at infinity.
-		return BlsG1Infinity()
-	}
-	sortFlag := data[0]&0x20 != 0
-	// Clear flag bits to get x.
-	data[0] &= 0x1F
-	x := new(big.Int).SetBytes(data[:])
-	if x.Cmp(blsP) >= 0 {
+	var point bls381.G1Affine
+	if _, err := point.SetBytes(data[:]); err != nil {
 		return nil
 	}
-	// Compute y^2 = x^3 + 4.
-	x3 := blsFpMul(blsFpSqr(x), x)
-	rhs := blsFpAdd(x3, blsB)
-	y := blsFpSqrt(rhs)
-	if y == nil {
-		return nil // not on curve
-	}
-	// Choose correct y based on sort flag.
-	halfP := new(big.Int).Rsh(blsP, 1)
-	if sortFlag != (y.Cmp(halfP) > 0) {
-		y = blsFpNeg(y)
-	}
-	p := blsG1FromAffine(x, y)
-	if !blsG1InSubgroup(p) {
-		return nil
-	}
-	return p
+	return blsG1FromGnark(point)
 }
 
-// SerializeG2 compresses a G2 point to 96 bytes (compressed form).
+// SerializeG2 compresses a G2 point to 96 bytes.
 func SerializeG2(p *BlsG2Point) [BLSSignatureSize]byte {
-	var out [BLSSignatureSize]byte
-	if p.blsG2IsInfinity() {
-		out[0] = 0xC0 // compressed + infinity
-		return out
-	}
-	x, y := p.blsG2ToAffine()
-	// Write x = (c1, c0) as 96 bytes: c1 first (48 bytes), then c0 (48 bytes).
-	c1Bytes := x.c1.Bytes()
-	c0Bytes := x.c0.Bytes()
-	copy(out[BLSPubkeySize-len(c1Bytes):BLSPubkeySize], c1Bytes)
-	copy(out[BLSSignatureSize-len(c0Bytes):], c0Bytes)
-	// Set compressed flag.
-	out[0] |= 0x80
-	// Sort flag: lexicographic comparison on y = (c1, c0).
-	halfP := new(big.Int).Rsh(blsP, 1)
-	if y.c1.Cmp(halfP) > 0 || (y.c1.Sign() == 0 && y.c0.Cmp(halfP) > 0) {
-		out[0] |= 0x20
-	}
-	return out
+	point := p.gnarkAffine()
+	return point.Bytes()
 }
 
-// DeserializeG2 decompresses a 96-byte compressed G2 point.
-// Returns nil if the point is invalid.
+// DeserializeG2 decompresses a G2 point and verifies subgroup membership.
 func DeserializeG2(data [BLSSignatureSize]byte) *BlsG2Point {
-	if data[0]&0x80 == 0 {
+	var point bls381.G2Affine
+	if _, err := point.SetBytes(data[:]); err != nil {
 		return nil
 	}
-	if data[0]&0x40 != 0 {
-		return BlsG2Infinity()
-	}
-	sortFlag := data[0]&0x20 != 0
-	// Clear flags.
-	data[0] &= 0x1F
-	c1 := new(big.Int).SetBytes(data[:BLSPubkeySize])
-	c0 := new(big.Int).SetBytes(data[BLSPubkeySize:])
-	if c0.Cmp(blsP) >= 0 || c1.Cmp(blsP) >= 0 {
-		return nil
-	}
-	x := &blsFp2{c0: c0, c1: c1}
-	// Compute y^2 = x^3 + 4(1+u).
-	x3 := blsFp2Mul(blsFp2Sqr(x), x)
-	rhs := blsFp2Add(x3, blsTwistB)
-	y := blsFp2Sqrt(rhs)
-	if y == nil {
-		return nil
-	}
-	// Choose y based on sort flag.
-	halfP := new(big.Int).Rsh(blsP, 1)
-	yLarger := y.c1.Cmp(halfP) > 0 || (y.c1.Sign() == 0 && y.c0.Cmp(halfP) > 0)
-	if sortFlag != yLarger {
-		y = blsFp2Neg(y)
-	}
-	p := blsG2FromAffine(x, y)
-	if !blsG2InSubgroup(p) {
-		return nil
-	}
-	return p
+	return blsG2FromGnark(point)
 }
 
 // AggregatePublicKeys aggregates multiple BLS12-381 public keys by
@@ -194,24 +102,6 @@ func HashToG2(msg []byte, dst []byte) *BlsG2Point {
 	)
 }
 
-// blsSignaturePairing verifies the product of the signature pairings.
-// The decoder checks that each input belongs to the correct subgroup.
-func blsSignaturePairing(g1 []*BlsG1Point, g2 []*BlsG2Point) bool {
-	p := make([]bls381.G1Affine, len(g1))
-	q := make([]bls381.G2Affine, len(g2))
-	for i := range g1 {
-		pubkey, signature := SerializeG1(g1[i]), SerializeG2(g2[i])
-		if _, err := p[i].SetBytes(pubkey[:]); err != nil {
-			return false
-		}
-		if _, err := q[i].SetBytes(signature[:]); err != nil {
-			return false
-		}
-	}
-	ok, err := bls381.PairingCheck(p, q)
-	return err == nil && ok
-}
-
 // blsSignDST is the domain separation tag for BLS signatures.
 var blsSignDST = []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_")
 
@@ -243,7 +133,7 @@ func BLSVerify(pubkey [BLSPubkeySize]byte, msg []byte, sig [BLSSignatureSize]byt
 	g1 := BlsG1Generator()
 	negG1 := blsG1Neg(g1)
 
-	return blsSignaturePairing(
+	return blsMultiPairing(
 		[]*BlsG1Point{pk, negG1},
 		[]*BlsG2Point{hm, s},
 	)
@@ -281,7 +171,7 @@ func VerifyAggregate(pubkeys [][48]byte, msgs [][]byte, sig [96]byte) bool {
 	g1Points[n] = blsG1Neg(BlsG1Generator())
 	g2Points[n] = s
 
-	return blsSignaturePairing(g1Points, g2Points)
+	return blsMultiPairing(g1Points, g2Points)
 }
 
 // FastAggregateVerify verifies an aggregate signature where all signers
@@ -316,7 +206,7 @@ func FastAggregateVerify(pubkeys [][48]byte, msg []byte, sig [96]byte) bool {
 
 	// Check e(aggPK, H(m)) * e(-G1, sig) == 1.
 	negG1 := blsG1Neg(BlsG1Generator())
-	return blsSignaturePairing(
+	return blsMultiPairing(
 		[]*BlsG1Point{aggPK, negG1},
 		[]*BlsG2Point{hm, s},
 	)

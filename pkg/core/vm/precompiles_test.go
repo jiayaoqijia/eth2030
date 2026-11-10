@@ -9,8 +9,32 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/ripemd160"
 )
+
+func TestECRecoverAcceptsHighS(t *testing.T) {
+	key, err := gethcrypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := gethcrypto.Keccak256([]byte("EIP-2 precompile recovery"))
+	sig, err := gethcrypto.Sign(hash, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := make([]byte, 128)
+	copy(input, hash)
+	input[63] = 27 + (sig[64] ^ 1)
+	copy(input[64:96], sig[:32])
+	new(big.Int).Sub(gethcrypto.S256().Params().N, new(big.Int).SetBytes(sig[32:64])).FillBytes(input[96:])
+
+	out, _, err := RunPrecompiledContract(types.Address{19: 1}, input, 3000)
+	want := gethcrypto.PubkeyToAddress(key.PublicKey)
+	if err != nil || len(out) != 32 || !bytes.Equal(out[12:], want[:]) {
+		t.Fatalf("high-S recovery = %x, %v, want padded address %x", out, err, want)
+	}
+}
 
 func TestIsPrecompiledContract(t *testing.T) {
 	// Addresses 0x01-0x0a (Cancun) + 0x0b-0x13 (EIP-2537 BLS12-381).

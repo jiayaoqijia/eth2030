@@ -281,12 +281,11 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize KZG backend for EIP-4844 blobs and EIP-7594 PeerDAS cell proofs.
 	// This is required for computing cell proofs in BlobsBundleV2 (Fulu+).
-	if kzgBackend, err := bls.NewGoEthKZGBackend(); err != nil {
-		slog.Warn("failed to initialize KZG backend, using placeholder (cell proofs will be zero)", "err", err)
-	} else {
-		bls.SetKZGBackend(kzgBackend)
-		slog.Info("KZG backend initialized", "backend", kzgBackend.Name())
+	kzgBackend, err := bls.NewGoEthKZGBackend()
+	if err != nil {
+		return nil, fmt.Errorf("initialize Ethereum KZG backend: %w", err)
 	}
+	slog.Info("KZG backend initialized", "backend", kzgBackend.Name())
 
 	// GAP-5.2: log finality mode selection.
 	slog.Info("finality mode", "mode", config.FinalityMode)
@@ -515,7 +514,7 @@ func New(config *Config) (*Node, error) {
 		default:
 		}
 
-		circuit, err := proofs.CompileAACircuit()
+		circuit, err := proofs.CompileAACircuitGnark()
 		if err != nil {
 			slog.Warn("AA circuit compile failed", "err", err)
 			return
@@ -528,12 +527,12 @@ func New(config *Config) (*Node, error) {
 		default:
 		}
 
-		_, _, err = proofs.SetupKeys(circuit)
+		_, err = proofs.SetupGnarkAAKeys(circuit)
 		if err != nil {
 			slog.Warn("AA circuit key setup failed", "err", err)
 			return
 		}
-		slog.Info("AA proof circuit ready", "name", circuit.Name, "inputs", circuit.PublicInputCount)
+		slog.Info("AA proof circuit ready", "constraints", circuit.ConstraintCount())
 	}()
 
 	// Create STARK validation frame prover when enabled.
@@ -875,6 +874,16 @@ func New(config *Config) (*Node, error) {
 		return nil, fmt.Errorf("engine auth: %w", err)
 	} else if token != "" {
 		n.engineServer.SetAuthSecret(token)
+	} else {
+		data, err := os.ReadFile(config.JWTSecretPath())
+		if err != nil {
+			return nil, fmt.Errorf("engine JWT secret: %w", err)
+		}
+		secret, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(string(data)), "0x"))
+		if err != nil || len(secret) != 32 {
+			return nil, errors.New("engine JWT secret must be 32 hex-encoded bytes")
+		}
+		n.engineServer.SetJWTSecret([32]byte(secret))
 	}
 
 	return n, nil

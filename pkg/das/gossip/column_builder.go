@@ -10,11 +10,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 	"sort"
 	"sync"
 
-	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/bls"
 	"github.com/eth2030/eth2030/das/dastypes"
 	"github.com/eth2030/eth2030/das/sampling"
 	"golang.org/x/crypto/sha3"
@@ -147,57 +146,13 @@ func NewColumnBuilder(config ColumnBuilderConfig) *ColumnBuilder {
 	}
 }
 
-// BuildColumns constructs data columns from the given blob data. Each blob
-// is split into cells, and each column collects one cell per blob at the
-// same column index. Returns columns sorted by index.
-//
-// blobData is a slice of raw blobs. Each blob is split into cells of CellSize.
+// BuildColumns constructs data columns and cell proofs using the Ethereum KZG setup.
 func (cb *ColumnBuilder) BuildColumns(blobData [][]byte) ([]*BuiltColumn, error) {
-	if blobData == nil {
-		return nil, ErrBuilderNilBlobs
+	indices := make([]dastypes.ColumnIndex, cb.config.NumColumns)
+	for i := range indices {
+		indices[i] = dastypes.ColumnIndex(i)
 	}
-	if len(blobData) == 0 {
-		return nil, ErrBuilderEmptyBlobs
-	}
-	if len(blobData) > cb.config.MaxBlobs {
-		return nil, fmt.Errorf("%w: %d blobs > max %d",
-			ErrBuilderBlobTooLarge, len(blobData), cb.config.MaxBlobs)
-	}
-
-	numBlobs := len(blobData)
-
-	// Determine cells per blob: min of all blobs divided by CellSize.
-	// Use NumColumns as the target cell count.
-	cellsPerBlob := cb.config.NumColumns
-
-	// Build columns: column[i] collects cell[i] from each blob.
-	columns := make([]*BuiltColumn, cb.config.NumColumns)
-	for colIdx := 0; colIdx < cb.config.NumColumns; colIdx++ {
-		col := &BuiltColumn{
-			Index:     dastypes.ColumnIndex(colIdx),
-			Cells:     make([]dastypes.Cell, numBlobs),
-			Proofs:    make([]dastypes.KZGProof, numBlobs),
-			BlobCount: numBlobs,
-		}
-
-		for blobIdx := 0; blobIdx < numBlobs; blobIdx++ {
-			cell := extractCell(blobData[blobIdx], colIdx, cellsPerBlob, cb.config.CellSize)
-			col.Cells[blobIdx] = cell
-			col.Proofs[blobIdx] = computeCellProof(blobData[blobIdx], blobIdx, colIdx)
-		}
-
-		col.Commitment = computeColumnCommitment(col)
-		columns[colIdx] = col
-	}
-
-	// Cache the built columns.
-	cb.mu.Lock()
-	for _, col := range columns {
-		cb.builtColumns[col.Index] = col
-	}
-	cb.mu.Unlock()
-
-	return columns, nil
+	return cb.BuildColumnSubset(blobData, indices)
 }
 
 // BuildColumnSubset constructs only the specified column indices from blob data.
@@ -210,13 +165,15 @@ func (cb *ColumnBuilder) BuildColumnSubset(blobData [][]byte, indices []dastypes
 		return nil, ErrBuilderEmptyBlobs
 	}
 
+	if len(blobData) > cb.config.MaxBlobs {
+		return nil, fmt.Errorf("%w: %d blobs > max %d", ErrBuilderBlobTooLarge, len(blobData), cb.config.MaxBlobs)
+	}
 	numBlobs := len(blobData)
-	cellsPerBlob := cb.config.NumColumns
 
 	// Check for duplicates and OOB.
 	seen := make(map[dastypes.ColumnIndex]bool, len(indices))
 	for _, idx := range indices {
-		if uint64(idx) >= uint64(cb.config.NumColumns) {
+		if uint64(idx) >= uint64(cb.config.NumColumns) || uint64(idx) >= bls.KZGCellsPerExtBlob {
 			return nil, fmt.Errorf("%w: %d >= %d", ErrBuilderColumnOOB, idx, cb.config.NumColumns)
 		}
 		if seen[idx] {
@@ -226,22 +183,29 @@ func (cb *ColumnBuilder) BuildColumnSubset(blobData [][]byte, indices []dastypes
 	}
 
 	columns := make([]*BuiltColumn, len(indices))
-	for i, colIdx := range indices {
-		col := &BuiltColumn{
-			Index:     colIdx,
-			Cells:     make([]dastypes.Cell, numBlobs),
-			Proofs:    make([]dastypes.KZGProof, numBlobs),
-			BlobCount: numBlobs,
+	for i, idx := range indices {
+		columns[i] = &BuiltColumn{
+			Index: idx, BlobCount: numBlobs,
+			Cells:  make([]dastypes.Cell, numBlobs),
+			Proofs: make([]dastypes.KZGProof, numBlobs),
 		}
-
-		for blobIdx := 0; blobIdx < numBlobs; blobIdx++ {
-			cell := extractCell(blobData[blobIdx], int(colIdx), cellsPerBlob, cb.config.CellSize)
-			col.Cells[blobIdx] = cell
-			col.Proofs[blobIdx] = computeCellProof(blobData[blobIdx], blobIdx, int(colIdx))
+	}
+	kzg := bls.DefaultKZGBackend()
+	for i, blob := range blobData {
+		cells, proofs, err := kzg.ComputeCellsAndProofs(blob)
+		if err != nil {
+			return nil, fmt.Errorf("blob %d: %w", i, err)
 		}
-
+		if len(cells) != bls.KZGCellsPerExtBlob || len(proofs) != bls.KZGCellsPerExtBlob {
+			return nil, fmt.Errorf("blob %d: invalid KZG cell count", i)
+		}
+		for _, col := range columns {
+			col.Cells[i] = dastypes.Cell(cells[col.Index])
+			col.Proofs[i] = dastypes.KZGProof(proofs[col.Index])
+		}
+	}
+	for _, col := range columns {
 		col.Commitment = computeColumnCommitment(col)
-		columns[i] = col
 	}
 
 	// Sort by index.
@@ -409,101 +373,20 @@ func (cb *ColumnBuilder) ToDataColumnSidecar(col *BuiltColumn, commitments []das
 
 // --- internal helpers ---
 
-// extractCell extracts a cell from a blob at the given column index.
-// If the blob is shorter than expected, the cell is zero-padded.
-func extractCell(blob []byte, colIdx, cellsPerBlob, cellSize int) dastypes.Cell {
-	var cell dastypes.Cell
-	if cellsPerBlob <= 0 || cellSize <= 0 {
-		return cell
-	}
-
-	offset := colIdx * cellSize
-	if offset >= len(blob) {
-		return cell // zero cell
-	}
-
-	end := offset + cellSize
-	if end > len(blob) {
-		end = len(blob)
-	}
-	copy(cell[:], blob[offset:end])
-	return cell
-}
-
-// computeCellProof computes a KZG opening proof for a cell using real
-// polynomial commitment arithmetic. It derives a polynomial evaluation
-// from the blob data and computes a KZG proof using the trusted setup.
-func computeCellProof(blob []byte, blobIdx, colIdx int) dastypes.KZGProof {
-	// Derive the polynomial value p(s) from the blob data.
-	polyAtS := deriveBlobPolynomialValue(blob)
-
-	// Evaluation point z derived from blobIdx and colIdx.
-	var buf [16]byte
-	binary.LittleEndian.PutUint64(buf[:8], uint64(blobIdx))
-	binary.LittleEndian.PutUint64(buf[8:], uint64(colIdx))
-	zHash := sha3.NewLegacyKeccak256()
-	zHash.Write(buf[:])
-	z := new(big.Int).SetBytes(zHash.Sum(nil))
-	z.Mod(z, crypto.BLSScalarOrder())
-
-	// Claimed evaluation y = p(z). For the cell proof, derive y from cell content.
-	yHash := sha3.NewLegacyKeccak256()
-	yHash.Write(buf[:])
-	if len(blob) > 0 {
-		yHash.Write(blob)
-	}
-	y := new(big.Int).SetBytes(yHash.Sum(nil))
-	y.Mod(y, crypto.BLSScalarOrder())
-
-	// Compute real KZG proof: [(p(s) - y) / (s - z)]G1
-	secret := big.NewInt(42) // trusted setup secret
-	proofPoint := crypto.KZGComputeProof(secret, z, polyAtS, y)
-	compressed := crypto.KZGCompressG1(proofPoint)
-
-	var proof dastypes.KZGProof
-	copy(proof[:], compressed)
-	return proof
-}
-
-// computeColumnCommitment computes a KZG-based commitment over all cells
-// in a column. It derives a polynomial value from the column data, computes
-// a real KZG commitment [p(s)]G1, then hashes the compressed G1 point to
-// produce the 32-byte column commitment.
+// computeColumnCommitment binds the column index and cells for the local cache.
 func computeColumnCommitment(col *BuiltColumn) [32]byte {
-	// Derive a polynomial value from all cells in the column.
 	h := sha3.NewLegacyKeccak256()
-	var idxBuf [8]byte
-	binary.LittleEndian.PutUint64(idxBuf[:], uint64(col.Index))
-	h.Write(idxBuf[:])
-	for _, c := range col.Cells {
-		h.Write(c[:])
+	var index [8]byte
+	binary.LittleEndian.PutUint64(index[:], uint64(col.Index))
+	h.Write(index[:])
+	for _, cell := range col.Cells {
+		h.Write(cell[:])
 	}
-	polyValue := new(big.Int).SetBytes(h.Sum(nil))
-	polyValue.Mod(polyValue, crypto.BLSScalarOrder())
-
-	// Compute real KZG commitment: [polyValue]G1
-	commitPoint := crypto.KZGCommit(polyValue)
-	compressed := crypto.KZGCompressG1(commitPoint)
-
-	// Hash the compressed G1 point to get a 32-byte commitment.
-	commitHash := sha3.NewLegacyKeccak256()
-	commitHash.Write(compressed)
-	var commitment [32]byte
-	copy(commitment[:], commitHash.Sum(nil))
-	return commitment
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
 }
 
-// deriveBlobPolynomialValue derives a scalar field element from blob data
-// to use as the polynomial value p(s) for KZG operations.
-func deriveBlobPolynomialValue(blob []byte) *big.Int {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(blob)
-	val := new(big.Int).SetBytes(h.Sum(nil))
-	val.Mod(val, crypto.BLSScalarOrder())
-	return val
-}
-
-// computeGossipMessageHash computes a deduplication hash for a gossip message.
 func computeGossipMessageHash(msg *ColumnGossipMessage) [32]byte {
 	h := sha3.NewLegacyKeccak256()
 	var buf [24]byte

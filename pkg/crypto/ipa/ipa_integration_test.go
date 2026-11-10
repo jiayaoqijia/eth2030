@@ -46,10 +46,11 @@ func TestIPAIntegrationBackendNames(t *testing.T) {
 	if (&PureGoIPABackend{}).Name() != "pure-go" {
 		t.Fatal("wrong name")
 	}
-	if (&GoIPABackend{}).Name() != "go-ipa" {
-		t.Fatal("wrong name")
-	}
 }
+
+type testIPABackend struct{ PureGoIPABackend }
+
+func (*testIPABackend) Name() string { return "test-ipa" }
 
 func TestIPAIntegrationDefaultAndSetBackend(t *testing.T) {
 	SetIPABackend(nil)
@@ -57,8 +58,8 @@ func TestIPAIntegrationDefaultAndSetBackend(t *testing.T) {
 		t.Fatal("default wrong")
 	}
 	defer SetIPABackend(nil)
-	SetIPABackend(&GoIPABackend{})
-	if DefaultIPABackend().Name() != "go-ipa" {
+	SetIPABackend(&testIPABackend{})
+	if DefaultIPABackend().Name() != "test-ipa" {
 		t.Fatal("set wrong")
 	}
 	SetIPABackend(nil)

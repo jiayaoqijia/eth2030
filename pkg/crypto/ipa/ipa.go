@@ -254,12 +254,7 @@ func IPAVerify(generators []*BanderPoint, commitment *BanderPoint, b []*big.Int,
 
 	// Fold the commitment using L/R proof points.
 	// C' = C + x^{-1}*L + x*R at each round.
-	cFinal := &BanderPoint{
-		x: new(big.Int).Set(commitment.x),
-		y: new(big.Int).Set(commitment.y),
-		t: new(big.Int).Set(commitment.t),
-		z: new(big.Int).Set(commitment.z),
-	}
+	cFinal := commitment
 	for i := 0; i < rounds; i++ {
 		x := challenges[i]
 		xInv := banderScalarInv(x)

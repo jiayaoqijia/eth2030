@@ -6,6 +6,10 @@ import (
 	"math/big"
 	"math/bits"
 
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	bn254fft "github.com/consensys/gnark-crypto/ecc/bn254/fr/fft"
+	"github.com/consensys/gnark-crypto/field/goldilocks"
+	goldilocksfft "github.com/consensys/gnark-crypto/field/goldilocks/fft"
 	"github.com/eth2030/eth2030/core/types"
 	rollupexecute "github.com/eth2030/eth2030/rollup/execute"
 )
@@ -29,20 +33,10 @@ import (
 //   - BN254 scalar field (existing): p = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 //   - Goldilocks field (new): p = 2^64 - 2^32 + 1 = 18446744069414584321 (STARK-friendly)
 
-// BN254 scalar field modulus.
-var bn254ScalarField, _ = new(big.Int).SetString(
-	"21888242871839275222246405745257275088548364400416034343698204186575808495617", 10)
-
-// Known primitive root of the BN254 scalar field (a generator of the multiplicative group).
-// 5 is a primitive root mod bn254ScalarField.
-var bn254PrimitiveRoot = big.NewInt(5)
-
-// Goldilocks field modulus: p = 2^64 - 2^32 + 1
-// Used by STARK-friendly systems (Plonky2, Polygon zkEVM).
-var goldilocksField = new(big.Int).SetUint64(18446744069414584321)
-
-// Goldilocks primitive root: 7 is a primitive root mod p.
-var goldilocksPrimitiveRoot = big.NewInt(7)
+var (
+	bn254ScalarField = fr.Modulus()
+	goldilocksField  = goldilocks.Modulus()
+)
 
 // NTT operation types.
 const (
@@ -66,7 +60,6 @@ var (
 	ErrNTTTooLarge      = errors.New("ntt: exceeds maximum degree")
 	ErrNTTInvalidOpType = errors.New("ntt: invalid operation type")
 	ErrNTTNoRootOfUnity = errors.New("ntt: no root of unity for given size")
-	ErrNTTZeroModulus   = errors.New("ntt: modulus must be non-zero")
 	ErrNTTOutputRange   = errors.New("ntt: output element out of field range")
 )
 
@@ -127,15 +120,10 @@ func (c *nttPrecompile) Run(input []byte) ([]byte, error) {
 		return nil, ErrNTTNotPowerOfTwo
 	}
 
-	// Select field parameters based on operation type.
-	var fieldMod, primRoot *big.Int
-	switch {
-	case opType <= NTTOpInverse:
-		fieldMod = bn254ScalarField
-		primRoot = bn254PrimitiveRoot
-	default:
+	useGoldilocks := opType >= NTTOpGoldilocks
+	fieldMod := bn254ScalarField
+	if useGoldilocks {
 		fieldMod = goldilocksField
-		primRoot = goldilocksPrimitiveRoot
 	}
 
 	// Parse coefficients as big-endian 32-byte big.Ints, reduced mod p.
@@ -147,7 +135,7 @@ func (c *nttPrecompile) Run(input []byte) ([]byte, error) {
 	}
 
 	inverse := opType == NTTOpInverse || opType == NTTOpGoldilocksInverse
-	result, err := computeNTT(coeffs, fieldMod, primRoot, inverse)
+	result, err := computeNTT(coeffs, useGoldilocks, inverse)
 	if err != nil {
 		return nil, err
 	}
@@ -168,116 +156,62 @@ func (c *nttPrecompile) Run(input []byte) ([]byte, error) {
 	return out, nil
 }
 
-// computeNTT performs a full NTT (forward or inverse) over the given field.
-func computeNTT(coefficients []*big.Int, fieldMod, primitiveRoot *big.Int, inverse bool) ([]*big.Int, error) {
+// computeNTT returns cyclic evaluations or coefficients in natural order.
+func computeNTT(coefficients []*big.Int, useGoldilocks, inverse bool) ([]*big.Int, error) {
 	n := len(coefficients)
-
-	omega, err := findRootOfUnityWithRoot(n, fieldMod, primitiveRoot)
-	if err != nil {
-		return nil, err
-	}
-
-	if inverse {
-		return nttInverse(coefficients, omega, fieldMod), nil
-	}
-	return nttForward(coefficients, omega, fieldMod), nil
-}
-
-// findRootOfUnity finds a primitive n-th root of unity mod p using the BN254
-// primitive root. This is a backward-compatible wrapper.
-func findRootOfUnity(n int, p *big.Int) (*big.Int, error) {
-	return findRootOfUnityWithRoot(n, p, bn254PrimitiveRoot)
-}
-
-// findRootOfUnityWithRoot finds a primitive n-th root of unity mod p using the
-// given primitive root g. omega = g^((p-1)/n) where g is a primitive root.
-func findRootOfUnityWithRoot(n int, p *big.Int, g *big.Int) (*big.Int, error) {
-	if p == nil || p.Sign() == 0 {
-		return nil, ErrNTTZeroModulus
-	}
-	if n <= 0 || n&(n-1) != 0 {
+	if n == 0 || n&(n-1) != 0 {
 		return nil, ErrNTTNotPowerOfTwo
 	}
-
-	// Check that n divides p-1.
-	pMinus1 := new(big.Int).Sub(p, big.NewInt(1))
-	nBig := big.NewInt(int64(n))
-
-	if new(big.Int).Mod(pMinus1, nBig).Sign() != 0 {
+	if n == 1 {
+		return []*big.Int{new(big.Int).Set(coefficients[0])}, nil
+	}
+	if useGoldilocks {
+		if uint64(n) > 1<<32 {
+			return nil, ErrNTTNoRootOfUnity
+		}
+		return goldilocksNTT(coefficients, inverse), nil
+	}
+	if uint64(n) > 1<<28 {
 		return nil, ErrNTTNoRootOfUnity
 	}
-
-	// omega = g^((p-1)/n) mod p
-	exp := new(big.Int).Div(pMinus1, nBig)
-	omega := new(big.Int).Exp(g, exp, p)
-
-	// Verify: omega^n == 1 mod p
-	check := new(big.Int).Exp(omega, nBig, p)
-	if check.Cmp(big.NewInt(1)) != 0 {
-		return nil, ErrNTTNoRootOfUnity
-	}
-
-	return omega, nil
+	return bn254NTT(coefficients, inverse), nil
 }
 
-// nttForward performs the forward NTT using the Cooley-Tukey butterfly algorithm.
-func nttForward(coeffs []*big.Int, omega *big.Int, p *big.Int) []*big.Int {
-	n := len(coeffs)
-	if n == 1 {
-		result := make([]*big.Int, 1)
-		result[0] = new(big.Int).Set(coeffs[0])
-		return result
+func bn254NTT(coefficients []*big.Int, inverse bool) []*big.Int {
+	values := make([]fr.Element, len(coefficients))
+	for i, value := range coefficients {
+		values[i].SetBigInt(value)
 	}
-
-	// Bit-reversal permutation.
-	result := make([]*big.Int, n)
-	logN := bits.Len(uint(n)) - 1
-	for i := range result {
-		result[i] = new(big.Int).Set(coeffs[bitReverse(i, logN)])
+	domain := bn254fft.NewDomain(uint64(len(values)), bn254fft.WithoutPrecompute())
+	if inverse {
+		domain.FFTInverse(values, bn254fft.DIF, bn254fft.WithNbTasks(1))
+	} else {
+		domain.FFT(values, bn254fft.DIF, bn254fft.WithNbTasks(1))
 	}
-
-	// Cooley-Tukey butterfly.
-	for size := 2; size <= n; size *= 2 {
-		halfSize := size / 2
-		step := new(big.Int).Exp(omega, big.NewInt(int64(n/size)), p)
-		w := big.NewInt(1)
-		for j := 0; j < halfSize; j++ {
-			for k := j; k < n; k += size {
-				u := new(big.Int).Set(result[k])
-				v := new(big.Int).Mul(result[k+halfSize], w)
-				v.Mod(v, p)
-				result[k] = new(big.Int).Add(u, v)
-				result[k].Mod(result[k], p)
-				result[k+halfSize] = new(big.Int).Sub(u, v)
-				result[k+halfSize].Mod(result[k+halfSize], p)
-				if result[k+halfSize].Sign() < 0 {
-					result[k+halfSize].Add(result[k+halfSize], p)
-				}
-			}
-			w = new(big.Int).Mul(w, step)
-			w.Mod(w, p)
-		}
+	bn254fft.BitReverse(values)
+	result := make([]*big.Int, len(values))
+	for i, value := range values {
+		result[i] = value.BigInt(new(big.Int))
 	}
-
 	return result
 }
 
-// nttInverse performs the inverse NTT.
-func nttInverse(evals []*big.Int, omega *big.Int, p *big.Int) []*big.Int {
-	// Compute inverse of omega: omega^(-1) = omega^(p-2) mod p (Fermat's little theorem).
-	omegaInv := new(big.Int).Exp(omega, new(big.Int).Sub(p, big.NewInt(2)), p)
-
-	result := nttForward(evals, omegaInv, p)
-
-	// Divide each element by n.
-	n := len(evals)
-	nBig := big.NewInt(int64(n))
-	nInv := new(big.Int).Exp(nBig, new(big.Int).Sub(p, big.NewInt(2)), p)
-	for i := range result {
-		result[i].Mul(result[i], nInv)
-		result[i].Mod(result[i], p)
+func goldilocksNTT(coefficients []*big.Int, inverse bool) []*big.Int {
+	values := make([]goldilocks.Element, len(coefficients))
+	for i, value := range coefficients {
+		values[i].SetBigInt(value)
 	}
-
+	domain := goldilocksfft.NewDomain(uint64(len(values)), goldilocksfft.WithoutPrecompute())
+	if inverse {
+		domain.FFTInverse(values, goldilocksfft.DIF, goldilocksfft.WithNbTasks(1))
+	} else {
+		domain.FFT(values, goldilocksfft.DIF, goldilocksfft.WithNbTasks(1))
+	}
+	goldilocksfft.BitReverse(values)
+	result := make([]*big.Int, len(values))
+	for i, value := range values {
+		result[i] = value.BigInt(new(big.Int))
+	}
 	return result
 }
 
@@ -319,12 +253,12 @@ func ValidateNTTInput(input []byte) error {
 // GoldilocksNTT performs NTT over the Goldilocks field.
 // This is the STARK-friendly variant for use with FRI-based proof systems.
 func GoldilocksNTT(coefficients []*big.Int) ([]*big.Int, error) {
-	return computeNTT(coefficients, goldilocksField, goldilocksPrimitiveRoot, false)
+	return computeNTT(coefficients, true, false)
 }
 
 // GoldilocksINTT performs inverse NTT over the Goldilocks field.
 func GoldilocksINTT(coefficients []*big.Int) ([]*big.Int, error) {
-	return computeNTT(coefficients, goldilocksField, goldilocksPrimitiveRoot, true)
+	return computeNTT(coefficients, true, true)
 }
 
 // Split NTT precompile structs (EIP-7885 aligned addresses 0x0f-0x14).
@@ -388,7 +322,7 @@ func runNTTSplit(input []byte, inverse bool) ([]byte, error) {
 		coeffs[i] = val
 	}
 
-	result, err := computeNTT(coeffs, bn254ScalarField, bn254PrimitiveRoot, inverse)
+	result, err := computeNTT(coeffs, false, inverse)
 	if err != nil {
 		return nil, err
 	}

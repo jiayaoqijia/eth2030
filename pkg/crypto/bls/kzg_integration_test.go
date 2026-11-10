@@ -1,7 +1,6 @@
 package bls
 
 import (
-	"bytes"
 	"math/big"
 	"sync"
 	"testing"
@@ -192,139 +191,10 @@ func TestKZGIntegrationValidateCommitmentInfinity(t *testing.T) {
 	}
 }
 
-// --- Placeholder backend tests ---
-
-func TestKZGIntegrationPlaceholderBlobToCommitment(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-
-	// All-zero blob.
-	blob := make([]byte, KZGBytesPerBlob)
-	comm, err := backend.BlobToCommitment(blob)
-	if err != nil {
-		t.Fatalf("BlobToCommitment: %v", err)
-	}
-	// The commitment should be the point at infinity for an all-zero polynomial
-	// evaluated at s=42 (p(42)=0, [0]G1 = infinity).
-	if comm[0] != 0xC0 {
-		t.Errorf("all-zero blob commitment first byte = 0x%x, want 0xC0", comm[0])
-	}
-}
-
-func TestKZGIntegrationPlaceholderBlobToCommitmentNonZero(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-
-	// Blob with a single non-zero element.
-	blob := kzgBlobWithFieldElement(0, 1)
-	comm, err := backend.BlobToCommitment(blob)
-	if err != nil {
-		t.Fatalf("BlobToCommitment: %v", err)
-	}
-	// For p(x) = 1, p(42) = 1, commitment should be [1]G1 = G1 generator.
-	if comm[0]&0x80 == 0 {
-		t.Error("commitment should have compression flag set")
-	}
-	// Should not be infinity.
-	if comm[0]&0x40 != 0 {
-		t.Error("commitment for non-zero blob should not be infinity")
-	}
-}
-
-func TestKZGIntegrationPlaceholderBlobToCommitmentDeterministic(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	blob := kzgBlobWithFieldElement(0, 42)
-	comm1, _ := backend.BlobToCommitment(blob)
-	comm2, _ := backend.BlobToCommitment(blob)
-	if !bytes.Equal(comm1[:], comm2[:]) {
-		t.Error("BlobToCommitment should be deterministic")
-	}
-}
-
-func TestKZGIntegrationPlaceholderBlobToCommitmentWrongSize(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	_, err := backend.BlobToCommitment(make([]byte, 100))
-	if err != ErrKZGInvalidBlobSize {
-		t.Errorf("expected ErrKZGInvalidBlobSize, got %v", err)
-	}
-}
-
-func TestKZGIntegrationPlaceholderVerifyBlobProof(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	blob := kzgBlobWithFieldElement(0, 7)
-	comm, _ := backend.BlobToCommitment(blob)
-
-	// Use a dummy proof that passes format validation.
-	proof := BLSPointAtInfinityG1
-	ok, err := backend.VerifyBlobProof(blob, comm[:], proof[:])
-	if err != nil {
-		t.Fatalf("VerifyBlobProof: %v", err)
-	}
-	if !ok {
-		t.Error("VerifyBlobProof should succeed when commitment matches")
-	}
-}
-
-func TestKZGIntegrationPlaceholderVerifyBlobProofMismatch(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	blob := kzgBlobWithFieldElement(0, 7)
-
-	// Use a different commitment.
-	otherBlob := kzgBlobWithFieldElement(0, 8)
-	otherComm, _ := backend.BlobToCommitment(otherBlob)
-
-	proof := BLSPointAtInfinityG1
-	ok, err := backend.VerifyBlobProof(blob, otherComm[:], proof[:])
-	if err != nil {
-		t.Fatalf("VerifyBlobProof: %v", err)
-	}
-	if ok {
-		t.Error("VerifyBlobProof should fail when commitment mismatches")
-	}
-}
-
-// --- Cell computation tests ---
-
-func TestKZGIntegrationPlaceholderComputeCells(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	blob := make([]byte, KZGBytesPerBlob)
-	cells, err := backend.ComputeCells(blob)
-	if err != nil {
-		t.Fatalf("ComputeCells: %v", err)
-	}
-	if len(cells) != KZGCellsPerExtBlob {
-		t.Errorf("cells count = %d, want %d", len(cells), KZGCellsPerExtBlob)
-	}
-	for i, cell := range cells {
-		if len(cell) != KZGBytesPerCell {
-			t.Errorf("cell %d size = %d, want %d", i, len(cell), KZGBytesPerCell)
-		}
-	}
-}
-
-func TestKZGIntegrationPlaceholderComputeCellsWrongSize(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	_, err := backend.ComputeCells(make([]byte, 100))
-	if err != ErrKZGInvalidBlobSize {
-		t.Errorf("expected ErrKZGInvalidBlobSize, got %v", err)
-	}
-}
-
-func TestKZGIntegrationPlaceholderComputeCellsDataPreservation(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	blob := kzgBlobWithFieldElement(0, 12345)
-	cells, _ := backend.ComputeCells(blob)
-
-	// The first cell should contain the first BytesPerCell bytes of the blob.
-	if !bytes.Equal(cells[0][:], blob[:KZGBytesPerCell]) {
-		t.Error("first cell should match first BytesPerCell bytes of blob")
-	}
-}
-
-// --- Backend switching tests ---
-
 func TestKZGIntegrationBackendSwitching(t *testing.T) {
 	original := DefaultKZGBackend()
-	if original.Name() != "placeholder" {
-		t.Errorf("default backend should be placeholder, got %q", original.Name())
+	if original.Name() != "go-eth-kzg" {
+		t.Errorf("default backend should be go-eth-kzg, got %q", original.Name())
 	}
 
 	SetKZGBackend(&GoEthKZGBackend{})
@@ -334,8 +204,8 @@ func TestKZGIntegrationBackendSwitching(t *testing.T) {
 
 	// Reset.
 	SetKZGBackend(nil)
-	if KZGIntegrationStatus() != "placeholder" {
-		t.Errorf("status should be placeholder after nil reset, got %q", KZGIntegrationStatus())
+	if KZGIntegrationStatus() != "go-eth-kzg" {
+		t.Errorf("status should be go-eth-kzg after nil reset, got %q", KZGIntegrationStatus())
 	}
 }
 
@@ -376,7 +246,7 @@ func TestKZGIntegrationValidateProof(t *testing.T) {
 // --- Concurrent verification ---
 
 func TestKZGIntegrationConcurrentBlobToCommitment(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
+	backend := DefaultKZGBackend()
 	blob := kzgBlobWithFieldElement(0, 99)
 
 	var wg sync.WaitGroup
@@ -404,51 +274,6 @@ func TestKZGIntegrationConcurrentBlobToCommitment(t *testing.T) {
 }
 
 // --- Cell proof verification ---
-
-func TestKZGIntegrationPlaceholderVerifyCellProof(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	comm := BLSG1GeneratorCompressed
-	cell := make([]byte, KZGBytesPerCell)
-	proof := BLSPointAtInfinityG1
-
-	ok, err := backend.VerifyCellProof(comm[:], cell, proof[:], 0)
-	if err != nil {
-		t.Fatalf("VerifyCellProof: %v", err)
-	}
-	if !ok {
-		t.Error("placeholder VerifyCellProof should succeed with valid formats")
-	}
-}
-
-func TestKZGIntegrationPlaceholderVerifyCellProofBadIndex(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	comm := BLSG1GeneratorCompressed
-	cell := make([]byte, KZGBytesPerCell)
-	proof := BLSPointAtInfinityG1
-
-	_, err := backend.VerifyCellProof(comm[:], cell, proof[:], KZGCellsPerExtBlob)
-	if err != ErrKZGInvalidCellIndex {
-		t.Errorf("expected ErrKZGInvalidCellIndex, got %v", err)
-	}
-}
-
-func TestKZGIntegrationPlaceholderVerifyCellProofMaxIndex(t *testing.T) {
-	backend := &PlaceholderKZGBackend{}
-	comm := BLSG1GeneratorCompressed
-	cell := make([]byte, KZGBytesPerCell)
-	proof := BLSPointAtInfinityG1
-
-	// Max valid index = CellsPerExtBlob - 1 = 127.
-	ok, err := backend.VerifyCellProof(comm[:], cell, proof[:], KZGCellsPerExtBlob-1)
-	if err != nil {
-		t.Fatalf("VerifyCellProof with max index: %v", err)
-	}
-	if !ok {
-		t.Error("max valid index should succeed")
-	}
-}
-
-// --- Helper function test ---
 
 func TestKZGIntegrationBlobWithFieldElement(t *testing.T) {
 	blob := kzgBlobWithFieldElement(0, 42)

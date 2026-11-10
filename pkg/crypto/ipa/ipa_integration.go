@@ -4,7 +4,6 @@
 // This file provides:
 //   - IPABackend interface for pluggable IPA proof verification
 //   - PureGoIPABackend using existing ipa.go code with proper halving verification
-//   - GoIPABackend as a build-tag-ready adapter for the go-ipa library
 //   - Structural validation, Fiat-Shamir challenge generation, and b-vector computation
 //
 // The verifier follows the protocol from go-ipa/ipa/verifier.go:
@@ -254,44 +253,10 @@ func (b *PureGoIPABackend) CreateProof(values [][]byte, evalPoint []byte) (*IPAP
 	return proof, err
 }
 
-// --- GoIPABackend (build-tag-ready adapter) ---
-
-// GoIPABackend is a placeholder adapter for the go-ipa library.
-// When the go-ipa dependency is available (via build tags), this backend
-// delegates to crate-crypto/go-ipa/ipa.CheckIPAProof and CreateIPAProof.
-//
-// To activate:
-//  1. Add github.com/crate-crypto/go-ipa to go.mod
-//  2. Create ipa_goipa.go with //go:build goipa
-//  3. Implement using ipa.NewIPASettings(), ipa.CreateIPAProof(), ipa.CheckIPAProof()
-type GoIPABackend struct {
-	// Config holds the go-ipa IPAConfig (opaque when not built with go-ipa).
-	Config interface{}
-}
-
-// Name returns the backend name.
-func (b *GoIPABackend) Name() string {
-	return "go-ipa"
-}
-
-// VerifyProof delegates to go-ipa's CheckIPAProof.
-// Without the go-ipa build tag, this falls back to the pure-Go backend.
-func (b *GoIPABackend) VerifyProof(commitment []byte, proof *IPAProofData, evalPoint, result []byte) (bool, error) {
-	// Fallback to pure-Go when go-ipa is not linked.
-	return (&PureGoIPABackend{}).VerifyProof(commitment, proof, evalPoint, result)
-}
-
-// CreateProof delegates to go-ipa's CreateIPAProof.
-// Without the go-ipa build tag, this falls back to the pure-Go backend.
-func (b *GoIPABackend) CreateProof(values [][]byte, evalPoint []byte) (*IPAProofData, error) {
-	return (&PureGoIPABackend{}).CreateProof(values, evalPoint)
-}
-
 // --- Helper functions ---
 
 // GenerateIPAGenerators produces deterministic Banderwagon generator points
-// for the IPA protocol, matching the go-ipa SRS generation approach.
-// Uses SHA-256 hash-to-curve with incrementing counter.
+// for the existing ETH2030 IPA transcript.
 func GenerateIPAGenerators(n int) []*BanderPoint {
 	generators := make([]*BanderPoint, n)
 	g := BanderGenerator()

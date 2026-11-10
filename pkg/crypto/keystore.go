@@ -1,15 +1,16 @@
 package crypto
 
 import (
-	"crypto/ecdsa"
-	"crypto/rand"
-	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	gethkeystore "github.com/ethereum/go-ethereum/accounts/keystore"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 )
 
 // KeystoreConfig holds configuration for the keystore.
@@ -45,7 +46,7 @@ type EncryptedKey struct {
 type Keystore struct {
 	mu     sync.RWMutex
 	config KeystoreConfig
-	keys   map[types.Address]*EncryptedKey
+	keys   map[types.Address]string
 }
 
 // NewKeystore creates a new Keystore with the given configuration.
@@ -65,83 +66,84 @@ func NewKeystore(config KeystoreConfig) *Keystore {
 	}
 	return &Keystore{
 		config: config,
-		keys:   make(map[types.Address]*EncryptedKey),
+		keys:   make(map[types.Address]string),
 	}
 }
 
 // StoreKey encrypts a private key with the given passphrase and stores it.
 // The privateKey must be a 32-byte secp256k1 private key.
 func (ks *Keystore) StoreKey(privateKey []byte, passphrase string) (*EncryptedKey, error) {
-	if len(privateKey) != 32 {
-		return nil, errors.New("keystore: private key must be 32 bytes")
-	}
-
-	addr := DeriveAddress(privateKey)
-
-	// Generate random salt (32 bytes) and IV (16 bytes).
-	salt := make([]byte, 32)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, fmt.Errorf("keystore: failed to generate salt: %w", err)
-	}
-	iv := make([]byte, 16)
-	if _, err := rand.Read(iv); err != nil {
-		return nil, fmt.Errorf("keystore: failed to generate IV: %w", err)
-	}
-
-	// Generate UUID v4.
-	uuid, err := generateUUIDv4()
+	key, encoded, err := ks.encryptKey(privateKey, passphrase)
 	if err != nil {
-		return nil, fmt.Errorf("keystore: failed to generate UUID: %w", err)
+		return nil, err
 	}
-
-	// Derive encryption key from passphrase.
-	derivedKey := deriveKey([]byte(passphrase), salt, ks.config.ScryptN)
-
-	// Encrypt using AES-128-CTR (simplified: XOR with key stream).
-	cipherText := ctrEncrypt(privateKey, derivedKey[:16], iv)
-
-	// Compute MAC: Keccak256(derivedKey[16:32] + cipherText).
-	mac := Keccak256(derivedKey[16:32], cipherText)
-
-	ek := &EncryptedKey{
-		Address:    addr,
-		ID:         uuid,
-		Version:    3,
-		CipherText: cipherText,
-		IV:         iv,
-		Salt:       salt,
-		MAC:        mac,
-	}
-
 	ks.mu.Lock()
-	ks.keys[addr] = ek
+	ks.keys[key.Address] = encoded
 	ks.mu.Unlock()
+	return key, nil
+}
 
-	return ek, nil
+func (ks *Keystore) encryptKey(privateKey []byte, passphrase string) (*EncryptedKey, string, error) {
+	priv, err := gethcrypto.ToECDSA(privateKey)
+	if err != nil {
+		return nil, "", err
+	}
+	if ks.config.ScryptR != 8 {
+		return nil, "", errors.New("keystore: Web3 Secret Storage requires scrypt r=8")
+	}
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return nil, "", err
+	}
+	address := gethcrypto.PubkeyToAddress(priv.PublicKey)
+	encoded, err := gethkeystore.EncryptKey(
+		&gethkeystore.Key{Id: id, Address: address, PrivateKey: priv},
+		passphrase, ks.config.ScryptN, ks.config.ScryptP,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	var data struct {
+		Crypto gethkeystore.CryptoJSON `json:"crypto"`
+	}
+	if err := json.Unmarshal(encoded, &data); err != nil {
+		return nil, "", err
+	}
+	salt, ok := data.Crypto.KDFParams["salt"].(string)
+	if !ok {
+		return nil, "", errors.New("keystore: missing salt in encrypted key")
+	}
+	metadata := &EncryptedKey{Address: types.Address(address), ID: id.String(), Version: 3}
+	for _, field := range []struct {
+		src  string
+		dest *[]byte
+	}{
+		{data.Crypto.CipherText, &metadata.CipherText},
+		{data.Crypto.CipherParams.IV, &metadata.IV},
+		{salt, &metadata.Salt},
+		{data.Crypto.MAC, &metadata.MAC},
+	} {
+		*field.dest, err = hex.DecodeString(field.src)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	return metadata, string(encoded), nil
 }
 
 // LoadKey decrypts and returns the private key for the given address.
 func (ks *Keystore) LoadKey(address types.Address, passphrase string) ([]byte, error) {
 	ks.mu.RLock()
-	ek, ok := ks.keys[address]
+	encoded, ok := ks.keys[address]
 	ks.mu.RUnlock()
-
 	if !ok {
 		return nil, fmt.Errorf("keystore: key not found for address %s", address.Hex())
 	}
-
-	// Re-derive the key.
-	derivedKey := deriveKey([]byte(passphrase), ek.Salt, ks.config.ScryptN)
-
-	// Verify MAC.
-	expectedMAC := Keccak256(derivedKey[16:32], ek.CipherText)
-	if !keystoreBytesEqual(expectedMAC, ek.MAC) {
-		return nil, errors.New("keystore: wrong passphrase (MAC mismatch)")
+	key, err := gethkeystore.DecryptKey([]byte(encoded), passphrase)
+	if err != nil {
+		return nil, err
 	}
-
-	// Decrypt.
-	privateKey := ctrEncrypt(ek.CipherText, derivedKey[:16], ek.IV)
-	return privateKey, nil
+	return gethcrypto.FromECDSA(key.PrivateKey), nil
 }
 
 // HasKey returns true if a key exists for the given address.
@@ -178,104 +180,35 @@ func (ks *Keystore) DeleteKey(address types.Address) error {
 
 // ChangePassphrase re-encrypts the key under a new passphrase.
 func (ks *Keystore) ChangePassphrase(address types.Address, oldPass, newPass string) error {
-	// Decrypt with old passphrase.
-	privateKey, err := ks.LoadKey(address, oldPass)
+	ks.mu.RLock()
+	encoded, ok := ks.keys[address]
+	ks.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("keystore: key not found for address %s", address.Hex())
+	}
+	key, err := gethkeystore.DecryptKey([]byte(encoded), oldPass)
+	if err != nil {
+		return err
+	}
+	_, replacement, err := ks.encryptKey(gethcrypto.FromECDSA(key.PrivateKey), newPass)
 	if err != nil {
 		return err
 	}
 
-	// Remove old entry.
 	ks.mu.Lock()
-	delete(ks.keys, address)
-	ks.mu.Unlock()
-
-	// Re-store with new passphrase.
-	_, err = ks.StoreKey(privateKey, newPass)
-	return err
+	defer ks.mu.Unlock()
+	if ks.keys[address] != encoded {
+		return errors.New("keystore: key changed during passphrase update")
+	}
+	ks.keys[address] = replacement
+	return nil
 }
 
-// DeriveAddress computes the Ethereum address from a 32-byte private key.
-// Address = Keccak256(uncompressedPubKey[1:])[12:]
+// DeriveAddress derives the Ethereum address from a raw secp256k1 private key.
 func DeriveAddress(privateKey []byte) types.Address {
-	if len(privateKey) != 32 {
+	priv, err := gethcrypto.ToECDSA(privateKey)
+	if err != nil {
 		return types.Address{}
 	}
-
-	// Reconstruct the ECDSA private key to get the public key.
-	curve := S256()
-	k := new(big.Int).SetBytes(privateKey)
-	x, y := curve.ScalarBaseMult(k.Bytes())
-
-	pub := &ecdsa.PublicKey{Curve: curve, X: x, Y: y}
-	return PubkeyToAddress(*pub)
-}
-
-// deriveKey performs simplified scrypt-like key derivation:
-// iteratively hashing Keccak256(passphrase + salt) for n rounds.
-// Returns a 32-byte derived key.
-func deriveKey(passphrase, salt []byte, n int) []byte {
-	// Use a reduced iteration count based on scryptN to keep it fast.
-	// Real scrypt would use memory-hard iterations; we simplify for
-	// the purpose of this implementation.
-	iterations := n / 1024
-	if iterations < 1 {
-		iterations = 1
-	}
-	if iterations > 4096 {
-		iterations = 4096
-	}
-
-	key := Keccak256(passphrase, salt)
-	for i := 1; i < iterations; i++ {
-		key = Keccak256(key, salt)
-	}
-	return key
-}
-
-// ctrEncrypt performs AES-128-CTR-like encryption using XOR with a key stream
-// derived from Keccak256(key + iv + counter) for each 32-byte block.
-func ctrEncrypt(data, key, iv []byte) []byte {
-	result := make([]byte, len(data))
-	counter := make([]byte, 8)
-
-	for offset := 0; offset < len(data); offset += 32 {
-		// Generate key stream block: Keccak256(key + iv + counter).
-		binary.BigEndian.PutUint64(counter, uint64(offset/32))
-		stream := Keccak256(key, iv, counter)
-
-		end := offset + 32
-		if end > len(data) {
-			end = len(data)
-		}
-		for i := offset; i < end; i++ {
-			result[i] = data[i] ^ stream[i-offset]
-		}
-	}
-	return result
-}
-
-// generateUUIDv4 generates a random UUID v4 string.
-func generateUUIDv4() (string, error) {
-	var uuid [16]byte
-	if _, err := rand.Read(uuid[:]); err != nil {
-		return "", err
-	}
-	// Set version (4) and variant (RFC 4122).
-	uuid[6] = (uuid[6] & 0x0f) | 0x40
-	uuid[8] = (uuid[8] & 0x3f) | 0x80
-
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16]), nil
-}
-
-// keystoreBytesEqual compares two byte slices in constant-ish time.
-func keystoreBytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var diff byte
-	for i := range a {
-		diff |= a[i] ^ b[i]
-	}
-	return diff == 0
+	return types.Address(gethcrypto.PubkeyToAddress(priv.PublicKey))
 }

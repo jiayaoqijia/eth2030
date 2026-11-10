@@ -6,7 +6,7 @@
 
 This package implements an Inner Product Argument (IPA) proof system over the Banderwagon group, intended for Verkle tree proof generation and verification (EIP-6800). The IPA scheme proves that a committed vector `a` satisfies `<a, b> = v` for a public vector `b`, using a Pedersen commitment `C = <a, G>` over the Banderwagon curve. The proof size is O(log n) curve points, achieved through a recursive vector-halving protocol similar to Bulletproofs.
 
-The `banderwagon.go` file provides the underlying Banderwagon group: a prime-order subgroup of the Twisted Edwards curve BLS12-381 Jubjub variant, supporting point serialization, multi-scalar multiplication (`BanderMSM`), and scalar field arithmetic. Fiat-Shamir challenges are derived from a SHA-256 transcript to make the protocol non-interactive.
+The group operations use gnark-crypto's Bandersnatch implementation. The package retains the ETH2030 quotient encoding, generator derivation and SHA-256 Fiat-Shamir transcript for its existing proof format.
 
 ## Functionality
 

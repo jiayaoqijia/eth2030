@@ -8,16 +8,37 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
+func TestNTTMatchesLegacyEvaluationOrder(t *testing.T) {
+	// NTT of f(x) = x enumerates the roots in the deployed evaluation order.
+	for _, op := range []byte{NTTOpForward, NTTOpGoldilocks} {
+		field, generator := bn254ScalarField, int64(5)
+		if op == NTTOpGoldilocks {
+			field, generator = goldilocksField, 7
+		}
+		input := make([]byte, 1+8*32)
+		input[0], input[64] = op, 1
+		output, err := (&nttPrecompile{}).Run(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exponent := new(big.Int).Sub(field, big.NewInt(1))
+		exponent.Rsh(exponent, 3)
+		root := new(big.Int).Exp(big.NewInt(generator), exponent, field)
+		for i := range 8 {
+			want := new(big.Int).Exp(root, big.NewInt(int64(i)), field)
+			got := new(big.Int).SetBytes(output[i*32 : (i+1)*32])
+			if got.Cmp(want) != 0 {
+				t.Fatalf("op %d evaluation %d = %s, want %s", op, i, got, want)
+			}
+		}
+	}
+}
+
 func TestNTTForwardInverseRoundtrip(t *testing.T) {
 	// [1, 2, 3, 4] -> forward NTT -> inverse NTT -> [1, 2, 3, 4]
 	coeffs := []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4)}
-	omega, err := findRootOfUnity(4, bn254ScalarField)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fwd := nttForward(coeffs, omega, bn254ScalarField)
-	inv := nttInverse(fwd, omega, bn254ScalarField)
+	fwd := bn254NTT(coeffs, false)
+	inv := bn254NTT(fwd, true)
 
 	for i, v := range inv {
 		if v.Cmp(coeffs[i]) != 0 {
@@ -33,13 +54,8 @@ func TestNTTPolynomialMultiplication(t *testing.T) {
 	a := []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(0), big.NewInt(0)}
 	b := []*big.Int{big.NewInt(3), big.NewInt(4), big.NewInt(0), big.NewInt(0)}
 
-	omega, err := findRootOfUnity(4, bn254ScalarField)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fa := nttForward(a, omega, bn254ScalarField)
-	fb := nttForward(b, omega, bn254ScalarField)
+	fa := bn254NTT(a, false)
+	fb := bn254NTT(b, false)
 
 	// Pointwise multiply.
 	fc := make([]*big.Int, 4)
@@ -48,7 +64,7 @@ func TestNTTPolynomialMultiplication(t *testing.T) {
 		fc[i].Mod(fc[i], bn254ScalarField)
 	}
 
-	result := nttInverse(fc, omega, bn254ScalarField)
+	result := bn254NTT(fc, true)
 
 	expected := []*big.Int{big.NewInt(3), big.NewInt(10), big.NewInt(8), big.NewInt(0)}
 	for i, v := range result {
@@ -228,40 +244,12 @@ func TestNTTSize8(t *testing.T) {
 		coeffs[i] = big.NewInt(int64(i + 1))
 	}
 
-	omega, err := findRootOfUnity(n, bn254ScalarField)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fwd := nttForward(coeffs, omega, bn254ScalarField)
-	inv := nttInverse(fwd, omega, bn254ScalarField)
+	fwd := bn254NTT(coeffs, false)
+	inv := bn254NTT(fwd, true)
 
 	for i, v := range inv {
 		if v.Cmp(coeffs[i]) != 0 {
 			t.Errorf("roundtrip[%d]: got %v, want %v", i, v, coeffs[i])
-		}
-	}
-}
-
-func TestFindRootOfUnity(t *testing.T) {
-	for _, n := range []int{1, 2, 4, 8, 16, 32, 64} {
-		omega, err := findRootOfUnity(n, bn254ScalarField)
-		if err != nil {
-			t.Fatalf("findRootOfUnity(%d): %v", n, err)
-		}
-
-		// Verify omega^n == 1 mod p.
-		check := new(big.Int).Exp(omega, big.NewInt(int64(n)), bn254ScalarField)
-		if check.Cmp(big.NewInt(1)) != 0 {
-			t.Errorf("omega^%d != 1 mod p", n)
-		}
-
-		// For n > 1, verify omega^(n/2) != 1 (primitive root).
-		if n > 1 {
-			half := new(big.Int).Exp(omega, big.NewInt(int64(n/2)), bn254ScalarField)
-			if half.Cmp(big.NewInt(1)) == 0 {
-				t.Errorf("omega^(%d/2) == 1, not a primitive root", n)
-			}
 		}
 	}
 }
@@ -319,29 +307,6 @@ func TestNTTPrecompileZeroInputs(t *testing.T) {
 		if val.Sign() != 0 {
 			t.Errorf("NTT(zeros)[%d] = %v, want 0", i, val)
 		}
-	}
-}
-
-func TestFindRootOfUnity_ZeroModulus(t *testing.T) {
-	_, err := findRootOfUnity(4, big.NewInt(0))
-	if err != ErrNTTZeroModulus {
-		t.Errorf("expected ErrNTTZeroModulus, got %v", err)
-	}
-}
-
-func TestFindRootOfUnity_NilModulus(t *testing.T) {
-	_, err := findRootOfUnity(4, nil)
-	if err != ErrNTTZeroModulus {
-		t.Errorf("expected ErrNTTZeroModulus, got %v", err)
-	}
-}
-
-func TestFindRootOfUnity_NDividesP(t *testing.T) {
-	// Pick a prime where n does not divide p-1.
-	// p=7, p-1=6: 6 is not divisible by 4.
-	_, err := findRootOfUnity(4, big.NewInt(7))
-	if err != ErrNTTNoRootOfUnity {
-		t.Errorf("expected ErrNTTNoRootOfUnity for p=7,n=4, got %v", err)
 	}
 }
 

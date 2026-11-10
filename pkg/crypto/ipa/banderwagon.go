@@ -1,72 +1,27 @@
-// Banderwagon elliptic curve implementation for Verkle trees (EIP-6800).
-//
-// Banderwagon is a prime-order subgroup of the Bandersnatch curve, defined
-// over the BLS12-381 scalar field (Fr). It uses the twisted Edwards form:
-//   -5x² + y² = 1 + dx²y²
-//
-// where d = (A-2)/(A+2) and A is the Montgomery parameter of Bandersnatch.
-//
-// Points are represented in extended twisted Edwards coordinates (X, Y, T, Z)
-// where x = X/Z, y = Y/Z, T = XY/Z for efficient group operations.
-//
-// This implementation uses math/big for field arithmetic, prioritizing
-// correctness over performance. Constant-time guarantees are not provided
-// by math/big, so this is suitable for consensus verification but not for
-// private key operations.
+// Bandersnatch group operations use gnark-crypto. This package retains the
+// ETH2030 quotient, encoding, and transcript conventions for existing proofs.
 
 package ipa
 
 import (
 	"errors"
 	"math/big"
+
+	"github.com/consensys/gnark-crypto/ecc/bls12-381/bandersnatch"
+	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 )
 
-// Banderwagon field and curve parameters.
-//
-// The base field is the BLS12-381 scalar field Fr with modulus:
-//
-//	r = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
-//
-// The Bandersnatch prime-order subgroup has order:
-//
-//	n = 0x1cfb69d4ca675f520cce760202687600ff8f87007419047174fd06b52876e7e1
-//
-// The twisted Edwards curve is -5x² + y² = 1 + dx²y² where:
-//
-//	a = -5
-//	d = 0x6389c12633c267cbc66e3bf86be3b6d8cb66677177e54f92b369f2f5188d58e7
-//
-// The curve has order 4n (cofactor 4). The generator is in the order-n subgroup.
-// Coordinate arithmetic uses the base field r, while scalar arithmetic uses
-// the subgroup order n.
 var (
-	// banderFr is the BLS12-381 scalar field order, used as the base field
-	// for Banderwagon coordinate arithmetic.
-	banderFr, _ = new(big.Int).SetString(
-		"73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16)
-
-	// banderN is the Bandersnatch prime-order subgroup order, used for scalar
-	// arithmetic (scalar multiplication, IPA challenges, etc.).
-	banderN, _ = new(big.Int).SetString(
-		"1cfb69d4ca675f520cce760202687600ff8f87007419047174fd06b52876e7e1", 16)
-
-	// banderA is the twisted Edwards 'a' parameter = -5 mod r.
-	banderA = func() *big.Int {
-		a := new(big.Int).Sub(banderFr, big.NewInt(5))
-		return a
-	}()
-
-	// banderD is the twisted Edwards 'd' parameter from the Bandersnatch spec.
-	banderD, _ = new(big.Int).SetString(
-		"6389c12633c267cbc66e3bf86be3b6d8cb66677177e54f92b369f2f5188d58e7", 16)
+	banderCurve = bandersnatch.GetEdwardsCurve()
+	banderFr    = fr.Modulus()
+	banderN     = &banderCurve.Order
+	banderA     = banderCurve.A.BigInt(new(big.Int))
+	banderD     = banderCurve.D.BigInt(new(big.Int))
 )
 
-// BanderPoint represents a point on the Banderwagon curve in extended
-// twisted Edwards coordinates (X, Y, T, Z) where:
-//
-//	x = X/Z, y = Y/Z, T = X*Y/Z
+// BanderPoint represents an extended point on the Bandersnatch curve.
 type BanderPoint struct {
-	x, y, t, z *big.Int
+	point bandersnatch.PointExtended
 }
 
 // banderFrAdd returns (a + b) mod r.
@@ -114,186 +69,78 @@ func banderFrSqrt(a *big.Int) *big.Int {
 	return r // nil if not a QR
 }
 
-// BanderIdentity returns the identity point (0, 1) in extended coordinates.
+// BanderIdentity returns the neutral element.
 func BanderIdentity() *BanderPoint {
-	return &BanderPoint{
-		x: new(big.Int),
-		y: big.NewInt(1),
-		t: new(big.Int),
-		z: big.NewInt(1),
-	}
+	var affine bandersnatch.PointAffine
+	affine.Y.SetOne()
+	result := new(BanderPoint)
+	result.point.FromAffine(&affine)
+	return result
 }
-
-// Banderwagon generator point. This is the Bandersnatch twisted Edwards
-// subgroup generator from the spec (lexicographically smallest x-coordinate
-// scaled by cofactor 4).
-var (
-	banderGenX, _ = new(big.Int).SetString(
-		"29c132cc2c0b34c5743711777bbe42f32b79c022ad998465e1e71866a252ae18", 16)
-	banderGenY, _ = new(big.Int).SetString(
-		"2a6c669eda123e0f157d8b50badcd586358cad81eee464605e3167b6cc974166", 16)
-)
 
 // BanderGenerator returns the standard Banderwagon generator point.
 func BanderGenerator() *BanderPoint {
-	t := banderFrMul(banderGenX, banderGenY)
-	return &BanderPoint{
-		x: new(big.Int).Set(banderGenX),
-		y: new(big.Int).Set(banderGenY),
-		t: t,
-		z: big.NewInt(1),
-	}
+	result := new(BanderPoint)
+	result.point.FromAffine(&banderCurve.Base)
+	return result
 }
 
-// BanderIsIdentity returns true if the point is the identity (neutral element).
-func (p *BanderPoint) BanderIsIdentity() bool {
-	// Identity in extended coords: X=0, Y=Z, T=0.
-	xz := new(big.Int).Mod(p.x, banderFr)
-	return xz.Sign() == 0
-}
+// BanderIsIdentity returns true if the point represents the quotient identity.
+func (p *BanderPoint) BanderIsIdentity() bool { return p.point.X.IsZero() }
 
 // BanderFromAffine creates a point from affine coordinates (x, y).
-// Returns an error if the point is not on the curve.
 func BanderFromAffine(x, y *big.Int) (*BanderPoint, error) {
-	if !banderIsOnCurve(x, y) {
+	var affine bandersnatch.PointAffine
+	affine.X.SetBigInt(x)
+	affine.Y.SetBigInt(y)
+	if !affine.IsOnCurve() {
 		return nil, errors.New("banderwagon: point not on curve")
 	}
-	xm := new(big.Int).Mod(x, banderFr)
-	ym := new(big.Int).Mod(y, banderFr)
-	t := banderFrMul(xm, ym)
-	return &BanderPoint{
-		x: xm,
-		y: ym,
-		t: t,
-		z: big.NewInt(1),
-	}, nil
+	result := new(BanderPoint)
+	result.point.FromAffine(&affine)
+	return result, nil
 }
 
-// BanderToAffine converts the point to affine coordinates (x, y).
+// BanderToAffine returns the affine coordinates of the point.
 func (p *BanderPoint) BanderToAffine() (x, y *big.Int) {
-	if p.z.Cmp(big.NewInt(1)) == 0 {
-		return new(big.Int).Set(p.x), new(big.Int).Set(p.y)
-	}
-	zInv := banderFrInv(p.z)
-	x = banderFrMul(p.x, zInv)
-	y = banderFrMul(p.y, zInv)
-	return
+	var affine bandersnatch.PointAffine
+	affine.FromExtended(&p.point)
+	return affine.X.BigInt(new(big.Int)), affine.Y.BigInt(new(big.Int))
 }
 
-// banderIsOnCurve checks if (x, y) satisfies -5x² + y² = 1 + dx²y².
 func banderIsOnCurve(x, y *big.Int) bool {
-	xm := new(big.Int).Mod(x, banderFr)
-	ym := new(big.Int).Mod(y, banderFr)
-
-	x2 := banderFrSqr(xm)
-	y2 := banderFrSqr(ym)
-
-	// LHS = a*x² + y² = -5x² + y²
-	lhs := banderFrAdd(banderFrMul(banderA, x2), y2)
-
-	// RHS = 1 + d*x²*y²
-	rhs := banderFrAdd(big.NewInt(1), banderFrMul(banderD, banderFrMul(x2, y2)))
-
-	return lhs.Cmp(rhs) == 0
+	_, err := BanderFromAffine(x, y)
+	return err == nil
 }
 
-// BanderAdd adds two Banderwagon points using the unified addition formula
-// for twisted Edwards curves in extended coordinates.
-//
-// Formula from "Twisted Edwards Curves Revisited" (Hisil et al., 2008):
-//
-//	A = X1*X2, B = Y1*Y2, C = T1*d*T2, D = Z1*Z2
-//	E = (X1+Y1)*(X2+Y2) - A - B
-//	F = D - C, G = D + C, H = B - a*A
-//	X3 = E*F, Y3 = G*H, T3 = E*H, Z3 = F*G
-func BanderAdd(p1, p2 *BanderPoint) *BanderPoint {
-	A := banderFrMul(p1.x, p2.x)
-	B := banderFrMul(p1.y, p2.y)
-	C := banderFrMul(banderFrMul(p1.t, banderD), p2.t)
-	D := banderFrMul(p1.z, p2.z)
-
-	E := banderFrSub(
-		banderFrMul(banderFrAdd(p1.x, p1.y), banderFrAdd(p2.x, p2.y)),
-		banderFrAdd(A, B))
-	F := banderFrSub(D, C)
-	G := banderFrAdd(D, C)
-	// H = B - a*A = B - (-5)*A = B + 5*A
-	H := banderFrSub(B, banderFrMul(banderA, A))
-
-	return &BanderPoint{
-		x: banderFrMul(E, F),
-		y: banderFrMul(G, H),
-		t: banderFrMul(E, H),
-		z: banderFrMul(F, G),
-	}
+// BanderAdd adds two Banderwagon points.
+func BanderAdd(a, b *BanderPoint) *BanderPoint {
+	result := new(BanderPoint)
+	result.point.Add(&a.point, &b.point)
+	return result
 }
 
-// BanderDouble doubles a Banderwagon point using the dedicated doubling
-// formula for twisted Edwards curves in extended coordinates.
-//
-// Formula:
-//
-//	A = X1², B = Y1², C = 2*Z1²
-//	D = a*A, E = (X1+Y1)² - A - B
-//	G = D + B, F = G - C, H = D - B
-//	X3 = E*F, Y3 = G*H, T3 = E*H, Z3 = F*G
+// BanderDouble doubles a Banderwagon point.
 func BanderDouble(p *BanderPoint) *BanderPoint {
-	A := banderFrSqr(p.x)
-	B := banderFrSqr(p.y)
-	C := banderFrMul(big.NewInt(2), banderFrSqr(p.z))
-
-	D := banderFrMul(banderA, A)
-	E := banderFrSub(banderFrSqr(banderFrAdd(p.x, p.y)), banderFrAdd(A, B))
-	G := banderFrAdd(D, B)
-	F := banderFrSub(G, C)
-	H := banderFrSub(D, B)
-
-	return &BanderPoint{
-		x: banderFrMul(E, F),
-		y: banderFrMul(G, H),
-		t: banderFrMul(E, H),
-		z: banderFrMul(F, G),
-	}
+	result := new(BanderPoint)
+	result.point.Double(&p.point)
+	return result
 }
 
-// BanderNeg returns the negation of a point. For twisted Edwards curves,
-// -(x, y) = (-x, y).
+// BanderNeg returns the group inverse of a point.
 func BanderNeg(p *BanderPoint) *BanderPoint {
-	return &BanderPoint{
-		x: banderFrNeg(p.x),
-		y: new(big.Int).Set(p.y),
-		t: banderFrNeg(p.t),
-		z: new(big.Int).Set(p.z),
-	}
+	result := new(BanderPoint)
+	result.point.Neg(&p.point)
+	return result
 }
 
-// BanderScalarMul computes k*P using double-and-add.
-// Scalars are reduced modulo the subgroup order n.
+// BanderScalarMul computes k*P with k reduced modulo the subgroup order.
 func BanderScalarMul(p *BanderPoint, k *big.Int) *BanderPoint {
-	if k.Sign() == 0 || p.BanderIsIdentity() {
+	if p.BanderIsIdentity() {
 		return BanderIdentity()
 	}
-
-	// Reduce scalar modulo the subgroup order n (not the base field r).
-	scalar := new(big.Int).Mod(k, banderN)
-	if scalar.Sign() == 0 {
-		return BanderIdentity()
-	}
-
-	result := BanderIdentity()
-	base := &BanderPoint{
-		x: new(big.Int).Set(p.x),
-		y: new(big.Int).Set(p.y),
-		t: new(big.Int).Set(p.t),
-		z: new(big.Int).Set(p.z),
-	}
-
-	for i := scalar.BitLen() - 1; i >= 0; i-- {
-		result = BanderDouble(result)
-		if scalar.Bit(i) == 1 {
-			result = BanderAdd(result, base)
-		}
-	}
+	result := new(BanderPoint)
+	result.point.ScalarMultiplication(&p.point, new(big.Int).Mod(k, banderN))
 	return result
 }
 
@@ -316,25 +163,15 @@ func BanderMSM(points []*BanderPoint, scalars []*big.Int) *BanderPoint {
 	return result
 }
 
-// BanderEqual returns true if two points represent the same group element.
-// In Banderwagon (quotient group), (x, y) and (-x, -y) are equivalent.
-// We check: (X1*Z2 == X2*Z1 and Y1*Z2 == Y2*Z1) OR
-//
-//	(X1*Z2 == -X2*Z1 and Y1*Z2 == -Y2*Z1).
-func BanderEqual(p1, p2 *BanderPoint) bool {
-	lx := banderFrMul(p1.x, p2.z)
-	rx := banderFrMul(p2.x, p1.z)
-	ly := banderFrMul(p1.y, p2.z)
-	ry := banderFrMul(p2.y, p1.z)
-
-	// Direct equality.
-	if lx.Cmp(rx) == 0 && ly.Cmp(ry) == 0 {
+// BanderEqual reports whether two points represent the same quotient element.
+func BanderEqual(a, b *BanderPoint) bool {
+	if a.point.Equal(&b.point) {
 		return true
 	}
-	// Quotient equivalence: (x,y) ~ (-x,-y).
-	nrx := banderFrNeg(rx)
-	nry := banderFrNeg(ry)
-	return lx.Cmp(nrx) == 0 && ly.Cmp(nry) == 0
+	opposite := b.point
+	opposite.X.Neg(&opposite.X)
+	opposite.Y.Neg(&opposite.Y)
+	return a.point.Equal(&opposite)
 }
 
 // BanderSerialize serializes a Banderwagon point to 32 bytes.

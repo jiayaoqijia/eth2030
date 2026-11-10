@@ -12,7 +12,6 @@ type (
 	BlobCommitmentPair = kzg.BlobCommitmentPair
 	KZGBatchItem       = kzg.KZGBatchItem
 	KZGBatchResult     = kzg.KZGBatchResult
-	AggregatedKZGProof = kzg.AggregatedKZGProof
 	KZGVerifierConfig  = kzg.KZGVerifierConfig
 	KZGVerifier        = kzg.KZGVerifier
 )
@@ -31,7 +30,6 @@ var (
 	ErrKZGBatchEmpty         = kzg.ErrKZGBatchEmpty
 	ErrKZGBatchSizeMismatch  = kzg.ErrKZGBatchSizeMismatch
 	ErrKZGInvalidBlob        = kzg.ErrKZGInvalidBlob
-	ErrKZGAggregationFailed  = kzg.ErrKZGAggregationFailed
 	ErrKZGVerifierClosed     = kzg.ErrKZGVerifierClosed
 	ErrKZGCommitmentMismatch = kzg.ErrKZGCommitmentMismatch
 )
@@ -39,9 +37,3 @@ var (
 // KZG function wrappers.
 func DefaultKZGVerifierConfig() KZGVerifierConfig          { return kzg.DefaultKZGVerifierConfig() }
 func NewKZGVerifier(config KZGVerifierConfig) *KZGVerifier { return kzg.NewKZGVerifier(config) }
-func MakeTestPointEvaluation(index uint64) *PointEvaluation {
-	return kzg.MakeTestPointEvaluation(index)
-}
-func MakeTestBlobCommitmentPair(index uint64) *BlobCommitmentPair {
-	return kzg.MakeTestBlobCommitmentPair(index)
-}

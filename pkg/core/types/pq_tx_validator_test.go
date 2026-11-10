@@ -90,12 +90,12 @@ func TestPQTxValidatorRealValidateMLDSA(t *testing.T) {
 func TestPQTxValidatorRealValidateFalcon(t *testing.T) {
 	v := types.NewPQTxValidatorReal()
 	signer := &pqc.FalconSigner{}
-	kp, err := signer.GenerateKeyReal()
+	kp, err := signer.GenerateKey()
 	if err != nil {
 		t.Fatalf("Falcon keygen: %v", err)
 	}
 	tx := newTestPQTx()
-	sig, err := signer.SignReal(kp.SecretKey, pqTestSigningHash(tx))
+	sig, err := signer.Sign(kp.SecretKey, pqTestSigningHash(tx))
 	if err != nil {
 		t.Fatalf("Falcon sign: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestPQTxValidatorRealValidateFalcon(t *testing.T) {
 	tx.PQPublicKey = kp.PublicKey
 	tx.PQSignature = sig
 	v.RegisterSigner(types.PQSigTypeFalcon, func(pk, m, s []byte) bool {
-		return signer.VerifyReal(pk, m, s)
+		return signer.Verify(pk, m, s)
 	})
 	if err := v.ValidatePQSignatureReal(tx); err != nil {
 		t.Fatalf("valid Falcon rejected: %v", err)
@@ -145,7 +145,7 @@ func TestPQTxValidatorRealValidateSPHINCS(t *testing.T) {
 	tx2 := newTestPQTx()
 	tx2.PQSignatureType = types.PQSigTypeSPHINCS
 	tx2.PQPublicKey = kp.PublicKey
-	tx2.PQSignature = make([]byte, 49216)
+	tx2.PQSignature = make([]byte, types.SPHINCSPlusSigSize)
 	if err := v.ValidatePQSignatureReal(tx2); err == nil {
 		t.Fatal("all-zero SPHINCS+ sig should be rejected")
 	}
@@ -164,12 +164,12 @@ func TestPQTxValidatorRealInvalidSignature(t *testing.T) {
 func TestPQTxValidatorRealWrongAlgorithm(t *testing.T) {
 	v := types.NewPQTxValidatorReal()
 	falconSigner := &pqc.FalconSigner{}
-	kp, err := falconSigner.GenerateKeyReal()
+	kp, err := falconSigner.GenerateKey()
 	if err != nil {
 		t.Fatalf("Falcon keygen: %v", err)
 	}
 	tx := newTestPQTx()
-	sig, err := falconSigner.SignReal(kp.SecretKey, pqTestSigningHash(tx))
+	sig, err := falconSigner.Sign(kp.SecretKey, pqTestSigningHash(tx))
 	if err != nil {
 		t.Fatalf("Falcon sign: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestPQTxValidatorRealEmptySignature(t *testing.T) {
 	v := types.NewPQTxValidatorReal()
 	tx := newTestPQTx()
 	tx.PQSignatureType = types.PQSigTypeMLDSA
-	tx.PQPublicKey = make([]byte, 1568)
+	tx.PQPublicKey = make([]byte, types.DilithiumPubKeySize)
 	tx.PQSignature = nil
 	if err := v.ValidatePQSignatureReal(tx); err == nil {
 		t.Fatal("empty signature should be rejected")
@@ -230,7 +230,7 @@ func TestPQTxValidatorRealRecoverSender(t *testing.T) {
 	}
 	tx := newTestPQTx()
 	tx.PQPublicKey = kp.PublicKey
-	tx.PQSignature = make([]byte, 1376)
+	tx.PQSignature = make([]byte, types.DilithiumSigSize)
 	addr, err := v.RecoverPQSender(tx)
 	if err != nil {
 		t.Fatalf("recover: %v", err)
@@ -248,12 +248,12 @@ func TestPQTxValidatorRealRecoverSenderConsistency(t *testing.T) {
 
 	tx1 := newTestPQTx()
 	tx1.PQPublicKey = kp1.PublicKey
-	tx1.PQSignature = make([]byte, 1376)
+	tx1.PQSignature = make([]byte, types.DilithiumSigSize)
 
 	tx2 := newTestPQTx()
 	tx2.Nonce = 99
 	tx2.PQPublicKey = kp1.PublicKey
-	tx2.PQSignature = make([]byte, 1376)
+	tx2.PQSignature = make([]byte, types.DilithiumSigSize)
 
 	a1, _ := v.RecoverPQSender(tx1)
 	a2, _ := v.RecoverPQSender(tx2)
@@ -263,7 +263,7 @@ func TestPQTxValidatorRealRecoverSenderConsistency(t *testing.T) {
 
 	tx3 := newTestPQTx()
 	tx3.PQPublicKey = kp2.PublicKey
-	tx3.PQSignature = make([]byte, 1376)
+	tx3.PQSignature = make([]byte, types.DilithiumSigSize)
 	a3, _ := v.RecoverPQSender(tx3)
 	if a1 == a3 {
 		t.Fatal("different pubkeys must give different addresses")
@@ -290,7 +290,7 @@ func TestPQTxValidatorRealKeySize(t *testing.T) {
 		st uint8
 		sz int
 	}{
-		{types.PQSigTypeMLDSA, 1568},
+		{types.PQSigTypeMLDSA, types.DilithiumPubKeySize},
 		{types.PQSigTypeFalcon, 897},
 		{types.PQSigTypeSPHINCS, 32},
 	}
@@ -396,9 +396,9 @@ func TestPQTxValidatorRealNoVerifier(t *testing.T) {
 	v := types.NewPQTxValidatorReal()
 	tx := newTestPQTx()
 	tx.PQSignatureType = types.PQSigTypeMLDSA
-	tx.PQPublicKey = make([]byte, 1568)
+	tx.PQPublicKey = make([]byte, types.DilithiumPubKeySize)
 	tx.PQPublicKey[0] = 1
-	tx.PQSignature = make([]byte, 1376)
+	tx.PQSignature = make([]byte, types.DilithiumSigSize)
 	tx.PQSignature[0] = 1
 	if err := v.ValidatePQSignatureReal(tx); err == nil {
 		t.Fatal("nil verifier should error")

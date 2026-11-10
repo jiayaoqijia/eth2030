@@ -8,6 +8,14 @@ import (
 )
 
 // TestG1OnCurve verifies basic curve membership checks.
+// G2 generator point coordinates.
+var (
+	g2GenXa0, _ = new(big.Int).SetString("10857046999023057135944570762232829481370756359578518086990519993285655852781", 10)
+	g2GenXa1, _ = new(big.Int).SetString("11559732032986387107991004021392285783925812861821192530917403151452391805634", 10)
+	g2GenYa0, _ = new(big.Int).SetString("8495653923123431417604973247489272438418190587263600148770280649306958101930", 10)
+	g2GenYa1, _ = new(big.Int).SetString("4082367875863433681332203403145435568316851327593401208105741076214120093531", 10)
+)
+
 func TestG1OnCurve(t *testing.T) {
 	// Generator (1, 2) should be on the curve.
 	if !g1IsOnCurve(big.NewInt(1), big.NewInt(2)) {
@@ -426,59 +434,6 @@ func TestFp2Arithmetic(t *testing.T) {
 	}
 }
 
-// TestFp12Arithmetic tests basic F_p^12 operations.
-func TestFp12Arithmetic(t *testing.T) {
-	one := fp12One()
-	if !one.isOne() {
-		t.Fatal("fp12One should be one")
-	}
-
-	prod := fp12Mul(one, one)
-	if !prod.isOne() {
-		t.Fatal("1*1 should be 1 in F_p^12")
-	}
-
-	inv := fp12Inv(one)
-	if !inv.isOne() {
-		t.Fatal("1^(-1) should be 1 in F_p^12")
-	}
-}
-
-// TestPairingSingle tests that e(G1, G2) != 1 (non-trivial pairing).
-func TestPairingSingle(t *testing.T) {
-	g1 := G1Generator()
-	g2 := G2Generator()
-
-	result := BN254Pair(g1, g2)
-	if result.isOne() {
-		t.Fatal("e(G1, G2) should NOT be 1 for non-trivial generators")
-	}
-}
-
-// TestPairingInfinity tests that e(0, Q) = 1.
-func TestPairingInfinity(t *testing.T) {
-	inf := G1Infinity()
-	g2 := G2Generator()
-	result := BN254Pair(inf, g2)
-	if !result.isOne() {
-		t.Fatal("e(0, G2) should be 1")
-	}
-}
-
-// TestMillerLoopDirect tests the Miller loop output before final exponentiation.
-func TestMillerLoopDirect(t *testing.T) {
-	g1 := G1Generator()
-	g2 := G2Generator()
-
-	px, py := g1.g1ToAffine()
-	qx, qy := g2.g2ToAffine()
-
-	ml := millerLoop(px, py, qx, qy)
-	if ml.isOne() {
-		t.Fatal("Miller loop output should not be 1 before final exp")
-	}
-}
-
 // TestBN254PairingNonTrivialFail tests that an incorrect pairing returns 0.
 func TestBN254PairingNonTrivialFail(t *testing.T) {
 	// e(G, Q) alone (without cancellation) should not be 1.
@@ -753,58 +708,6 @@ func TestBN254Pairing_EthTestVectors(t *testing.T) {
 	}
 }
 
-// TestFrobeniusConsistency verifies that the efficient Frobenius maps produce
-// the same results as generic exponentiation by p, p^2, and p^3.
-func TestFrobeniusConsistency(t *testing.T) {
-	// Build a non-trivial F_p^12 element from a pairing.
-	g1 := G1Generator()
-	g2 := G2Generator()
-	px, py := g1.g1ToAffine()
-	qx, qy := g2.g2ToAffine()
-	f := millerLoop(px, py, qx, qy)
-
-	// Compare efficient Frobenius with generic exponentiation.
-	frob1 := fp12FrobeniusEfficient(f)
-	frob1Slow := fp12Exp(f, bn254P)
-
-	if !frob1.c0.c0.equal(frob1Slow.c0.c0) ||
-		!frob1.c0.c1.equal(frob1Slow.c0.c1) ||
-		!frob1.c0.c2.equal(frob1Slow.c0.c2) ||
-		!frob1.c1.c0.equal(frob1Slow.c1.c0) ||
-		!frob1.c1.c1.equal(frob1Slow.c1.c1) ||
-		!frob1.c1.c2.equal(frob1Slow.c1.c2) {
-		t.Fatal("efficient Frobenius(p) does not match fp12Exp(f, p)")
-	}
-
-	// Frobenius squared.
-	pSq := new(big.Int).Mul(bn254P, bn254P)
-	frob2 := fp12FrobeniusSqEfficient(f)
-	frob2Slow := fp12Exp(f, pSq)
-
-	if !frob2.c0.c0.equal(frob2Slow.c0.c0) ||
-		!frob2.c0.c1.equal(frob2Slow.c0.c1) ||
-		!frob2.c0.c2.equal(frob2Slow.c0.c2) ||
-		!frob2.c1.c0.equal(frob2Slow.c1.c0) ||
-		!frob2.c1.c1.equal(frob2Slow.c1.c1) ||
-		!frob2.c1.c2.equal(frob2Slow.c1.c2) {
-		t.Fatal("efficient Frobenius(p^2) does not match fp12Exp(f, p^2)")
-	}
-
-	// Frobenius cubed.
-	pCu := new(big.Int).Mul(bn254P, pSq)
-	frob3 := fp12FrobeniusCubeEfficient(f)
-	frob3Slow := fp12Exp(f, pCu)
-
-	if !frob3.c0.c0.equal(frob3Slow.c0.c0) ||
-		!frob3.c0.c1.equal(frob3Slow.c0.c1) ||
-		!frob3.c0.c2.equal(frob3Slow.c0.c2) ||
-		!frob3.c1.c0.equal(frob3Slow.c1.c0) ||
-		!frob3.c1.c1.equal(frob3Slow.c1.c1) ||
-		!frob3.c1.c2.equal(frob3Slow.c1.c2) {
-		t.Fatal("efficient Frobenius(p^3) does not match fp12Exp(f, p^3)")
-	}
-}
-
 // TestG2AddSubgroup verifies G2 generator operations.
 func TestG2AddSubgroup(t *testing.T) {
 	gen := G2Generator()
@@ -892,35 +795,5 @@ func TestFpArithmetic(t *testing.T) {
 	pMinus1 := new(big.Int).Sub(bn254P, big.NewInt(1))
 	if fpAdd(pMinus1, big.NewInt(1)).Sign() != 0 {
 		t.Fatal("(p-1) + 1 != 0 mod p")
-	}
-}
-
-// TestFp6Arithmetic verifies F_p^6 operations.
-func TestFp6Arithmetic(t *testing.T) {
-	one := fp6One()
-	zero := fp6Zero()
-
-	// 1 * 1 = 1.
-	prod := fp6Mul(one, one)
-	if !prod.c0.equal(one.c0) || !prod.c1.isZero() || !prod.c2.isZero() {
-		t.Fatal("1*1 != 1 in F_p^6")
-	}
-
-	// 1 + 0 = 1.
-	sum := fp6Add(one, zero)
-	if !sum.c0.equal(one.c0) || !sum.c1.isZero() || !sum.c2.isZero() {
-		t.Fatal("1+0 != 1 in F_p^6")
-	}
-
-	// a * a^(-1) = 1 for a non-trivial element.
-	a := &fp6{
-		c0: &fp2{a0: big.NewInt(3), a1: big.NewInt(4)},
-		c1: &fp2{a0: big.NewInt(5), a1: big.NewInt(6)},
-		c2: &fp2{a0: big.NewInt(7), a1: big.NewInt(8)},
-	}
-	aInv := fp6Inv(a)
-	identity := fp6Mul(a, aInv)
-	if !identity.c0.equal(fp2One()) || !identity.c1.isZero() || !identity.c2.isZero() {
-		t.Fatal("a * a^(-1) != 1 in F_p^6")
 	}
 }

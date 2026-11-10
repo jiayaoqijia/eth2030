@@ -4,6 +4,11 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
+	gnarkgroth16 "github.com/consensys/gnark/backend/groth16/bls12-381"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/eth2030/eth2030/crypto"
 )
 
@@ -93,34 +98,9 @@ func TestGroth16ValidateVKValid(t *testing.T) {
 	}
 }
 
-func TestGroth16BackendNames(t *testing.T) {
-	if (&PureGoGroth16Backend{}).Name() != "pure-go-groth16" {
-		t.Fatal("wrong name")
-	}
-	if (&GnarkGroth16Backend{}).Name() != "gnark-groth16" {
-		t.Fatal("wrong name")
-	}
-}
-
-func TestGroth16DefaultAndSetBackend(t *testing.T) {
-	SetGroth16Backend(nil)
-	if DefaultGroth16Backend().Name() != "pure-go-groth16" {
-		t.Fatal("default wrong")
-	}
-	defer SetGroth16Backend(nil)
-	SetGroth16Backend(&GnarkGroth16Backend{})
-	if DefaultGroth16Backend().Name() != "gnark-groth16" {
-		t.Fatal("set wrong")
-	}
-	SetGroth16Backend(nil)
-	if DefaultGroth16Backend().Name() != "pure-go-groth16" {
-		t.Fatal("reset wrong")
-	}
-}
-
 func TestGroth16IntegrationStatus(t *testing.T) {
 	SetGroth16Backend(nil)
-	if Groth16IntegrationStatus() != "pure-go-groth16" {
+	if Groth16IntegrationStatus() != "gnark-groth16-bls12-381" {
 		t.Fatalf("got %s", Groth16IntegrationStatus())
 	}
 }
@@ -140,23 +120,54 @@ func TestGroth16GasEstimationNegative(t *testing.T) {
 	}
 }
 
-func TestGroth16Setup(t *testing.T) {
-	circuit := &CircuitDefinition{
-		Name: "test", PublicInputCount: 2,
-		Constraints: []Constraint{{Type: ConstraintLinear, A: []Term{{VarID: 0, Coeff: 1}}}},
-	}
-	pk, vk, err := (&PureGoGroth16Backend{}).Setup(circuit)
+func TestGroth16VerifiesGnarkProofInLegacyEncoding(t *testing.T) {
+	field := ecc.BLS12_381.ScalarField()
+	cs, err := frontend.Compile(field, r1cs.NewBuilder, &AAValidationGnarkCircuit{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pk.CircuitName != "test" || len(vk.IC) != 3 {
-		t.Fatalf("pk=%s, IC=%d", pk.CircuitName, len(vk.IC))
+	pk, vk, err := groth16.Setup(cs)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
+	witness, err := frontend.NewWitness(&AAValidationGnarkCircuit{
+		Nonce: 2, GasLimit: 21000, PrevNonce: 1,
+	}, field)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := groth16.Prove(cs, pk, witness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gnarkProof := proof.(*gnarkgroth16.Proof)
+	encoded := make([]byte, 0, 192)
+	a, b, c := gnarkProof.Ar.Bytes(), gnarkProof.Bs.Bytes(), gnarkProof.Krs.Bytes()
+	encoded = append(encoded, a[:]...)
+	encoded = append(encoded, b[:]...)
+	encoded = append(encoded, c[:]...)
+	legacyProof, err := DeserializeBLSGroth16Proof(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-func TestGroth16SetupNilCircuit(t *testing.T) {
-	if _, _, err := (&PureGoGroth16Backend{}).Setup(nil); err == nil {
-		t.Fatal("expected error")
+	gnarkKey := vk.(*gnarkgroth16.VerifyingKey)
+	key := &BLSGroth16VerifyingKey{
+		Alpha: crypto.DeserializeG1(gnarkKey.G1.Alpha.Bytes()),
+		Beta:  crypto.DeserializeG2(gnarkKey.G2.Beta.Bytes()),
+		Gamma: crypto.DeserializeG2(gnarkKey.G2.Gamma.Bytes()),
+		Delta: crypto.DeserializeG2(gnarkKey.G2.Delta.Bytes()),
+		IC:    make([]*crypto.BlsG1Point, len(gnarkKey.G1.K)),
+	}
+	for i := range gnarkKey.G1.K {
+		key.IC[i] = crypto.DeserializeG1(gnarkKey.G1.K[i].Bytes())
+	}
+	backend := DefaultGroth16Backend()
+	if ok, err := backend.Verify(key, legacyProof, [][]byte{EncodePublicInput(2), EncodePublicInput(21000)}); !ok || err != nil {
+		t.Fatalf("verify gnark proof = %v, %v", ok, err)
+	}
+	if ok, err := backend.Verify(key, legacyProof, [][]byte{EncodePublicInput(3), EncodePublicInput(21000)}); ok || err != nil {
+		t.Fatalf("verify with changed nonce = %v, %v", ok, err)
 	}
 }
 
@@ -164,7 +175,7 @@ func TestGroth16VerifyICMismatch(t *testing.T) {
 	g1, g2 := crypto.BlsG1Generator(), crypto.BlsG2Generator()
 	vk := &BLSGroth16VerifyingKey{Alpha: g1, Beta: g2, Gamma: g2, Delta: g2, IC: []*crypto.BlsG1Point{g1, g1}}
 	proof := &BLSGroth16Proof{A: g1, B: g2, C: g1}
-	if _, err := (&PureGoGroth16Backend{}).Verify(vk, proof, [][]byte{{1}, {2}}); err == nil {
+	if _, err := (&GnarkGroth16Backend{}).Verify(vk, proof, [][]byte{{1}, {2}}); err == nil {
 		t.Fatal("expected IC mismatch")
 	}
 }
@@ -223,7 +234,7 @@ func TestGroth16VerifyWithInfinityProof(t *testing.T) {
 	vk := &BLSGroth16VerifyingKey{Alpha: g1, Beta: g2, Gamma: g2, Delta: g2, IC: []*crypto.BlsG1Point{g1}}
 	proof := &BLSGroth16Proof{A: crypto.BlsG1Infinity(), B: g2, C: crypto.BlsG1Infinity()}
 	// Should not panic.
-	_, err := (&PureGoGroth16Backend{}).Verify(vk, proof, nil)
+	_, err := (&GnarkGroth16Backend{}).Verify(vk, proof, nil)
 	if err != nil {
 		t.Fatalf("should not error: %v", err)
 	}
@@ -250,66 +261,6 @@ func TestGroth16VKDifferentICLengths(t *testing.T) {
 		vk := &BLSGroth16VerifyingKey{Alpha: g1, Beta: g2, Gamma: g2, Delta: g2, IC: ic}
 		if err := ValidateVerifyingKey(vk); err != nil {
 			t.Fatalf("IC len %d should be valid: %v", n, err)
-		}
-	}
-}
-
-func TestGroth16NegateG1(t *testing.T) {
-	g1 := crypto.BlsG1Generator()
-	neg := g16NegateG1(g1)
-	negNeg := g16NegateG1(neg)
-	s1 := crypto.SerializeG1(g1)
-	s2 := crypto.SerializeG1(negNeg)
-	for i := range s1 {
-		if s1[i] != s2[i] {
-			t.Fatalf("double negate failed, byte %d", i)
-		}
-	}
-}
-
-func TestGroth16NegateInfinity(t *testing.T) {
-	inf := crypto.BlsG1Infinity()
-	neg := g16NegateG1(inf)
-	if crypto.SerializeG1(neg)[0]&0x40 == 0 {
-		t.Fatal("negated infinity should be infinity")
-	}
-}
-
-func TestGroth16ScalarMulG1(t *testing.T) {
-	g1 := crypto.BlsG1Generator()
-	p := g16ScalarMulG1(g1, 1)
-	s1 := crypto.SerializeG1(g1)
-	s2 := crypto.SerializeG1(p)
-	for i := range s1 {
-		if s1[i] != s2[i] {
-			t.Fatalf("1*G1 != G1, byte %d", i)
-		}
-	}
-	p0 := g16ScalarMulG1(g1, 0)
-	if crypto.SerializeG1(p0)[0]&0x40 == 0 {
-		t.Fatal("0*G1 should be infinity")
-	}
-}
-
-func TestGroth16EncodeDecodeG1Roundtrip(t *testing.T) {
-	g1 := crypto.BlsG1Generator()
-	buf := make([]byte, blsG16G1Enc)
-	g16PutG1(buf, g1)
-	allZ := true
-	for _, b := range buf {
-		if b != 0 {
-			allZ = false
-		}
-	}
-	if allZ {
-		t.Fatal("encoded G1 should not be all zeros")
-	}
-	decoded := g16BytesToG1(buf)
-	s1 := crypto.SerializeG1(g1)
-	s2 := crypto.SerializeG1(decoded)
-	for i := range s1 {
-		if s1[i] != s2[i] {
-			t.Fatalf("round-trip failed, byte %d", i)
 		}
 	}
 }

@@ -1,5 +1,5 @@
 // kzg_verifier.go implements KZG commitment verification for blob data,
-// with batch verification, point evaluation, and proof aggregation matching
+// with batch verification and point evaluation matching
 // the EIP-4844 specification.
 //
 // KZG (Kate-Zaverucha-Goldberg) commitments allow proving that a polynomial
@@ -11,11 +11,11 @@ package kzg
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto/bls"
 )
 
 // KZG verifier errors.
@@ -26,7 +26,6 @@ var (
 	ErrKZGBatchEmpty         = errors.New("kzg_verifier: empty batch")
 	ErrKZGBatchSizeMismatch  = errors.New("kzg_verifier: batch size mismatch")
 	ErrKZGInvalidBlob        = errors.New("kzg_verifier: invalid blob data")
-	ErrKZGAggregationFailed  = errors.New("kzg_verifier: proof aggregation failed")
 	ErrKZGVerifierClosed     = errors.New("kzg_verifier: verifier is closed")
 	ErrKZGCommitmentMismatch = errors.New("kzg_verifier: commitment does not match blob")
 )
@@ -88,14 +87,6 @@ type KZGBatchResult struct {
 	FailedCount int
 }
 
-// AggregatedKZGProof represents multiple KZG proofs aggregated into one.
-type AggregatedKZGProof struct {
-	Commitments []KZGCommitment
-	AggProof    KZGProofPoint
-	AggRoot     types.Hash
-	Count       int
-}
-
 // KZGVerifierConfig configures the KZG verifier.
 type KZGVerifierConfig struct {
 	// MaxBatchSize is the maximum number of proofs in a single batch.
@@ -114,8 +105,7 @@ func DefaultKZGVerifierConfig() KZGVerifierConfig {
 }
 
 // KZGVerifier performs KZG commitment verification for blob data.
-// It supports single-proof verification, batch verification, and
-// proof aggregation. Thread-safe.
+// It supports single-proof and batch verification. Thread-safe.
 type KZGVerifier struct {
 	mu     sync.RWMutex
 	config KZGVerifierConfig
@@ -147,11 +137,6 @@ func (v *KZGVerifier) Close() {
 // VerifyPointEvaluation verifies a KZG point evaluation proof. It checks
 // that the polynomial committed to by `commitment` evaluates to `value`
 // at `point`, as attested by `proof`.
-//
-// In production this uses pairing checks on BLS12-381. Here we use a
-// SHA-256 binding commitment:
-//
-//	valid = SHA256(commitment || proof || point || value) has specific pattern.
 func (v *KZGVerifier) VerifyPointEvaluation(eval *PointEvaluation) (bool, error) {
 	v.mu.RLock()
 	if v.closed {
@@ -185,7 +170,7 @@ func (v *KZGVerifier) VerifyPointEvaluation(eval *PointEvaluation) (bool, error)
 // VerifyBlobCommitment verifies that a blob's KZG commitment matches the
 // versioned hash (as defined in EIP-4844). The versioned hash is computed as:
 //
-//	SHA256(0x01 || SHA256(commitment)[1:])
+//	0x01 || SHA256(commitment)[1:]
 func (v *KZGVerifier) VerifyBlobCommitment(pair *BlobCommitmentPair) (bool, error) {
 	if pair == nil {
 		return false, ErrKZGNilCommitment
@@ -268,61 +253,6 @@ func (v *KZGVerifier) BatchVerify(evals []PointEvaluation) (*KZGBatchResult, err
 	return result, nil
 }
 
-// AggregateProofs aggregates multiple KZG proofs into a single proof.
-// The aggregated proof commits to all individual commitments via a
-// Merkle-like hash:
-//
-//	aggRoot = SHA256(commitment_0 || commitment_1 || ... || commitment_n)
-//	aggProof = SHA256(proof_0 || proof_1 || ... || proof_n)
-func (v *KZGVerifier) AggregateProofs(pairs []BlobCommitmentPair) (*AggregatedKZGProof, error) {
-	if len(pairs) == 0 {
-		return nil, ErrKZGBatchEmpty
-	}
-
-	commitments := make([]KZGCommitment, len(pairs))
-	var commitData []byte
-	var proofData []byte
-
-	for i, pair := range pairs {
-		commitments[i] = pair.Commitment
-		commitData = append(commitData, pair.Commitment[:]...)
-		proofData = append(proofData, pair.Proof[:]...)
-	}
-
-	// Compute aggregate root.
-	rootHash := sha256.Sum256(commitData)
-	aggRoot := types.BytesToHash(rootHash[:])
-
-	// Compute aggregate proof.
-	proofHash := sha256.Sum256(proofData)
-	var aggProof KZGProofPoint
-	copy(aggProof[:], proofHash[:])
-
-	return &AggregatedKZGProof{
-		Commitments: commitments,
-		AggProof:    aggProof,
-		AggRoot:     aggRoot,
-		Count:       len(pairs),
-	}, nil
-}
-
-// VerifyAggregatedProof verifies an aggregated KZG proof by recomputing
-// the aggregate root from the individual commitments.
-func (v *KZGVerifier) VerifyAggregatedProof(agg *AggregatedKZGProof) (bool, error) {
-	if agg == nil || len(agg.Commitments) == 0 {
-		return false, ErrKZGBatchEmpty
-	}
-
-	var commitData []byte
-	for _, c := range agg.Commitments {
-		commitData = append(commitData, c[:]...)
-	}
-	rootHash := sha256.Sum256(commitData)
-	expected := types.BytesToHash(rootHash[:])
-
-	return expected == agg.AggRoot, nil
-}
-
 // Stats returns the verifier's statistics.
 func (v *KZGVerifier) Stats() (verified, failed, batches uint64) {
 	v.mu.RLock()
@@ -340,15 +270,7 @@ func verifyPointEval(
 	point [FieldElementSize]byte,
 	value [FieldElementSize]byte,
 ) bool {
-	h := sha256.New()
-	h.Write(commitment[:])
-	h.Write(proof[:])
-	h.Write(point[:])
-	h.Write(value[:])
-	digest := h.Sum(nil)
-
-	// Valid if first byte of digest has high bit clear (deterministic stub).
-	return digest[0] < 0x80
+	return bls.VerifyKZGPointProof(commitment, point, value, proof) == nil
 }
 
 // computeVersionedHash computes the EIP-4844 versioned hash from a commitment.
@@ -369,64 +291,4 @@ func isZeroKZG(data []byte) bool {
 		}
 	}
 	return true
-}
-
-// MakeTestPointEvaluation creates a deterministic point evaluation for testing.
-// The commitment and proof are derived from the index so that verification
-// succeeds (first byte of SHA256 digest < 0x80).
-func MakeTestPointEvaluation(index uint64) *PointEvaluation {
-	var commitment KZGCommitment
-	var proof KZGProofPoint
-	var point [FieldElementSize]byte
-	var value [FieldElementSize]byte
-
-	// Derive deterministic values.
-	binary.BigEndian.PutUint64(commitment[:8], index+1)
-	commitment[8] = 0x01
-
-	binary.BigEndian.PutUint64(proof[:8], index+1)
-	proof[8] = 0x02
-
-	binary.BigEndian.PutUint64(point[:8], index)
-	binary.BigEndian.PutUint64(value[:8], index*2)
-
-	// Brute-force a commitment that passes verification.
-	for nonce := uint64(0); nonce < 10000; nonce++ {
-		binary.BigEndian.PutUint64(commitment[40:], nonce)
-		if verifyPointEval(commitment, proof, point, value) {
-			return &PointEvaluation{
-				Commitment: commitment,
-				Proof:      proof,
-				Point:      point,
-				Value:      value,
-			}
-		}
-	}
-	// Fallback (should not happen in practice).
-	return &PointEvaluation{
-		Commitment: commitment,
-		Proof:      proof,
-		Point:      point,
-		Value:      value,
-	}
-}
-
-// MakeTestBlobCommitmentPair creates a test blob-commitment pair.
-func MakeTestBlobCommitmentPair(index uint64) *BlobCommitmentPair {
-	var commitment KZGCommitment
-	binary.BigEndian.PutUint64(commitment[:8], index+1)
-	commitment[8] = 0xab
-
-	var proof KZGProofPoint
-	binary.BigEndian.PutUint64(proof[:8], index+1)
-	proof[8] = 0xcd
-
-	blobHash := computeVersionedHash(commitment)
-
-	return &BlobCommitmentPair{
-		BlobHash:   blobHash,
-		Commitment: commitment,
-		Proof:      proof,
-		BlobIndex:  index,
-	}
 }

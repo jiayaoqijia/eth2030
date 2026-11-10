@@ -58,9 +58,6 @@ func ECIESDecrypt(prv *ecdsa.PrivateKey, data []byte) ([]byte, error) {
 func GenerateSharedSecret(prv *ecdsa.PrivateKey, pub *ecdsa.PublicKey) ([]byte, error) {
 	return secp256k1.GenerateSharedSecret(prv, pub)
 }
-func DeriveSessionKeys(sharedSecret, initiatorNonce, responderNonce []byte) (iEncKey, rEncKey, iMAC, rMAC []byte) {
-	return secp256k1.DeriveSessionKeys(sharedSecret, initiatorNonce, responderNonce)
-}
 
 // P256 function wrappers.
 

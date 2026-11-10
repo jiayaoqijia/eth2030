@@ -1,6 +1,5 @@
 // Groth16 verification layer for the mandatory proof system (K+ milestone).
 // Implements BLS12-381 Groth16 verification: e(A,B) = e(Alpha,Beta) * e(IC,Gamma) * e(C,Delta).
-// The existing Groth16Proof in aa_proof_circuits.go uses BN254; this uses BLS12-381.
 
 package proofs
 
@@ -9,9 +8,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
 
+	bls381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
+	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
+	gnarkgroth16 "github.com/consensys/gnark/backend/groth16/bls12-381"
 	"github.com/eth2030/eth2030/crypto"
 )
 
@@ -30,13 +31,6 @@ var (
 	ErrGroth16PairingFailed = errors.New("groth16: pairing failed")
 )
 
-// BLS12-381 precompile encoding sizes.
-const (
-	blsG16G1Enc  = 128 // G1 uncompressed: 2 * 64 bytes
-	blsG16G2Enc  = 256 // G2 uncompressed: 2 * 128 bytes
-	blsG16Scalar = 32
-)
-
 // BLSGroth16Proof: three BLS12-381 group elements (A in G1, B in G2, C in G1).
 type BLSGroth16Proof struct {
 	A *crypto.BlsG1Point
@@ -53,24 +47,16 @@ type BLSGroth16VerifyingKey struct {
 	IC    []*crypto.BlsG1Point // IC[0] constant + IC[1..n] per public input
 }
 
-// BLSGroth16ProvingKey is a placeholder for the prover key.
-type BLSGroth16ProvingKey struct {
-	CircuitName    string
-	KeyData        []byte
-	NumConstraints int
-}
-
 // BLSGroth16Backend defines pluggable BLS12-381 Groth16 verification.
 type BLSGroth16Backend interface {
 	Verify(vk *BLSGroth16VerifyingKey, proof *BLSGroth16Proof, publicInputs [][]byte) (bool, error)
-	Setup(circuit *CircuitDefinition) (*BLSGroth16ProvingKey, *BLSGroth16VerifyingKey, error)
 	Name() string
 }
 
 var (
 	groth16BackendMu      sync.RWMutex
 	activeGroth16Backend  BLSGroth16Backend
-	defaultGroth16Backend = &PureGoGroth16Backend{}
+	defaultGroth16Backend = &GnarkGroth16Backend{}
 )
 
 func DefaultGroth16Backend() BLSGroth16Backend {
@@ -130,14 +116,12 @@ func ValidateVerifyingKey(vk *BLSGroth16VerifyingKey) error {
 	return nil
 }
 
-// --- PureGoGroth16Backend ---
+// GnarkGroth16Backend verifies the legacy A/B/C proof encoding with gnark.
+type GnarkGroth16Backend struct{}
 
-type PureGoGroth16Backend struct{}
+func (*GnarkGroth16Backend) Name() string { return "gnark-groth16-bls12-381" }
 
-func (b *PureGoGroth16Backend) Name() string { return "pure-go-groth16" }
-
-// Verify checks: e(-A,B) * e(Alpha,Beta) * e(IC_input,Gamma) * e(C,Delta) == 1.
-func (b *PureGoGroth16Backend) Verify(vk *BLSGroth16VerifyingKey, proof *BLSGroth16Proof, publicInputs [][]byte) (bool, error) {
+func (*GnarkGroth16Backend) Verify(vk *BLSGroth16VerifyingKey, proof *BLSGroth16Proof, publicInputs [][]byte) (bool, error) {
 	if err := ValidateGroth16Proof(proof); err != nil {
 		return false, err
 	}
@@ -147,55 +131,58 @@ func (b *PureGoGroth16Backend) Verify(vk *BLSGroth16VerifyingKey, proof *BLSGrot
 	if len(vk.IC) != len(publicInputs)+1 {
 		return false, fmt.Errorf("%w: got %d inputs, need %d", ErrGroth16ICMismatch, len(publicInputs), len(vk.IC)-1)
 	}
-	icInput, err := g16ComputeIC(vk.IC, publicInputs)
-	if err != nil {
-		return false, fmt.Errorf("groth16: IC computation: %w", err)
+	var gnarkProof gnarkgroth16.Proof
+	if err := decodeGroth16G1(&gnarkProof.Ar, proof.A); err != nil {
+		return false, fmt.Errorf("%w: %v", ErrGroth16InvalidA, err)
 	}
-	negA := g16NegateG1(proof.A)
-	ps := blsG16G1Enc + blsG16G2Enc
-	input := make([]byte, 4*ps)
-	g16PutG1(input[0:], negA)
-	g16PutG2(input[blsG16G1Enc:], proof.B)
-	g16PutG1(input[ps:], vk.Alpha)
-	g16PutG2(input[ps+blsG16G1Enc:], vk.Beta)
-	g16PutG1(input[2*ps:], icInput)
-	g16PutG2(input[2*ps+blsG16G1Enc:], vk.Gamma)
-	g16PutG1(input[3*ps:], proof.C)
-	g16PutG2(input[3*ps+blsG16G1Enc:], vk.Delta)
-	result, err := crypto.BLS12Pairing(input)
-	if err != nil {
+	if err := decodeGroth16G2(&gnarkProof.Bs, proof.B); err != nil {
+		return false, fmt.Errorf("%w: %v", ErrGroth16InvalidB, err)
+	}
+	if err := decodeGroth16G1(&gnarkProof.Krs, proof.C); err != nil {
+		return false, fmt.Errorf("%w: %v", ErrGroth16InvalidC, err)
+	}
+	var key gnarkgroth16.VerifyingKey
+	if err := decodeGroth16G1(&key.G1.Alpha, vk.Alpha); err != nil {
+		return false, fmt.Errorf("%w: %v", ErrGroth16InvalidAlpha, err)
+	}
+	if err := decodeGroth16G2(&key.G2.Beta, vk.Beta); err != nil {
+		return false, fmt.Errorf("%w: %v", ErrGroth16InvalidBeta, err)
+	}
+	if err := decodeGroth16G2(&key.G2.Gamma, vk.Gamma); err != nil {
+		return false, fmt.Errorf("%w: %v", ErrGroth16InvalidGamma, err)
+	}
+	if err := decodeGroth16G2(&key.G2.Delta, vk.Delta); err != nil {
+		return false, fmt.Errorf("%w: %v", ErrGroth16InvalidDelta, err)
+	}
+	key.G1.K = make([]bls381.G1Affine, len(vk.IC))
+	for i, point := range vk.IC {
+		if point == nil {
+			return false, fmt.Errorf("groth16: nil IC point at index %d", i)
+		}
+		if err := decodeGroth16G1(&key.G1.K[i], point); err != nil {
+			return false, fmt.Errorf("groth16: invalid IC point at index %d: %w", i, err)
+		}
+	}
+	if err := key.Precompute(); err != nil {
 		return false, fmt.Errorf("%w: %v", ErrGroth16PairingFailed, err)
 	}
-	if len(result) != 32 {
-		return false, ErrGroth16PairingFailed
+	witness := make(fr.Vector, len(publicInputs))
+	for i, input := range publicInputs {
+		witness[i].SetBytes(input)
 	}
-	return result[31] == 1, nil
+	return gnarkgroth16.Verify(&gnarkProof, &key, witness) == nil, nil
 }
 
-func (b *PureGoGroth16Backend) Setup(circuit *CircuitDefinition) (*BLSGroth16ProvingKey, *BLSGroth16VerifyingKey, error) {
-	if circuit == nil {
-		return nil, nil, ErrCircuitNilDef
-	}
-	g1, g2 := crypto.BlsG1Generator(), crypto.BlsG2Generator()
-	ic := make([]*crypto.BlsG1Point, circuit.PublicInputCount+1)
-	for i := range ic {
-		ic[i] = g16ScalarMulG1(g1, int64(i+2))
-	}
-	vk := &BLSGroth16VerifyingKey{Alpha: g1, Beta: g2, Gamma: g2, Delta: g2, IC: ic}
-	pk := &BLSGroth16ProvingKey{CircuitName: circuit.Name, NumConstraints: circuit.ConstraintCount()}
-	return pk, vk, nil
+func decodeGroth16G1(dst *bls381.G1Affine, point *crypto.BlsG1Point) error {
+	encoded := crypto.SerializeG1(point)
+	_, err := dst.SetBytes(encoded[:])
+	return err
 }
 
-// --- GnarkGroth16Backend (build-tag-ready) ---
-
-type GnarkGroth16Backend struct{ CurveID string }
-
-func (b *GnarkGroth16Backend) Name() string { return "gnark-groth16" }
-func (b *GnarkGroth16Backend) Verify(vk *BLSGroth16VerifyingKey, proof *BLSGroth16Proof, pi [][]byte) (bool, error) {
-	return (&PureGoGroth16Backend{}).Verify(vk, proof, pi)
-}
-func (b *GnarkGroth16Backend) Setup(c *CircuitDefinition) (*BLSGroth16ProvingKey, *BLSGroth16VerifyingKey, error) {
-	return (&PureGoGroth16Backend{}).Setup(c)
+func decodeGroth16G2(dst *bls381.G2Affine, point *crypto.BlsG2Point) error {
+	encoded := crypto.SerializeG2(point)
+	_, err := dst.SetBytes(encoded[:])
+	return err
 }
 
 // --- Gas estimation ---
@@ -260,213 +247,4 @@ func EncodePublicInput(v int64) []byte {
 	var buf [32]byte
 	binary.BigEndian.PutUint64(buf[24:], uint64(v))
 	return buf[:]
-}
-
-// --- Internal helpers ---
-
-var blsP381, _ = new(big.Int).SetString("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16)
-
-func g16ComputeIC(ic []*crypto.BlsG1Point, inputs [][]byte) (*crypto.BlsG1Point, error) {
-	result := ic[0]
-	for i, inp := range inputs {
-		mul := make([]byte, blsG16G1Enc+blsG16Scalar)
-		g16PutG1(mul, ic[i+1])
-		s := new(big.Int).SetBytes(inp).Bytes()
-		copy(mul[blsG16G1Enc+blsG16Scalar-len(s):], s)
-		mr, err := crypto.BLS12G1Mul(mul)
-		if err != nil {
-			return nil, err
-		}
-		add := make([]byte, 2*blsG16G1Enc)
-		g16PutG1(add, result)
-		copy(add[blsG16G1Enc:], mr)
-		ar, err := crypto.BLS12G1Add(add)
-		if err != nil {
-			return nil, err
-		}
-		result = g16BytesToG1(ar)
-	}
-	return result, nil
-}
-
-func g16PutG1(dst []byte, p *crypto.BlsG1Point) {
-	ser := crypto.SerializeG1(p)
-	if ser[0]&0x40 != 0 {
-		for i := 0; i < blsG16G1Enc; i++ {
-			dst[i] = 0
-		}
-		return
-	}
-	xb := make([]byte, 48)
-	copy(xb, ser[:])
-	xb[0] &= 0x1F
-	x := new(big.Int).SetBytes(xb)
-	sortF := ser[0]&0x20 != 0
-	x3 := new(big.Int).Exp(x, big.NewInt(3), blsP381)
-	rhs := new(big.Int).Add(x3, big.NewInt(4))
-	rhs.Mod(rhs, blsP381)
-	exp := new(big.Int).Add(blsP381, big.NewInt(1))
-	exp.Rsh(exp, 2)
-	y := new(big.Int).Exp(rhs, exp, blsP381)
-	hp := new(big.Int).Rsh(blsP381, 1)
-	if sortF != (y.Cmp(hp) > 0) {
-		y.Sub(blsP381, y)
-	}
-	for i := 0; i < blsG16G1Enc; i++ {
-		dst[i] = 0
-	}
-	xB := x.Bytes()
-	copy(dst[64-len(xB):64], xB)
-	yB := y.Bytes()
-	copy(dst[128-len(yB):128], yB)
-}
-
-func g16PutG2(dst []byte, p *crypto.BlsG2Point) {
-	ser := crypto.SerializeG2(p)
-	if ser[0]&0x40 != 0 {
-		for i := 0; i < blsG16G2Enc; i++ {
-			dst[i] = 0
-		}
-		return
-	}
-	sortF := ser[0]&0x20 != 0
-	xc1b := make([]byte, 48)
-	copy(xc1b, ser[:48])
-	xc1b[0] &= 0x1F
-	xc1 := new(big.Int).SetBytes(xc1b)
-	xc0 := new(big.Int).SetBytes(ser[48:96])
-	// y^2 = x^3 + 4(1+u) in Fp2
-	t0, t1 := fp2Mul(xc0, xc1, xc0, xc1)
-	x3c0, x3c1 := fp2Mul(t0, t1, xc0, xc1)
-	rc0 := new(big.Int).Add(x3c0, big.NewInt(4))
-	rc0.Mod(rc0, blsP381)
-	rc1 := new(big.Int).Add(x3c1, big.NewInt(4))
-	rc1.Mod(rc1, blsP381)
-	yc0, yc1 := fp2SqrtG16(rc0, rc1)
-	if yc0 == nil {
-		for i := 0; i < blsG16G2Enc; i++ {
-			dst[i] = 0
-		}
-		return
-	}
-	hp := new(big.Int).Rsh(blsP381, 1)
-	flip := yc1.Cmp(hp) > 0 || (yc1.Sign() == 0 && yc0.Cmp(hp) > 0)
-	if sortF != flip {
-		yc0.Sub(blsP381, yc0)
-		yc1.Sub(blsP381, yc1)
-		yc0.Mod(yc0, blsP381)
-		yc1.Mod(yc1, blsP381)
-	}
-	w64 := func(d []byte, v *big.Int) {
-		for i := range d {
-			d[i] = 0
-		}
-		b := v.Bytes()
-		copy(d[64-len(b):], b)
-	}
-	w64(dst[0:64], xc1)
-	w64(dst[64:128], xc0)
-	w64(dst[128:192], yc1)
-	w64(dst[192:256], yc0)
-}
-
-func fp2Mul(a0, a1, b0, b1 *big.Int) (*big.Int, *big.Int) {
-	c0 := new(big.Int).Mul(a0, b0)
-	c0.Sub(c0, new(big.Int).Mul(a1, b1))
-	c0.Mod(c0, blsP381)
-	c1 := new(big.Int).Mul(a0, b1)
-	c1.Add(c1, new(big.Int).Mul(a1, b0))
-	c1.Mod(c1, blsP381)
-	return c0, c1
-}
-
-func fp2SqrtG16(a, b *big.Int) (*big.Int, *big.Int) {
-	exp := new(big.Int).Add(blsP381, big.NewInt(1))
-	exp.Rsh(exp, 2)
-	if b.Sign() == 0 {
-		c0 := new(big.Int).Exp(a, exp, blsP381)
-		if new(big.Int).Exp(c0, big.NewInt(2), blsP381).Cmp(new(big.Int).Mod(a, blsP381)) == 0 {
-			return c0, big.NewInt(0)
-		}
-		negA := new(big.Int).Sub(blsP381, new(big.Int).Mod(a, blsP381))
-		c1 := new(big.Int).Exp(negA, exp, blsP381)
-		if new(big.Int).Exp(c1, big.NewInt(2), blsP381).Cmp(negA) == 0 {
-			return big.NewInt(0), c1
-		}
-		return nil, nil
-	}
-	norm := new(big.Int).Add(new(big.Int).Exp(a, big.NewInt(2), blsP381), new(big.Int).Exp(b, big.NewInt(2), blsP381))
-	norm.Mod(norm, blsP381)
-	alpha := new(big.Int).Exp(norm, exp, blsP381)
-	if new(big.Int).Exp(alpha, big.NewInt(2), blsP381).Cmp(norm) != 0 {
-		return nil, nil
-	}
-	inv2 := new(big.Int).ModInverse(big.NewInt(2), blsP381)
-	delta := new(big.Int).Add(a, alpha)
-	delta.Mul(delta, inv2).Mod(delta, blsP381)
-	c0 := new(big.Int).Exp(delta, exp, blsP381)
-	if new(big.Int).Exp(c0, big.NewInt(2), blsP381).Cmp(delta) != 0 {
-		delta = new(big.Int).Sub(a, alpha)
-		delta.Mod(delta, blsP381).Mul(delta, inv2).Mod(delta, blsP381)
-		c0 = new(big.Int).Exp(delta, exp, blsP381)
-	}
-	if c0.Sign() == 0 {
-		return nil, nil
-	}
-	c1 := new(big.Int).Mul(b, new(big.Int).ModInverse(c0, blsP381))
-	c1.Mul(c1, inv2).Mod(c1, blsP381)
-	return c0, c1
-}
-
-func g16NegateG1(p *crypto.BlsG1Point) *crypto.BlsG1Point {
-	ser := crypto.SerializeG1(p)
-	if ser[0]&0x40 != 0 {
-		return p
-	}
-	ser[0] ^= 0x20
-	if r := crypto.DeserializeG1(ser); r != nil {
-		return r
-	}
-	return p
-}
-
-func g16ScalarMulG1(base *crypto.BlsG1Point, k int64) *crypto.BlsG1Point {
-	if k == 0 {
-		return crypto.BlsG1Infinity()
-	}
-	inp := make([]byte, blsG16G1Enc+blsG16Scalar)
-	g16PutG1(inp, base)
-	s := new(big.Int).SetInt64(k).Bytes()
-	copy(inp[blsG16G1Enc+blsG16Scalar-len(s):], s)
-	if r, err := crypto.BLS12G1Mul(inp); err == nil {
-		return g16BytesToG1(r)
-	}
-	return crypto.BlsG1Infinity()
-}
-
-func g16BytesToG1(data []byte) *crypto.BlsG1Point {
-	if len(data) != blsG16G1Enc {
-		return crypto.BlsG1Infinity()
-	}
-	allZ := true
-	for _, b := range data {
-		if b != 0 {
-			allZ = false
-			break
-		}
-	}
-	if allZ {
-		return crypto.BlsG1Infinity()
-	}
-	x := new(big.Int).SetBytes(data[:64])
-	y := new(big.Int).SetBytes(data[64:128])
-	hp := new(big.Int).Rsh(blsP381, 1)
-	var c [48]byte
-	xB := x.Bytes()
-	copy(c[48-len(xB):], xB)
-	c[0] |= 0x80
-	if y.Cmp(hp) > 0 {
-		c[0] |= 0x20
-	}
-	return crypto.DeserializeG1(c)
 }

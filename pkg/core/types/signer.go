@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/rlp"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -15,18 +16,7 @@ var (
 	errNoRecovery         = errors.New("public key recovery failed")
 )
 
-// secp256k1 curve order, used for signature validation.
-var secp256k1NCopy, _ = new(big.Int).SetString(
-	"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16,
-)
-
-// secp256k1 curve parameters for local recovery (avoids importing crypto).
-var (
-	secp256k1P, _  = new(big.Int).SetString("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16)
-	secp256k1Gx, _ = new(big.Int).SetString("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16)
-	secp256k1Gy, _ = new(big.Int).SetString("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16)
-	secp256k1B     = big.NewInt(7)
-)
+var secp256k1NCopy = gethcrypto.S256().Params().N
 
 // Signer provides methods for hashing transactions and recovering the sender.
 type Signer interface {
@@ -232,7 +222,7 @@ func SigningHash(chainID uint64, nonce uint64, to *Address, value *big.Int,
 // sighash is the 32-byte message hash, r and s are the signature values,
 // and v is the recovery ID (0 or 1).
 func RecoverPlain(sighash Hash, r, s *big.Int, v byte) (Address, error) {
-	if v > 1 {
+	if r == nil || s == nil || v > 1 {
 		return Address{}, errInvalidSig
 	}
 	if r.Sign() <= 0 || s.Sign() <= 0 {
@@ -274,202 +264,20 @@ func parseSignatureValues(sig []byte) (*big.Int, *big.Int, byte, error) {
 	return r, s, v, nil
 }
 
-// recoverPubkey recovers the uncompressed public key (65 bytes, 0x04 prefix)
-// from a hash, signature r/s values, and recovery ID v.
-// Uses pure big.Int EC math to avoid the crypto package import cycle.
+// recoverPubkey adapts transaction signature components to go-ethereum's API.
 func recoverPubkey(hash []byte, r, s *big.Int, v byte) ([]byte, error) {
-	// Step 1: R point x-coordinate = r.
-	x := new(big.Int).Set(r)
-	if x.Cmp(secp256k1P) >= 0 {
+	if r == nil || s == nil || !gethcrypto.ValidateSignatureValues(v, r, s, false) {
+		return nil, errInvalidSig
+	}
+	var signature [gethcrypto.SignatureLength]byte
+	r.FillBytes(signature[:32])
+	s.FillBytes(signature[32:64])
+	signature[gethcrypto.RecoveryIDOffset] = v
+	pub, err := gethcrypto.Ecrecover(hash, signature[:])
+	if err != nil {
 		return nil, errNoRecovery
 	}
-
-	// Step 2: Compute y from x: y^2 = x^3 + 7 (mod p).
-	y := signerComputeY(x)
-	if y == nil {
-		return nil, errNoRecovery
-	}
-
-	// Choose y parity based on v.
-	if y.Bit(0) != uint(v&1) {
-		y.Sub(secp256k1P, y)
-	}
-
-	// Step 3: Recover Q = r^{-1} * (s*R - e*G).
-	rInv := new(big.Int).ModInverse(r, secp256k1NCopy)
-	if rInv == nil {
-		return nil, errNoRecovery
-	}
-	e := new(big.Int).SetBytes(hash)
-
-	// s*R
-	sRx, sRy := signerScalarMult(x, y, s)
-
-	// e*G
-	eGx, eGy := signerScalarMult(secp256k1Gx, secp256k1Gy, e)
-
-	// -e*G (negate y)
-	negEGy := new(big.Int).Sub(secp256k1P, eGy)
-	negEGy.Mod(negEGy, secp256k1P)
-
-	// s*R + (-e*G)
-	diffX, diffY := signerPointAdd(sRx, sRy, eGx, negEGy)
-
-	// Q = r^{-1} * (s*R - e*G)
-	qx, qy := signerScalarMult(diffX, diffY, rInv)
-
-	if qx.Sign() == 0 && qy.Sign() == 0 {
-		return nil, errNoRecovery
-	}
-
-	// Verify recovered key with ecdsa.Verify.
-	// We use a minimal CurveParams just for Verify (which doesn't call ScalarMult).
-	if !signerVerify(hash, r, s, qx, qy) {
-		return nil, errNoRecovery
-	}
-
-	// Marshal to 65-byte uncompressed: [0x04 || X(32) || Y(32)].
-	pub := make([]byte, 65)
-	pub[0] = 0x04
-	xBytes := qx.Bytes()
-	yBytes := qy.Bytes()
-	copy(pub[1+32-len(xBytes):33], xBytes)
-	copy(pub[33+32-len(yBytes):65], yBytes)
 	return pub, nil
-}
-
-// signerComputeY computes y = sqrt(x^3 + 7) mod p for secp256k1.
-func signerComputeY(x *big.Int) *big.Int {
-	x3 := new(big.Int).Mul(x, x)
-	x3.Mod(x3, secp256k1P)
-	x3.Mul(x3, x)
-	x3.Mod(x3, secp256k1P)
-	x3.Add(x3, secp256k1B)
-	x3.Mod(x3, secp256k1P)
-
-	// p = 3 mod 4, so sqrt(a) = a^((p+1)/4).
-	exp := new(big.Int).Add(secp256k1P, big.NewInt(1))
-	exp.Rsh(exp, 2)
-	y := new(big.Int).Exp(x3, exp, secp256k1P)
-
-	// Verify.
-	y2 := new(big.Int).Mul(y, y)
-	y2.Mod(y2, secp256k1P)
-	if y2.Cmp(x3) != 0 {
-		return nil
-	}
-	return y
-}
-
-// signerPointAdd adds two points on the secp256k1 curve.
-func signerPointAdd(x1, y1, x2, y2 *big.Int) (*big.Int, *big.Int) {
-	if x1.Sign() == 0 && y1.Sign() == 0 {
-		return new(big.Int).Set(x2), new(big.Int).Set(y2)
-	}
-	if x2.Sign() == 0 && y2.Sign() == 0 {
-		return new(big.Int).Set(x1), new(big.Int).Set(y1)
-	}
-	if x1.Cmp(x2) == 0 && y1.Cmp(y2) == 0 {
-		return signerPointDouble(x1, y1)
-	}
-	if x1.Cmp(x2) == 0 {
-		return new(big.Int), new(big.Int)
-	}
-	p := secp256k1P
-	dy := new(big.Int).Sub(y2, y1)
-	dy.Mod(dy, p)
-	dx := new(big.Int).Sub(x2, x1)
-	dx.Mod(dx, p)
-	dxInv := new(big.Int).ModInverse(dx, p)
-	if dxInv == nil {
-		return new(big.Int), new(big.Int)
-	}
-	slope := new(big.Int).Mul(dy, dxInv)
-	slope.Mod(slope, p)
-	x3 := new(big.Int).Mul(slope, slope)
-	x3.Sub(x3, x1)
-	x3.Sub(x3, x2)
-	x3.Mod(x3, p)
-	y3 := new(big.Int).Sub(x1, x3)
-	y3.Mul(y3, slope)
-	y3.Sub(y3, y1)
-	y3.Mod(y3, p)
-	return x3, y3
-}
-
-// signerPointDouble doubles a point on the secp256k1 curve.
-func signerPointDouble(x1, y1 *big.Int) (*big.Int, *big.Int) {
-	if y1.Sign() == 0 {
-		return new(big.Int), new(big.Int)
-	}
-	p := secp256k1P
-	x1sq := new(big.Int).Mul(x1, x1)
-	x1sq.Mod(x1sq, p)
-	num := new(big.Int).Mul(big.NewInt(3), x1sq)
-	num.Mod(num, p)
-	den := new(big.Int).Mul(big.NewInt(2), y1)
-	den.Mod(den, p)
-	denInv := new(big.Int).ModInverse(den, p)
-	if denInv == nil {
-		return new(big.Int), new(big.Int)
-	}
-	slope := new(big.Int).Mul(num, denInv)
-	slope.Mod(slope, p)
-	x3 := new(big.Int).Mul(slope, slope)
-	x3.Sub(x3, new(big.Int).Mul(big.NewInt(2), x1))
-	x3.Mod(x3, p)
-	y3 := new(big.Int).Sub(x1, x3)
-	y3.Mul(y3, slope)
-	y3.Sub(y3, y1)
-	y3.Mod(y3, p)
-	return x3, y3
-}
-
-// signerScalarMult computes k * (px, py) on secp256k1 using double-and-add.
-func signerScalarMult(px, py, k *big.Int) (*big.Int, *big.Int) {
-	scalar := new(big.Int).Set(k)
-	scalar.Mod(scalar, secp256k1NCopy)
-	if scalar.Sign() == 0 {
-		return new(big.Int), new(big.Int)
-	}
-	rx, ry := new(big.Int), new(big.Int)
-	bx, by := new(big.Int).Set(px), new(big.Int).Set(py)
-	for i := scalar.BitLen() - 1; i >= 0; i-- {
-		rx, ry = signerPointDouble(rx, ry)
-		if scalar.Bit(i) == 1 {
-			rx, ry = signerPointAdd(rx, ry, bx, by)
-		}
-	}
-	return rx, ry
-}
-
-// signerVerify verifies an ECDSA signature using the recovered public key.
-// This avoids elliptic.CurveParams.ScalarMult which panics for secp256k1.
-func signerVerify(hash []byte, r, s, qx, qy *big.Int) bool {
-	n := secp256k1NCopy
-	if r.Sign() <= 0 || r.Cmp(n) >= 0 {
-		return false
-	}
-	if s.Sign() <= 0 || s.Cmp(n) >= 0 {
-		return false
-	}
-	e := new(big.Int).SetBytes(hash)
-	sInv := new(big.Int).ModInverse(s, n)
-	if sInv == nil {
-		return false
-	}
-	u1 := new(big.Int).Mul(e, sInv)
-	u1.Mod(u1, n)
-	u2 := new(big.Int).Mul(r, sInv)
-	u2.Mod(u2, n)
-
-	// u1*G + u2*Q
-	x1, y1 := signerScalarMult(secp256k1Gx, secp256k1Gy, u1)
-	x2, y2 := signerScalarMult(qx, qy, u2)
-	rx, _ := signerPointAdd(x1, y1, x2, y2)
-
-	rx.Mod(rx, n)
-	return rx.Cmp(r) == 0
 }
 
 // Ensure EIP155Signer and LondonSigner satisfy the Signer interface.

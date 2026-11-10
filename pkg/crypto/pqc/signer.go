@@ -22,6 +22,8 @@ func GetSigner(alg PQAlgorithm) PQSigner {
 		return &DilithiumSigner{}
 	case FALCON512:
 		return &FalconSigner{}
+	case SPHINCSSHA256:
+		return NewSPHINCSSigner()
 	default:
 		return nil
 	}

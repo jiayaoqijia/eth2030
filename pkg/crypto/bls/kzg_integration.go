@@ -2,7 +2,7 @@
 //
 // This file provides a KZGCeremonyBackend interface that abstracts KZG
 // polynomial commitment operations, allowing the codebase to switch between
-// the existing pure-Go placeholder (test secret s=42) and the production
+// an injected backend and the production
 // go-eth-kzg library (github.com/crate-crypto/go-eth-kzg).
 //
 // Key EIP-4844 constants (FIELD_ELEMENTS_PER_BLOB=4096, BytesPerBlob=131072)
@@ -109,8 +109,7 @@ type KZGCeremonyConfig struct {
 }
 
 // KZGCeremonyBackend is the interface for KZG polynomial commitment operations.
-// Implementations may use the placeholder (test secret) or the production
-// go-eth-kzg library with the real Ethereum ceremony SRS.
+// The default backend uses the Ethereum ceremony parameters from go-eth-kzg.
 type KZGCeremonyBackend interface {
 	// BlobToCommitment computes a KZG commitment for a blob.
 	// blob must be exactly BytesPerBlob bytes.
@@ -143,24 +142,29 @@ type KZGCeremonyBackend interface {
 // activeKZGBackend is the currently selected KZG backend.
 var (
 	activeKZGMu      sync.RWMutex
-	activeKZGBackend KZGCeremonyBackend = &PlaceholderKZGBackend{}
+	activeKZGBackend KZGCeremonyBackend
 )
 
 // DefaultKZGBackend returns the currently active KZG backend.
 func DefaultKZGBackend() KZGCeremonyBackend {
 	activeKZGMu.RLock()
-	defer activeKZGMu.RUnlock()
-	return activeKZGBackend
+	backend := activeKZGBackend
+	activeKZGMu.RUnlock()
+	if backend != nil {
+		return backend
+	}
+	standard, err := NewGoEthKZGBackend()
+	if err != nil {
+		return &GoEthKZGBackend{} // operations return an initialization error
+	}
+	return standard
 }
 
 // SetKZGBackend sets the active KZG backend. This is safe for concurrent use.
-// Passing nil resets to the default placeholder backend.
+// Passing nil resets to the Ethereum ceremony backend.
 func SetKZGBackend(b KZGCeremonyBackend) {
 	activeKZGMu.Lock()
 	defer activeKZGMu.Unlock()
-	if b == nil {
-		b = &PlaceholderKZGBackend{}
-	}
 	activeKZGBackend = b
 }
 
@@ -216,123 +220,11 @@ func ValidateProof(proof []byte) error {
 	return nil
 }
 
-// --- PlaceholderKZGBackend ---
-
-// PlaceholderKZGBackend implements KZGCeremonyBackend using the existing
-// pure-Go KZG code from kzg.go (test secret s=42). This is suitable for
-// unit tests but not for production use.
-type PlaceholderKZGBackend struct{}
-
-func (b *PlaceholderKZGBackend) Name() string { return "placeholder" }
-
-func (b *PlaceholderKZGBackend) BlobToCommitment(blob []byte) ([KZGBytesPerCommitment]byte, error) {
-	var out [KZGBytesPerCommitment]byte
-	if len(blob) != KZGBytesPerBlob {
-		return out, ErrKZGInvalidBlobSize
-	}
-	// Evaluate the blob polynomial at the test secret s=42.
-	// p(s) = sum(blob_i * s^i) for each 32-byte field element.
-	secret := big.NewInt(42)
-	polyAtS := big.NewInt(0)
-	sPower := big.NewInt(1)
-	for i := 0; i < KZGFieldElementsPerBlob; i++ {
-		offset := i * KZGBytesPerFieldElement
-		elem := new(big.Int).SetBytes(blob[offset : offset+KZGBytesPerFieldElement])
-		term := new(big.Int).Mul(elem, sPower)
-		term.Mod(term, blsR)
-		polyAtS.Add(polyAtS, term)
-		polyAtS.Mod(polyAtS, blsR)
-		sPower.Mul(sPower, secret)
-		sPower.Mod(sPower, blsR)
-	}
-	commitment := KZGCommit(polyAtS)
-	compressed := KZGCompressG1(commitment)
-	copy(out[:], compressed)
-	return out, nil
-}
-
-func (b *PlaceholderKZGBackend) VerifyBlobProof(blob, commitment, proof []byte) (bool, error) {
-	if len(blob) != KZGBytesPerBlob {
-		return false, ErrKZGInvalidBlobSize
-	}
-	if err := ValidateCommitment(commitment); err != nil {
-		return false, err
-	}
-	if err := ValidateProof(proof); err != nil {
-		return false, err
-	}
-	// For the placeholder, we verify by re-computing the commitment and
-	// checking it matches. This is a simplified check that doesn't use
-	// the full KZG pairing verification (which requires a real SRS).
-	recomputed, err := b.BlobToCommitment(blob)
-	if err != nil {
-		return false, err
-	}
-	match := true
-	for i := range recomputed {
-		if recomputed[i] != commitment[i] {
-			match = false
-			break
-		}
-	}
-	return match, nil
-}
-
-func (b *PlaceholderKZGBackend) ComputeCells(blob []byte) ([][KZGBytesPerCell]byte, error) {
-	if len(blob) != KZGBytesPerBlob {
-		return nil, ErrKZGInvalidBlobSize
-	}
-	// For the placeholder, split the blob into cells and pad the extension
-	// with zeros. A real implementation would use Reed-Solomon erasure coding.
-	cells := make([][KZGBytesPerCell]byte, KZGCellsPerExtBlob)
-
-	// The original blob occupies the first half of the extended blob.
-	// CellsPerExtBlob/2 cells come from the blob data.
-	originalCells := KZGCellsPerExtBlob / KZGExpansionFactor
-	for i := 0; i < originalCells; i++ {
-		offset := i * KZGBytesPerCell
-		if offset+KZGBytesPerCell <= len(blob) {
-			copy(cells[i][:], blob[offset:offset+KZGBytesPerCell])
-		}
-	}
-	// Remaining cells (extension) are zero-filled, representing the
-	// Reed-Solomon parity data (placeholder only).
-	return cells, nil
-}
-
-func (b *PlaceholderKZGBackend) ComputeCellsAndProofs(blob []byte) ([][KZGBytesPerCell]byte, [][KZGBytesPerProof]byte, error) {
-	if len(blob) != KZGBytesPerBlob {
-		return nil, nil, ErrKZGInvalidBlobSize
-	}
-	cells := make([][KZGBytesPerCell]byte, KZGCellsPerExtBlob)
-	proofs := make([][KZGBytesPerProof]byte, KZGCellsPerExtBlob)
-	return cells, proofs, nil
-}
-
-func (b *PlaceholderKZGBackend) VerifyCellProof(commitment, cell, proof []byte, cellIndex uint64) (bool, error) {
-	if cellIndex >= KZGCellsPerExtBlob {
-		return false, ErrKZGInvalidCellIndex
-	}
-	if err := ValidateCommitment(commitment); err != nil {
-		return false, err
-	}
-	if len(cell) != KZGBytesPerCell {
-		return false, errors.New("kzg: invalid cell size")
-	}
-	if err := ValidateProof(proof); err != nil {
-		return false, err
-	}
-	// Placeholder: accept if formats are valid. A real implementation
-	// would perform the pairing check.
-	return true, nil
-}
-
 // --- GoEthKZGBackend ---
 
 // GoEthKZGBackend implements KZGCeremonyBackend using the production
 // go-eth-kzg library (github.com/crate-crypto/go-eth-kzg) with the
-// real Ethereum KZG ceremony SRS. This replaces the placeholder backend
-// for mainnet-valid blob commitments and PeerDAS cell proofs (EL-4.1).
+// Ethereum KZG ceremony SRS for blob commitments and PeerDAS cell proofs.
 //
 // Initialization loads the official Ethereum trusted setup (~2-5 seconds),
 // so the context is created lazily on first use via globalGoEthKZGContext.
@@ -513,4 +405,94 @@ func kzgBlobWithFieldElement(index int, value uint64) []byte {
 		binary.BigEndian.PutUint64(blob[offset:], value)
 	}
 	return blob
+}
+
+// ComputeBlobProof computes a KZG proof for a blob given its commitment.
+// This is the EIP-4844 blob proof computation used for on-chain verification.
+func (b *GoEthKZGBackend) ComputeBlobProof(blob []byte, commitment [KZGBytesPerCommitment]byte) ([KZGBytesPerProof]byte, error) {
+	var out [KZGBytesPerProof]byte
+	if b.ctx == nil {
+		return out, ErrKZGBackendNotImplemented
+	}
+	if len(blob) != KZGBytesPerBlob {
+		return out, ErrKZGInvalidBlobSize
+	}
+
+	var blobArr goethkzg.Blob
+	copy(blobArr[:], blob)
+
+	comm := goethkzg.KZGCommitment(commitment)
+
+	proof, err := b.ctx.ComputeBlobKZGProof(&blobArr, comm, 0)
+	if err != nil {
+		return out, fmt.Errorf("kzg: ComputeBlobKZGProof failed: %w", err)
+	}
+
+	out = [KZGBytesPerProof]byte(proof)
+	return out, nil
+}
+
+// VerifyBlobProofBatch verifies a batch of blob proofs against their
+// commitments. This is more efficient than verifying each proof individually.
+func (b *GoEthKZGBackend) VerifyBlobProofBatch(blobs [][]byte, commitments, proofs [][KZGBytesPerCommitment]byte) (bool, error) {
+	if b.ctx == nil {
+		return false, ErrKZGBackendNotImplemented
+	}
+	n := len(blobs)
+	if n != len(commitments) || n != len(proofs) {
+		return false, errors.New("kzg: batch length mismatch")
+	}
+
+	blobPtrs := make([]*goethkzg.Blob, n)
+	comms := make([]goethkzg.KZGCommitment, n)
+	kzgProofs := make([]goethkzg.KZGProof, n)
+
+	for i := 0; i < n; i++ {
+		if len(blobs[i]) != KZGBytesPerBlob {
+			return false, fmt.Errorf("kzg: blob %d has invalid size %d", i, len(blobs[i]))
+		}
+		blobPtrs[i] = new(goethkzg.Blob)
+		copy(blobPtrs[i][:], blobs[i])
+		comms[i] = goethkzg.KZGCommitment(commitments[i])
+		kzgProofs[i] = goethkzg.KZGProof(proofs[i])
+	}
+
+	err := b.ctx.VerifyBlobKZGProofBatch(blobPtrs, comms, kzgProofs)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RecoverCells recovers the full set of extended blob cells from a subset
+// of at least 64 cells (50% of CellsPerExtBlob=128). The cellIDs must be
+// in ascending order and each must be < CellsPerExtBlob.
+func (b *GoEthKZGBackend) RecoverCells(cellIDs []uint64, cells [][KZGBytesPerCell]byte) ([][KZGBytesPerCell]byte, error) {
+	if b.ctx == nil {
+		return nil, ErrKZGBackendNotImplemented
+	}
+	if len(cellIDs) != len(cells) {
+		return nil, errors.New("kzg: cellIDs and cells length mismatch")
+	}
+
+	// Convert [][KZGBytesPerCell]byte to []*goethkzg.Cell.
+	cellPtrs := make([]*goethkzg.Cell, len(cells))
+	for i := range cells {
+		c := goethkzg.Cell(cells[i])
+		cellPtrs[i] = &c
+	}
+
+	recoveredPtrs, err := b.ctx.RecoverCells(cellIDs, cellPtrs, 0)
+	if err != nil {
+		return nil, fmt.Errorf("kzg: RecoverCells failed: %w", err)
+	}
+
+	result := make([][KZGBytesPerCell]byte, goethkzg.CellsPerExtBlob)
+	for i, c := range recoveredPtrs {
+		if c == nil {
+			return nil, fmt.Errorf("kzg: RecoverCells returned nil cell at index %d", i)
+		}
+		result[i] = [KZGBytesPerCell]byte(*c)
+	}
+	return result, nil
 }

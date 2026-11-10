@@ -73,23 +73,6 @@ func VoteForSlot(engine *consensus.SSFEngine, slot uint64, root types.Hash, coun
 	return nil
 }
 
-// MakePQAttestation creates a PQ attestation for testing.
-func MakePQAttestation(slot, validatorIdx uint64, root types.Hash) *consensus.PQAttestation {
-	sigData := crypto.Keccak256Hash(root[:], []byte{byte(validatorIdx)})
-	sig := make([]byte, 64)
-	copy(sig, sigData[:])
-	copy(sig[32:], sigData[:])
-	return &consensus.PQAttestation{
-		Slot:            slot,
-		CommitteeIndex:  0,
-		BeaconBlockRoot: root,
-		SourceEpoch:     slot / 4,
-		TargetEpoch:     slot/4 + 1,
-		PQSignature:     sig,
-		ValidatorIndex:  validatorIdx,
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Transaction helpers
 // ---------------------------------------------------------------------------

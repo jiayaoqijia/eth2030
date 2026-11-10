@@ -50,8 +50,8 @@ type PQAttestation struct {
 	BeaconBlockRoot  types.Hash
 	SourceEpoch      uint64
 	TargetEpoch      uint64
-	PQSignature      []byte // Dilithium signature (64 bytes)
-	PQPublicKey      []byte // Dilithium public key for verification
+	PQSignature      []byte // ML-DSA-65 signature
+	PQPublicKey      []byte // ML-DSA-65 public key
 	ClassicSignature []byte // ECDSA signature (65 bytes)
 	ValidatorIndex   uint64
 }

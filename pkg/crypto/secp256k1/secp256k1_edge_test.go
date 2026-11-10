@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"encoding/hex"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"math/big"
 	"testing"
 )
@@ -75,7 +76,7 @@ func TestSignatureRecoveryV0AndV1(t *testing.T) {
 	seenV := make(map[byte]bool)
 	// Sign many messages to try to get both v=0 and v=1.
 	for i := 0; i < 100; i++ {
-		hash := keccak256([]byte{byte(i), byte(i >> 8), byte(i >> 16)})
+		hash := gethcrypto.Keccak256([]byte{byte(i), byte(i >> 8), byte(i >> 16)})
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)
@@ -111,7 +112,7 @@ func TestSignatureAlwaysLowS(t *testing.T) {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
 	for i := 0; i < 50; i++ {
-		hash := keccak256([]byte{byte(i)})
+		hash := gethcrypto.Keccak256([]byte{byte(i)})
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)
@@ -189,7 +190,7 @@ func TestValidateSignatureRejectsMismatchedPubkeyPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("test"))
+	hash := gethcrypto.Keccak256([]byte("test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -250,7 +251,7 @@ func TestGenerateKeySignVerify(t *testing.T) {
 			t.Fatalf("GenerateKey failed: %v", err)
 		}
 
-		hash := keccak256([]byte("lifecycle test message"))
+		hash := gethcrypto.Keccak256([]byte("lifecycle test message"))
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)
@@ -369,7 +370,7 @@ func TestCompressDecompressPreservesParityMultiple(t *testing.T) {
 func TestPubkeyToAddressKnownVector(t *testing.T) {
 	privKeyBytes, _ := hex.DecodeString("fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19")
 	d := new(big.Int).SetBytes(privKeyBytes)
-	curve := S256().(*secp256k1Curve)
+	curve := S256()
 	x, y := curve.ScalarBaseMult(d.Bytes())
 	pub := ecdsa.PublicKey{Curve: s256, X: x, Y: y}
 	addr := PubkeyToAddress(pub)
@@ -449,174 +450,6 @@ func TestFromECDSAPubFormat(t *testing.T) {
 
 // --- secp256k1 curve edge cases ---
 
-// TestSecp256k1IsOnCurveNil tests that nil coordinates are rejected.
-func TestSecp256k1IsOnCurveNil(t *testing.T) {
-	curve := S256()
-	if curve.IsOnCurve(nil, big.NewInt(2)) {
-		t.Error("IsOnCurve(nil, 2) should return false")
-	}
-	if curve.IsOnCurve(big.NewInt(1), nil) {
-		t.Error("IsOnCurve(1, nil) should return false")
-	}
-}
-
-// TestSecp256k1IsOnCurveNegative tests that negative coordinates are rejected.
-func TestSecp256k1IsOnCurveNegative(t *testing.T) {
-	curve := S256()
-	if curve.IsOnCurve(big.NewInt(-1), big.NewInt(2)) {
-		t.Error("IsOnCurve(-1, 2) should return false")
-	}
-	if curve.IsOnCurve(big.NewInt(1), big.NewInt(-1)) {
-		t.Error("IsOnCurve(1, -1) should return false")
-	}
-}
-
-// TestSecp256k1IsOnCurveOutOfRange tests that coordinates >= p are rejected.
-func TestSecp256k1IsOnCurveOutOfRange(t *testing.T) {
-	curve := S256()
-	c := curve.(*secp256k1Curve)
-	if curve.IsOnCurve(c.p, big.NewInt(2)) {
-		t.Error("IsOnCurve(p, 2) should return false")
-	}
-	if curve.IsOnCurve(big.NewInt(1), c.p) {
-		t.Error("IsOnCurve(1, p) should return false")
-	}
-}
-
-// TestSecp256k1AddPointAtInfinity tests addition with the identity element.
-func TestSecp256k1AddPointAtInfinity(t *testing.T) {
-	curve := S256()
-	params := curve.Params()
-	inf := new(big.Int)
-
-	// G + O = G
-	x, y := curve.Add(params.Gx, params.Gy, inf, inf)
-	if x.Cmp(params.Gx) != 0 || y.Cmp(params.Gy) != 0 {
-		t.Error("G + O should equal G")
-	}
-
-	// O + G = G
-	x, y = curve.Add(inf, inf, params.Gx, params.Gy)
-	if x.Cmp(params.Gx) != 0 || y.Cmp(params.Gy) != 0 {
-		t.Error("O + G should equal G")
-	}
-
-	// O + O = O
-	x, y = curve.Add(inf, inf, inf, inf)
-	if x.Sign() != 0 || y.Sign() != 0 {
-		t.Error("O + O should equal O")
-	}
-}
-
-// TestSecp256k1AddInverse tests that G + (-G) = O.
-func TestSecp256k1AddInverse(t *testing.T) {
-	curve := S256().(*secp256k1Curve)
-	params := curve.Params()
-
-	// -G has the same x but negated y.
-	negGy := new(big.Int).Sub(curve.p, params.Gy)
-
-	x, y := curve.Add(params.Gx, params.Gy, params.Gx, negGy)
-	if x.Sign() != 0 || y.Sign() != 0 {
-		t.Error("G + (-G) should be point at infinity")
-	}
-}
-
-// TestSecp256k1DoubleIdentity tests that 2*O = O.
-func TestSecp256k1DoubleIdentity(t *testing.T) {
-	curve := S256()
-	x, y := curve.Double(new(big.Int), new(big.Int))
-	if x.Sign() != 0 || y.Sign() != 0 {
-		t.Error("2*O should equal O")
-	}
-}
-
-// TestSecp256k1ScalarMultZero tests that 0*G = O.
-func TestSecp256k1ScalarMultZero(t *testing.T) {
-	curve := S256()
-	params := curve.Params()
-	x, y := curve.ScalarMult(params.Gx, params.Gy, []byte{0})
-	if x.Sign() != 0 || y.Sign() != 0 {
-		t.Error("0*G should be point at infinity")
-	}
-}
-
-// TestSecp256k1ScalarMultOrder tests that n*G = O.
-func TestSecp256k1ScalarMultOrder(t *testing.T) {
-	curve := S256()
-	params := curve.Params()
-	x, y := curve.ScalarMult(params.Gx, params.Gy, params.N.Bytes())
-	if x.Sign() != 0 || y.Sign() != 0 {
-		t.Error("n*G should be point at infinity")
-	}
-}
-
-// TestSecp256k1ScalarBaseMultConsistency tests that ScalarBaseMult and
-// ScalarMult with G produce the same result.
-func TestSecp256k1ScalarBaseMultConsistency(t *testing.T) {
-	curve := S256()
-	params := curve.Params()
-	k := big.NewInt(42).Bytes()
-
-	x1, y1 := curve.ScalarBaseMult(k)
-	x2, y2 := curve.ScalarMult(params.Gx, params.Gy, k)
-	if x1.Cmp(x2) != 0 || y1.Cmp(y2) != 0 {
-		t.Error("ScalarBaseMult and ScalarMult(G, k) should be equal")
-	}
-}
-
-// TestSecp256k1AddAssociative tests that (A+B)+C = A+(B+C).
-func TestSecp256k1AddAssociative(t *testing.T) {
-	curve := S256()
-	params := curve.Params()
-
-	// A = G, B = 2G, C = 3G
-	ax, ay := params.Gx, params.Gy
-	bx, by := curve.Double(ax, ay)
-	cx, cy := curve.ScalarBaseMult(big.NewInt(3).Bytes())
-
-	// (A+B)+C
-	abx, aby := curve.Add(ax, ay, bx, by)
-	lhsX, lhsY := curve.Add(abx, aby, cx, cy)
-
-	// A+(B+C)
-	bcx, bcy := curve.Add(bx, by, cx, cy)
-	rhsX, rhsY := curve.Add(ax, ay, bcx, bcy)
-
-	if lhsX.Cmp(rhsX) != 0 || lhsY.Cmp(rhsY) != 0 {
-		t.Error("Point addition is not associative")
-	}
-}
-
-// TestSecp256k1AddCommutative tests that A+B = B+A.
-func TestSecp256k1AddCommutative(t *testing.T) {
-	curve := S256()
-	params := curve.Params()
-
-	ax, ay := params.Gx, params.Gy
-	bx, by := curve.Double(ax, ay)
-
-	abx, aby := curve.Add(ax, ay, bx, by)
-	bax, bay := curve.Add(bx, by, ax, ay)
-
-	if abx.Cmp(bax) != 0 || aby.Cmp(bay) != 0 {
-		t.Error("Point addition is not commutative")
-	}
-}
-
-// TestSecp256k1DoubleMatchesAdd tests that 2*P = P+P.
-func TestSecp256k1DoubleMatchesAdd(t *testing.T) {
-	curve := S256()
-	params := curve.Params()
-
-	dx, dy := curve.Double(params.Gx, params.Gy)
-	ax, ay := curve.Add(params.Gx, params.Gy, params.Gx, params.Gy)
-
-	if dx.Cmp(ax) != 0 || dy.Cmp(ay) != 0 {
-		t.Error("2*G via Double != G+G via Add")
-	}
-}
-
 // TestCompressPubkeyNilFields tests CompressPubkey with nil coordinates.
 func TestCompressPubkeyNilFields(t *testing.T) {
 	if CompressPubkey(&ecdsa.PublicKey{X: nil, Y: big.NewInt(1)}) != nil {
@@ -647,7 +480,7 @@ func TestEcrecoverSignatureMalleability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("malleability test"))
+	hash := gethcrypto.Keccak256([]byte("malleability test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)

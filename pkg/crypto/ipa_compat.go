@@ -21,7 +21,6 @@ type (
 	IPABackend           = ipa.IPABackend
 	IPAIntegrationConfig = ipa.IPAIntegrationConfig
 	PureGoIPABackend     = ipa.PureGoIPABackend
-	GoIPABackend         = ipa.GoIPABackend
 )
 
 // IPA/Banderwagon constants.

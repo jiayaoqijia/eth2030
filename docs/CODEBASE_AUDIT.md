@@ -242,6 +242,27 @@ The first package cleanup removed `txpool/validation`, `txpool/queue`, `txpool/r
 
 ---
 
+## VI. Public Cryptography Library Migration
+
+The native client now delegates secp256k1 signing and recovery, BN254 precompiles, the BLAKE2b compression precompile, ECIES, Web3 Secret Storage, and encrypted RLPx transport to go-ethereum. The ECRECOVER precompile accepts high-S signatures as specified by EIP-2. The Engine API verifies HS256 JWTs with golang-jwt when using its JWT secret file. An explicitly configured static Engine token still uses the static bearer path.
+
+Gnark and gnark-crypto provide BLS12-381 arithmetic, compressed encoding, subgroup checks, hash-to-curve and pairing, standalone BN254 point operations, Bandersnatch group arithmetic, the BN254 and Goldilocks EVM transforms, and Groth16. The existing BLS12-381 Groth16 A/B/C encoding is accepted by the gnark-backed verifier when the caller supplies a verifying key and public inputs. Native AA startup compiles the BN254 circuit and generates keys with gnark. Its circuit checks the nonce increment and nonzero nonce and gas fields. The BLS precompile addresses and gas schedule follow the existing native client registration. The EVM transforms retain the existing cyclic transform and natural evaluation order.
+
+The Ethereum ceremony context from go-eth-kzg supplies point openings, blob commitments, and PeerDAS cell proofs. The column builder requires canonical EIP-4844 blobs. The local column cache identifier remains a separate hash. The tagged test suite exercises the same backend as the default build. The toy KZG setup, experimental ceremony, and duplicate tagged backend were removed.
+
+CIRCL supplies ML-DSA-44, ML-DSA-65, ML-DSA-87, SLH-DSA-SHA2-128f, and ML-KEM-768. The historical Falcon-512 algorithm ID now selects FN-DSA-512 from go-fn-dsa. Earlier project-local PQ keys, signatures, ciphertexts, and ECIES ciphertexts use different encodings. Integrations with those artifacts need new keys, signatures, or ciphertexts in the library formats. RLPx peers need an enode public key for an authenticated outbound handshake. The native application-level hello still uses its own framing and capability negotiation.
+
+The migration is partial in the following areas.
+
+| Remaining code | Compatibility work |
+|---|---|
+| IPA proof creation and verification | The existing variable-length vectors, generator set, point encoding, and transcript differ from go-ipa's 256-element evaluation-domain protocol. The underlying group arithmetic now uses gnark-crypto. |
+| Poseidon and Poseidon2 | The existing custom round constants, matrices, and sponge semantics determine the circuit outputs. A provider switch requires selecting parameters and versioning any affected outputs. |
+| VDF and threshold cryptography | The RSA group, challenge transcript and proof encoding determine VDF compatibility. The encrypted transaction threshold path uses the existing prime-field share representation. A replacement must preserve those contracts or coordinate a format transition. |
+| STARK, proof aggregation, and other experimental proof and hash-signature interfaces | These paths still use project-defined statements, transcripts, and artifact formats. The library-backed KZG and Groth16 interfaces do not establish migration of the generic proof dispatchers. |
+
+---
+
 ## Appendix — Audit Method and Reproduction Commands
 
 Use a disposable copy of the baseline. Extract `git archive 5ffa711 pkg site .github CLAUDE.md docs/EIP_SPEC_IMPL.md` into an empty directory. This supplies the code and the website verifier's local documentation inputs. To reproduce the fixture-backed run, supply the pinned geth `GeneralStateTests` tree at the path read by `testdataDir()` in a separate copy.

@@ -9,6 +9,7 @@ import (
 
 	e2e "github.com/eth2030/eth2030"
 	"github.com/eth2030/eth2030/consensus"
+	"github.com/eth2030/eth2030/consensus/pq"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/crypto/pqc"
@@ -132,15 +133,21 @@ func TestE2E_PQBinary_PQBlobCommitment(t *testing.T) {
 func TestE2E_PQBinary_PQAttestationCycle(t *testing.T) {
 	verifier := consensus.NewPQAttestationVerifier(consensus.DefaultPQAttestationConfig())
 	root := e2e.DeterministicHash(42)
-	att := e2e.MakePQAttestation(10, 5, root)
-
-	valid, err := verifier.VerifyAttestation(att)
+	keys, err := pqc.GenerateDilithiumKey()
 	if err != nil {
-		t.Fatalf("VerifyAttestation: %v", err)
+		t.Fatalf("GenerateDilithiumKey: %v", err)
 	}
-	// PQ signatures in this test are deterministic hashes (not real
-	// lattice sigs), so the verifier falls back to classic.
-	_ = valid
+	att, err := pq.CreatePQAttestation(10, 0, root, 2, 3, 5, keys)
+	if err != nil {
+		t.Fatalf("CreatePQAttestation: %v", err)
+	}
+	if valid, err := verifier.VerifyAttestation(att); !valid || err != nil {
+		t.Fatalf("VerifyAttestation = %v, %v", valid, err)
+	}
+	att.BeaconBlockRoot[0] ^= 1
+	if valid, err := verifier.VerifyAttestation(att); valid || err == nil {
+		t.Fatalf("VerifyAttestation for changed root = %v, %v", valid, err)
+	}
 }
 
 // TestE2E_PQBinary_PQChainSecurityLevels tests PQ chain security level

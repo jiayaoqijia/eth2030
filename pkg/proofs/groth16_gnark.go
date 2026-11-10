@@ -1,6 +1,5 @@
 // groth16_gnark.go implements real Groth16 proving and verification using
-// github.com/consensys/gnark (BN254 curve). This replaces the placeholder
-// GnarkGroth16Backend path with production-grade pairing-based verification.
+// github.com/consensys/gnark over BN254 for the AA validation circuit.
 //
 // PQ-6.1: real gnark/backend/groth16.Verify() integration.
 // PQ-6.2: AAValidationGnarkCircuit R1CS compilation via frontend.Compile.

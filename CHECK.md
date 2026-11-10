@@ -1,5 +1,16 @@
 # Lean4 Verification Check-list
 
+## Public Cryptography Library Migration (2026-11-10)
+
+- [x] Replace secp256k1 signing and recovery, BN254 precompile arithmetic, and BLAKE2b compression.
+- [x] Replace BLS12-381 precompile arithmetic, mappings and compression, and consolidate KZG providers.
+- [x] Replace ECIES, keystore, RLPx, and Engine JWT implementations and document protocol migration boundaries.
+- [x] Integrate public PQ signature and KEM providers with explicit encoding compatibility.
+- [x] Move Groth16 verification, AA circuit startup, Banderwagon group arithmetic, and EVM transforms to gnark.
+- [x] Remove superseded implementations and standalone placeholder backends after checking callers.
+- [x] Verify a clean snapshot with Go builds, vet, fixture-backed tests, and the tagged suites.
+- [ ] Migrate the remaining IPA, Poseidon, VDF, threshold, and experimental proof formats.
+
 ## Unused Package Cleanup (2026-11-10)
 
 - [x] Remove the six packages selected in the first cleanup batch and update package indexes.

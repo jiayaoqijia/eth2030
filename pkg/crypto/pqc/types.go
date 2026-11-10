@@ -1,6 +1,5 @@
 // Package pqc provides post-quantum cryptographic primitives for Ethereum.
-// Currently implements stub signers for Dilithium3, Falcon512, and SPHINCS+SHA256
-// with a hybrid ECDSA+PQ verification scheme.
+// Algorithm IDs are adapted to ML-DSA-65, FN-DSA-512, and SLH-DSA-SHA2-128f.
 package pqc
 
 import "errors"
@@ -16,23 +15,23 @@ const (
 
 // Size constants for Dilithium3 (CRYSTALS-Dilithium, NIST level 3).
 const (
-	Dilithium3PubKeySize = 1952
-	Dilithium3SecKeySize = 4000
-	Dilithium3SigSize    = 3293
+	Dilithium3PubKeySize = MLDSAPublicKeySize
+	Dilithium3SecKeySize = MLDSAPrivateKeySize
+	Dilithium3SigSize    = MLDSASignatureSize
 )
 
 // Size constants for Falcon-512 (NIST level 1).
 const (
 	Falcon512PubKeySize = 897
-	Falcon512SecKeySize = 1281
-	Falcon512SigSize    = 690
+	Falcon512SecKeySize = 1345
+	Falcon512SigSize    = 666
 )
 
 // Size constants for SPHINCS+-SHA256 (stateless hash-based, NIST level 1).
 const (
 	SPHINCSSha256PubKeySize = 32
 	SPHINCSSha256SecKeySize = 64
-	SPHINCSSha256SigSize    = 49216
+	SPHINCSSha256SigSize    = 17088
 )
 
 // PQKeyPair holds a post-quantum key pair.

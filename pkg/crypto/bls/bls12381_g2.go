@@ -69,15 +69,30 @@ func blsG2FromAffine(x, y *blsFp2) *BlsG2Point {
 	}
 }
 
-// blsG2ToAffine converts from Jacobian to affine coordinates.
+func (p *BlsG2Point) gnarkAffine() bls12381gnark.G2Affine {
+	var jac bls12381gnark.G2Jac
+	jac.X.A0.SetBigInt(p.x.c0)
+	jac.X.A1.SetBigInt(p.x.c1)
+	jac.Y.A0.SetBigInt(p.y.c0)
+	jac.Y.A1.SetBigInt(p.y.c1)
+	jac.Z.A0.SetBigInt(p.z.c0)
+	jac.Z.A1.SetBigInt(p.z.c1)
+	var result bls12381gnark.G2Affine
+	result.FromJacobian(&jac)
+	return result
+}
+
+func blsG2FromGnark(p bls12381gnark.G2Affine) *BlsG2Point {
+	return blsG2FromAffine(
+		&blsFp2{c0: p.X.A0.BigInt(new(big.Int)), c1: p.X.A1.BigInt(new(big.Int))},
+		&blsFp2{c0: p.Y.A0.BigInt(new(big.Int)), c1: p.Y.A1.BigInt(new(big.Int))},
+	)
+}
+
 func (p *BlsG2Point) blsG2ToAffine() (x, y *blsFp2) {
-	if p.blsG2IsInfinity() {
-		return blsFp2Zero(), blsFp2Zero()
-	}
-	zInv := blsFp2Inv(p.z)
-	zInv2 := blsFp2Sqr(zInv)
-	zInv3 := blsFp2Mul(zInv2, zInv)
-	return blsFp2Mul(p.x, zInv2), blsFp2Mul(p.y, zInv3)
+	point := p.gnarkAffine()
+	return &blsFp2{point.X.A0.BigInt(new(big.Int)), point.X.A1.BigInt(new(big.Int))},
+		&blsFp2{point.Y.A0.BigInt(new(big.Int)), point.Y.A1.BigInt(new(big.Int))}
 }
 
 // blsG2IsOnCurve checks if the affine point is on y^2 = x^3 + 4(1+u).
@@ -102,66 +117,18 @@ func blsG2IsOnCurve(x, y *blsFp2) bool {
 	return lhs.equal(rhs)
 }
 
-// blsG2Add adds two G2 points in Jacobian coordinates.
 func blsG2Add(a, b *BlsG2Point) *BlsG2Point {
-	if a.blsG2IsInfinity() {
-		return &BlsG2Point{newBlsFp2(b.x.c0, b.x.c1), newBlsFp2(b.y.c0, b.y.c1), newBlsFp2(b.z.c0, b.z.c1)}
-	}
-	if b.blsG2IsInfinity() {
-		return &BlsG2Point{newBlsFp2(a.x.c0, a.x.c1), newBlsFp2(a.y.c0, a.y.c1), newBlsFp2(a.z.c0, a.z.c1)}
-	}
-
-	z1sq := blsFp2Sqr(a.z)
-	z2sq := blsFp2Sqr(b.z)
-	u1 := blsFp2Mul(a.x, z2sq)
-	u2 := blsFp2Mul(b.x, z1sq)
-	s1 := blsFp2Mul(a.y, blsFp2Mul(b.z, z2sq))
-	s2 := blsFp2Mul(b.y, blsFp2Mul(a.z, z1sq))
-
-	if u1.equal(u2) {
-		if s1.equal(s2) {
-			return blsG2Double(a)
-		}
-		return BlsG2Infinity()
-	}
-
-	h := blsFp2Sub(u2, u1)
-	i := blsFp2Sqr(blsFp2Add(h, h))
-	j := blsFp2Mul(h, i)
-	r := blsFp2Sub(s2, s1)
-	r = blsFp2Add(r, r)
-	v := blsFp2Mul(u1, i)
-
-	x3 := blsFp2Sub(blsFp2Sub(blsFp2Sqr(r), j), blsFp2Add(v, v))
-	y3 := blsFp2Sub(blsFp2Mul(r, blsFp2Sub(v, x3)), blsFp2Add(blsFp2Mul(s1, j), blsFp2Mul(s1, j)))
-	z3 := blsFp2Mul(blsFp2Sub(blsFp2Sub(blsFp2Sqr(blsFp2Add(a.z, b.z)), z1sq), z2sq), h)
-
-	return &BlsG2Point{x: x3, y: y3, z: z3}
+	left, right := a.gnarkAffine(), b.gnarkAffine()
+	var result bls12381gnark.G2Affine
+	result.Add(&left, &right)
+	return blsG2FromGnark(result)
 }
 
-// blsG2Double doubles a G2 point in Jacobian coordinates.
 func blsG2Double(a *BlsG2Point) *BlsG2Point {
-	if a.blsG2IsInfinity() {
-		return BlsG2Infinity()
-	}
-
-	A := blsFp2Sqr(a.x)
-	B := blsFp2Sqr(a.y)
-	C := blsFp2Sqr(B)
-
-	D := blsFp2Sub(blsFp2Sub(blsFp2Sqr(blsFp2Add(a.x, B)), A), C)
-	D = blsFp2Add(D, D)
-
-	E := blsFp2Add(blsFp2Add(A, A), A)
-
-	x3 := blsFp2Sub(blsFp2Sqr(E), blsFp2Add(D, D))
-
-	eightC := blsFp2Add(blsFp2Add(blsFp2Add(C, C), blsFp2Add(C, C)), blsFp2Add(blsFp2Add(C, C), blsFp2Add(C, C)))
-	y3 := blsFp2Sub(blsFp2Mul(E, blsFp2Sub(D, x3)), eightC)
-
-	z3 := blsFp2Mul(blsFp2Add(a.y, a.y), a.z)
-
-	return &BlsG2Point{x: x3, y: y3, z: z3}
+	point := a.gnarkAffine()
+	var result bls12381gnark.G2Affine
+	result.Double(&point)
+	return blsG2FromGnark(result)
 }
 
 // blsG2Neg returns -P.
@@ -212,9 +179,6 @@ func blsG2ScalarMul(p *BlsG2Point, k *big.Int) *BlsG2Point {
 // blsG2InSubgroup checks if a point is in the r-torsion subgroup of G2.
 // We check [r]*P == O.
 func blsG2InSubgroup(p *BlsG2Point) bool {
-	if p.blsG2IsInfinity() {
-		return true
-	}
-	result := blsG2ScalarMul(p, blsR)
-	return result.blsG2IsInfinity()
+	point := p.gnarkAffine()
+	return point.IsInSubGroup()
 }

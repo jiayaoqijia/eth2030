@@ -33,14 +33,14 @@ const (
 
 // Expected public key sizes per PQ algorithm for the real validator.
 var pqRealPubKeySizes = map[uint8]int{
-	PQSigTypeMLDSA:   DilithiumPubKeySize,   // 1568
+	PQSigTypeMLDSA:   DilithiumPubKeySize,
 	PQSigTypeFalcon:  FalconPubKeySize,      // 897
 	PQSigTypeSPHINCS: SPHINCSPlusPubKeySize, // 32
 }
 
 // Expected signature sizes per PQ algorithm for the real validator.
 var pqRealSigSizes = map[uint8]int{
-	PQSigTypeMLDSA:   DilithiumSigSize,   // 1376
+	PQSigTypeMLDSA:   DilithiumSigSize,
 	PQSigTypeFalcon:  FalconSigSize,      // 690
 	PQSigTypeSPHINCS: SPHINCSPlusSigSize, // 49216
 }
