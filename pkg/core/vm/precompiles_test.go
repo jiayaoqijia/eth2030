@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -495,46 +494,13 @@ func TestKZGPrecompileOutOfGas(t *testing.T) {
 	}
 }
 
-// sha256Sum is a helper that returns [32]byte.
-func sha256Sum(data []byte) [32]byte {
-	return sha256.Sum256(data)
-}
-
-// buildKZGPrecompileInput constructs a valid 192-byte KZG point evaluation input
-// using a real commitment and proof for polynomial p(X) = 3X + 7,
-// evaluated at z=5 giving y=22, with trusted setup secret s=42.
 func buildKZGPrecompileInput(t *testing.T) []byte {
 	t.Helper()
-
-	secret := big.NewInt(42)
-	z := big.NewInt(5)
-	polyAtS := big.NewInt(133) // p(s) = 3*42 + 7
-	y := big.NewInt(22)        // p(5) = 22
-
-	commitPoint := crypto.KZGCommit(polyAtS)
-	proofPoint := crypto.KZGComputeProof(secret, z, polyAtS, y)
-
-	commitBytes := crypto.KZGCompressG1(commitPoint)
-	proofBytes := crypto.KZGCompressG1(proofPoint)
-
-	// Build versioned hash: sha256(commitment) with version prefix.
-	commitHash := sha256Sum(commitBytes)
-	commitHash[0] = types.VersionedHashVersionKZG
-
-	// Build 192-byte input: versioned_hash(32) | z(32) | y(32) | commitment(48) | proof(48)
-	input := make([]byte, 192)
-	copy(input[0:32], commitHash[:])
-
-	zBytes := z.Bytes()
-	copy(input[64-len(zBytes):64], zBytes)
-
-	yBytes := y.Bytes()
-	copy(input[96-len(yBytes):96], yBytes)
-
-	copy(input[96:144], commitBytes)
-	copy(input[144:192], proofBytes)
-
-	return input
+	fixtures := loadPrecompileFixtures(t, "pointEvaluation.json")
+	if len(fixtures) == 0 {
+		t.Fatal("missing point evaluation vectors")
+	}
+	return hexDecode(t, fixtures[0].Input)
 }
 
 // buildModExpInput constructs the 96-byte header + data for the modexp precompile.

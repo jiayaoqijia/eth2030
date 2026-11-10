@@ -233,10 +233,28 @@ func TestJsonP256Verify(t *testing.T) {
 // --- Point Evaluation (KZG) ---
 
 func TestJsonPointEvaluation(t *testing.T) {
-	// Our KZG implementation uses a test trusted setup (s=42), not the production
-	// ceremony setup. The go-ethereum fixture uses the production trusted setup,
-	// so proof verification will fail.
-	t.Skip("point evaluation fixture requires production trusted setup; our impl uses test setup (s=42)")
+	if _, err := os.Stat("testdata/precompiles/pointEvaluation.json"); err != nil {
+		t.Fatal(err)
+	}
+	fixtures := loadPrecompileFixtures(t, "pointEvaluation.json")
+	if len(fixtures) == 0 {
+		t.Fatal("missing point evaluation vectors")
+	}
+	addr := types.BytesToAddress([]byte{0x0a})
+	for _, tc := range fixtures {
+		t.Run(tc.Name, func(t *testing.T) {
+			out, remainingGas, err := RunPrecompiledContract(addr, hexDecode(t, tc.Input), tc.Gas)
+			if err != nil {
+				t.Fatalf("point evaluation failed: %v", err)
+			}
+			if got := hex.EncodeToString(out); !strings.EqualFold(got, tc.Expected) {
+				t.Errorf("output = %s, want %s", got, tc.Expected)
+			}
+			if remainingGas != 0 {
+				t.Errorf("remaining gas = %d, want 0", remainingGas)
+			}
+		})
+	}
 }
 
 // --- BLS12-381 precompile success fixture tests ---

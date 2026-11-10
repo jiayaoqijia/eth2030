@@ -14,8 +14,8 @@ RUN go mod download
 
 # Build both binaries
 COPY . .
-RUN go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" -o /build/bin/eth2030 ./cmd/eth2030
-RUN go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" -o /build/bin/eth2030-geth ./cmd/eth2030-geth
+RUN go build -tags goethkzg -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" -o /build/bin/eth2030 ./cmd/eth2030
+RUN go build -tags goethkzg -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" -o /build/bin/eth2030-geth ./cmd/eth2030-geth
 
 # Runtime stage
 FROM alpine:latest
