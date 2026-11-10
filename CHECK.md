@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Codebase Audit Evidence Review (2026-11-10)
+
+- [x] Reconcile reachability findings with production, test, and tagged builds.
+- [x] Record the fixture, test coverage, and dependency scan results with their limits.
+- [x] Revise the proposed follow-up and verify the documentation and local builds.
+
 ## English Documentation Review (2026-11-10)
 
 - [x] Scan project-owned documentation for Chinese text.

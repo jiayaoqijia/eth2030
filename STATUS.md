@@ -1,5 +1,11 @@
 # Project Status
 
+## Codebase Audit Evidence Review (2026-11-10)
+
+- Updated [the codebase audit](docs/CODEBASE_AUDIT.md) with verified production import paths, the native KZG fixture result, tagged test outcomes, EF vector totals and exit behavior, and the gnark advisory.
+- Revised the follow-up to match the evidence and added commands for reproducing the results at the audited revisions.
+- Verified report links, the website verifier on the documented source snapshot, the Go build, and the website build.
+
 ## English Documentation Review (2026-11-10)
 
 - Manually translated `docs/CODEBASE_AUDIT.md` into English, retaining the reported findings and reproduction commands.
