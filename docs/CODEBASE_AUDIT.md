@@ -6,6 +6,8 @@
 - **Tools** — Go 1.27.3, `deadcode` from `golang.org/x/tools` v0.52.0, `govulncheck` v1.9.0, Node.js 22.20.0, and npm 10.9.3. The review compared source imports, binary dependency graphs, test assertions, tagged test runs, and dependency scans.
 - **Prior audit** — The March 2026 audit provides historical context. Its `pkg/geth` call-site finding still holds at this baseline. [March 2026 audit](UNWIRED_CODE.md)
 
+Sections I through IV refer to the audited baseline. [Section V](#v-follow-up-results) records the implementation and verification results on the follow-up branch.
+
 ---
 
 ## I. Dead Code and Unused Legacy Code
@@ -98,7 +100,7 @@ The same `pointEvaluation1` fixture from go-ethereum v1.17.10 failed in the nati
 
 ## II. Test Coverage and CI
 
-The current workflow runs `gofmt`, `go vet ./...`, and `GOFLAGS=-p=4 go test ./... -timeout=15m -count=1`. It checks out the main repository without submodules and passes no build tags, `-race`, or `-short`. All three steps passed on a local source snapshot without `refs/`, using Go 1.27.3. The test command reported 213 packages passing and 15 packages without test files. The workflow itself selects Go 1.26. [CI workflow](../.github/workflows/ci.yml#L33)
+The baseline workflow runs `gofmt`, `go vet ./...`, and `GOFLAGS=-p=4 go test ./... -timeout=15m -count=1`. It checks out the main repository without submodules and passes no build tags, `-race`, or `-short`. In independent local runs without `refs/`, Go 1.27.3 passed vet and tests, with 213 packages passing and 15 packages without test files. The formatting check flagged `engine/backend.go` and `engine/lighthouse_compat_test.go`. The workflow selects Go 1.26. [CI workflow](../.github/workflows/ci.yml)
 
 Files such as `consensus/ssf_engine_test.go`, `core/vm/gas_table_test.go`, and `crypto/bls/bls12381_test.go` contain substantive assertions. The findings below distinguish tests that skip, weak assertions, and tests that run only with alternate build tags. The original aggregate of about 169 ineffective tests combined these categories and has been withdrawn.
 
@@ -150,7 +152,7 @@ The identified branches log a message, skip the test, do nothing, or discard an 
 
 The current workflows do not select these tags. Local tagged runs established the following results.
 
-- **`integration` (76 tests).** The files are `core/e2e_test.go` (15), `core/bal_integration_test.go` (18), `core/e2e_block_test.go` (5), `core/e2e_eip_spec_test.go` (7), `core/e2e_eip_spec_ext_test.go` (11), `core/e2e_local_tx_test.go` (11), `core/dim_storage_chain_test.go` (7), and `p2p/tor_integration_test.go` (2). The `p2p` tests fail to compile because they refer to Tor/Nym helpers defined in `p2p/transport`. The `core` suite runs and fails `TestValidator_RejectsMissingBALHash` and `TestBAL_OnlyRequiredWhenForkActive`. Both expect rejection of a missing post-Amsterdam BAL hash, which the current validator explicitly accepts for CL compatibility. [Tor/Nym tests](../pkg/p2p/tor_integration_test.go) · [Validator](../pkg/core/block/validator.go#L263)
+- **`integration` (76 tests).** The files are `core/e2e_test.go` (15), `core/bal_integration_test.go` (18), `core/e2e_block_test.go` (5), `core/e2e_eip_spec_test.go` (7), `core/e2e_eip_spec_ext_test.go` (11), `core/e2e_local_tx_test.go` (11), `core/dim_storage_chain_test.go` (7), and `p2p/tor_integration_test.go` (2). The `p2p` tests fail to compile because they refer to Tor/Nym helpers defined in `p2p/transport`. The `core` suite runs and fails `TestValidator_RejectsMissingBALHash` and `TestBAL_OnlyRequiredWhenForkActive`. Both expect rejection of a missing post-Amsterdam BAL hash, which the validator explicitly accepts for CL compatibility. [Validator](../pkg/core/block/validator.go#L263)
 - **`blst` (25 tagged tests).** The tagged `crypto/bls` run compiles, then fails `TestBLSTBackend`, `TestBLSAttestation`, and `TestBLSIntegrationBackendSwitching`. The first two report key size or invalid key errors. The third still expects a PureGo default when the tagged initializer selects blst. [Tagged tests](../pkg/crypto/bls/bls_blst_adapter_test.go)
 - **`goethkzg` (21 tagged tests).** The `crypto/bls` package passes with `-tags goethkzg`. The Makefile applies the tag to its binary targets, so its default build exercises compilation rather than these tests. [Tagged tests](../pkg/crypto/bls/kzg_goeth_adapter_test.go)
 
@@ -213,7 +215,7 @@ The changes were already committed when the report entered Git. `bb29933` change
 
 ---
 
-## IV. Proposed Follow-Up
+## IV. Follow-Up Plan
 
 1. **Fix native point evaluation.** Route `0x0a` through a verifier using the Ethereum ceremony setup and assert an upstream vector through the registered native precompile. Evaluate Docker/Makefile tag parity separately. [KZG findings](#kzg-backend-selection-and-native-point-evaluation)
 2. **Make EF fixture coverage enforceable.** Provision the pinned fixture data, verify the intended vectors executed, and surface unexpected vector failures in CI. Keep native EVM coverage and geth-backed coverage separately labeled. [EF results](#ethereum-foundation-state-tests)
@@ -221,6 +223,20 @@ The changes were already committed when the report entered Git. `bb29933` change
 4. **Restore or retire test coverage case by case.** Review the 26 permanent skips and two placeholders, add assertions for the identified weak branches, and decide which tagged suites are supported. Resolve the observed compile and assertion failures before gating on those suites. Add race instrumentation where concurrent behavior is under test. [Test findings](#1-verified-skips-assertions-and-build-tags)
 5. **Limit code removal to verified candidates.** Check consumers and preserve useful tests when evaluating unimported packages, individual unreachable functions, and compatibility re-exports. Retain the active `pkg/geth` startup path, preserve the EF runner's test value, and treat `blst` removal as a decision about support for the optional backend. [Reachability findings](#i-dead-code-and-unused-legacy-code)
 6. **Clean ignored artifacts locally if needed.** `cl.log` and the listed binaries and coverage output are local artifacts. [Artifact findings](#c-legacy-artifacts-and-other-findings)
+
+---
+
+## V. Follow-Up Results
+
+| Item | Implementation and local verification |
+|---|---|
+| Native KZG and Docker | Native point evaluation uses the Ethereum ceremony context shared with blob and PeerDAS operations. The upstream `pointEvaluation1` vector is tracked as a regular file so it runs without `refs/`. The registered precompile passes the vector in default and `goethkzg` builds. Both Docker binary builds use the Makefile's tag. [Precompile](../pkg/core/vm/precompiles.go) · [Fixture](../pkg/core/vm/testdata/precompiles/pointEvaluation.json) · [Dockerfile](../pkg/Dockerfile) |
+| EF fixtures and CI | The geth-backed job checks out `ethereum/tests` at the pinned revision and requires the direct category fixture suite. The local gate reports **36,264 passed, 20 known legacy outcomes, zero unexpected failures, and zero skips**. Each legacy vector is still executed and its exact observed root is checked. Missing fixtures fail the gate, as do parse errors, unexpected outcomes, and changes in the counts. Nested fixture suites and native EVM conformance are outside this geth-backed gate. [Workflow](../.github/workflows/ci.yml) · [Fixture gate](../pkg/core/eftest/geth_runner_test.go) |
+| Gnark migration | Upgraded to `gnark v0.16.5` and its required `gnark-crypto` revision. BN254 AA compilation, setup, proving, verification, and tampered-input rejection passed. A separate probe loaded the prior serialized AA R1CS and keys, verified a proof produced with v0.16.4, and generated a new proof with the prior keys and the recompiled circuit. Recompiled R1CS bytes differed. These results are scoped to this project's AA circuit. [Module versions](../pkg/go.mod) · [BN254 tests](../pkg/proofs/groth16_gnark_test.go) |
+| Test coverage | Restored 23 BLS tests and the native KZG vector test. Retired two disabled EF reporting tests while preserving the native fixture regression cases. Replaced two backend constructor placeholders and tightened all 20 weak checks. The DAS seed mutation now fails both affected tests. Tagged `integration`, `blst`, and `goethkzg` suites and the targeted package race suite passed locally. Tor/Nym live tests require configured proxies and endpoints. The local runs exercised the deterministic SOCKS5 tests and skipped the two live cases. [Transport tests](../pkg/p2p/transport/tor_integration_test.go) · [CI variants](../.github/workflows/ci.yml) |
+| Code and local artifacts | Removed the nine unexported `core` wrappers and moved their remaining gas-limit test caller to `core/block.VerifyGasLimit`. The active `pkg/geth` path, the EF runner, the optional blst backend, and exported candidates with unverified external usage were retained. The four ignored audit artifacts were moved out of the worktree for recovery. |
+
+The local verification used Go 1.27.3. It covered formatting, vet, builds, the full Go test suite with and without fixtures, the added CI commands, and both container entry points. GitHub Actions and its Go 1.26 runner were outside the local verification. The baseline reproduction commands below retain their original scope.
 
 ---
 

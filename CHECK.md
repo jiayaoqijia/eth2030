@@ -1,5 +1,14 @@
 # Lean4 Verification Check-list
 
+## Codebase Audit Follow-Up (2026-11-10)
+
+- [x] Verify native EIP-4844 point evaluation with the Ethereum ceremony setup and align binary build tags.
+- [x] Provision pinned EF fixtures in CI and enforce the geth-backed vector results.
+- [x] Upgrade gnark and exercise BN254 circuit compilation, setup, proving, and verification.
+- [x] Resolve permanent skips, placeholders, weak checks, tagged suites, and race coverage.
+- [x] Verify dead-code candidates and clean ignored local audit artifacts.
+- [x] Run the supported build and test matrix and record each outcome.
+
 ## Codebase Audit Evidence Review (2026-11-10)
 
 - [x] Reconcile reachability findings with production, test, and tagged builds.
