@@ -1,5 +1,11 @@
 # Project Status
 
+## EIP Integration Test Framework Plan (2026-11-11)
+
+- Authored the `eiptest` framework design and phased task plan at [docs/plans/eiptest-framework-plan.md](docs/plans/eiptest-framework-plan.md): an in-process integration test base for future EIP development, with seven surface probes (STF, pool, fork gating, encoding, RPC, engine payload flow, geth differential), an EIP coverage registry gate, and a test scaffold generator.
+- Plan targets: single-EIP test iteration under 1 second, full framework suite under 2 minutes, no build tags, default `go test ./...` inclusion. Devnet stays responsible for multi-node surfaces only.
+- Baselines recorded on the dev host: `-short` full suite 37.3s, `go vet` 5.7s, single-client devnet boot to block 10 ~50s; the git history review (288 fix commits) shows engine/RPC/txpool surfaces carry the most recurring fixes, which sets the probe priorities.
+
 ## Cryptography Regression Fixes (2026-11-10)
 
 - Authenticated native PQ execution and transaction admission with a shared typed signing digest and the existing transaction wire format.
