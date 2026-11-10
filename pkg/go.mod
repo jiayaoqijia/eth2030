@@ -3,8 +3,8 @@ module github.com/eth2030/eth2030
 go 1.26.8
 
 require (
-	github.com/consensys/gnark v0.16.4
-	github.com/consensys/gnark-crypto v0.22.0
+	github.com/consensys/gnark v0.16.5
+	github.com/consensys/gnark-crypto v0.22.1-0.20261109214502-1b28c4e97311
 	github.com/crate-crypto/go-eth-kzg v1.5.0
 	github.com/ethereum/go-ethereum v1.17.10
 	github.com/gorilla/websocket v1.5.3
