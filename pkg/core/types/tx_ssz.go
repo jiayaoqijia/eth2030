@@ -10,9 +10,10 @@ import (
 
 // SSZ encoding errors.
 var (
-	ErrSSZUnknownTxType = errors.New("ssz: unknown transaction type")
-	ErrSSZTooShort      = errors.New("ssz: data too short")
-	ErrSSZInvalidOffset = errors.New("ssz: invalid offset")
+	ErrSSZUnknownTxType   = errors.New("ssz: unknown transaction type")
+	ErrSSZTooShort        = errors.New("ssz: data too short")
+	ErrSSZInvalidOffset   = errors.New("ssz: invalid offset")
+	ErrSSZLegacySignature = errors.New("ssz: legacy signature v exceeds the one-byte field")
 )
 
 // Maximum lengths for SSZ list limits (used in Merkleization).
@@ -94,6 +95,9 @@ func TransactionToSSZ(tx *Transaction) ([]byte, error) {
 // Fixed fields: nonce(8), gasPrice(32), gasLimit(8), to_flag(1), to(20), value(32), v(1), r(32), s(32)
 // Variable fields: data
 func encodeLegacySSZ(tx *LegacyTx) ([]byte, error) {
+	if tx.V != nil && (tx.V.Sign() < 0 || tx.V.BitLen() > 8) {
+		return nil, ErrSSZLegacySignature
+	}
 	// Fixed parts.
 	nonce := ssz.MarshalUint64(tx.Nonce)
 	gasPrice := bigIntTo32(tx.GasPrice)
@@ -327,40 +331,31 @@ func SSZToTransaction(data []byte) (*Transaction, error) {
 		return nil, ErrSSZTooShort
 	}
 
-	// Check if first byte is a type identifier for typed txs.
+	// Legacy has no prefix. Its low nonce byte can match a typed prefix,
+	// so use the legacy schema if the typed schema does not decode.
+	var typed TxData
+	var typedErr error
 	switch data[0] {
 	case AccessListTxType:
-		inner, err := decodeAccessListTxSSZ(data[1:])
-		if err != nil {
-			return nil, err
-		}
-		return NewTransaction(inner), nil
+		typed, typedErr = decodeAccessListTxSSZ(data[1:])
 	case DynamicFeeTxType:
-		inner, err := decodeDynamicFeeTxSSZ(data[1:])
-		if err != nil {
-			return nil, err
-		}
-		return NewTransaction(inner), nil
+		typed, typedErr = decodeDynamicFeeTxSSZ(data[1:])
 	case BlobTxType:
-		inner, err := decodeBlobTxSSZ(data[1:])
-		if err != nil {
-			return nil, err
-		}
-		return NewTransaction(inner), nil
+		typed, typedErr = decodeBlobTxSSZ(data[1:])
 	case SetCodeTxType:
-		inner, err := decodeSetCodeTxSSZ(data[1:])
-		if err != nil {
-			return nil, err
-		}
-		return NewTransaction(inner), nil
-	default:
-		// Legacy tx has no type prefix; first byte would be start of nonce (LE uint64).
-		inner, err := decodeLegacySSZ(data)
-		if err != nil {
-			return nil, err
-		}
-		return NewTransaction(inner), nil
+		typed, typedErr = decodeSetCodeTxSSZ(data[1:])
 	}
+	if typed != nil && typedErr == nil {
+		return NewTransaction(typed), nil
+	}
+	legacy, err := decodeLegacySSZ(data)
+	if err != nil && typedErr != nil {
+		return nil, typedErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	return NewTransaction(legacy), nil
 }
 
 func readUint64LE(data []byte, offset int) (uint64, int) {

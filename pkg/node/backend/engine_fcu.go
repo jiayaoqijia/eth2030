@@ -17,6 +17,15 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	fcState payload.ForkchoiceStateV1,
 	attrs *payload.PayloadAttributesV3,
 ) (payload.ForkchoiceUpdatedResult, error) {
+	return b.forkchoiceUpdated(fcState, attrs, nil, 0)
+}
+
+func (b *EngineBackend) forkchoiceUpdated(
+	fcState payload.ForkchoiceStateV1,
+	attrs *payload.PayloadAttributesV3,
+	inclusionListTxs [][]byte,
+	slot uint64,
+) (payload.ForkchoiceUpdatedResult, error) {
 	bc := b.node.Blockchain()
 
 	slog.Debug("engine_forkchoiceUpdated",
@@ -172,12 +181,13 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 	beaconRoot := attrs.ParentBeaconBlockRoot
 	buildAttrs := &block.BuildBlockAttributes{
-		Timestamp:    attrs.Timestamp,
-		FeeRecipient: attrs.SuggestedFeeRecipient,
-		Random:       attrs.PrevRandao,
-		Withdrawals:  withdrawals,
-		BeaconRoot:   &beaconRoot,
-		GasLimit:     parentHeader.GasLimit,
+		Timestamp:        attrs.Timestamp,
+		FeeRecipient:     attrs.SuggestedFeeRecipient,
+		Random:           attrs.PrevRandao,
+		Withdrawals:      withdrawals,
+		BeaconRoot:       &beaconRoot,
+		GasLimit:         parentHeader.GasLimit,
+		InclusionListTxs: inclusionListTxs,
 	}
 
 	// Generate payload ID.
@@ -197,7 +207,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	}
 
 	// Register in-progress slot.
-	pp := &pendingPayload{done: make(chan struct{})}
+	pp := &pendingPayload{done: make(chan struct{}), slot: slot}
 	b.payloads[payloadID] = pp
 	b.payloadOrder = append(b.payloadOrder, payloadID)
 	for len(b.payloads) > b.maxPayloads && len(b.payloadOrder) > 0 {
@@ -209,6 +219,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 	// Build the block in the background.
 	go func() {
+		defer close(pp.done)
 		parentBlock := b.node.Blockchain().GetBlock(parentHeader.Hash())
 		var statedb state.StateDB
 		if parentBlock != nil {
@@ -221,7 +232,6 @@ func (b *EngineBackend) ForkchoiceUpdated(
 					"err", err,
 				)
 				pp.err = fmt.Errorf("state fetch: %w", err)
-				close(pp.done)
 				return
 			}
 		}
@@ -248,7 +258,6 @@ func (b *EngineBackend) ForkchoiceUpdated(
 				"err", err,
 			)
 			pp.err = fmt.Errorf("build block: %w", err)
-			close(pp.done)
 			return
 		}
 
@@ -270,15 +279,17 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 		b.cacheBlobsFromBlock(builtBlock)
 
-		if insertErr := b.node.Blockchain().InsertBlock(builtBlock); insertErr != nil {
+		result, insertErr := b.node.Blockchain().InsertBlockWithResult(builtBlock)
+		pp.result = result
+		if insertErr != nil {
 			slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
 				"blockNum", builtBlock.NumberU64(),
 				"blockHash", builtBlock.Hash(),
 				"err", insertErr,
 			)
+			pp.err = fmt.Errorf("validate built block: %w", insertErr)
+			return
 		}
-
-		close(pp.done)
 
 		slog.Info("engine_forkchoiceUpdated: built payload",
 			"payloadID", payloadID,
@@ -303,7 +314,10 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 	if attrs != nil {
 		v3Attrs = &attrs.PayloadAttributesV3
 	}
-	return b.ForkchoiceUpdated(fcState, v3Attrs)
+	if attrs == nil {
+		return b.ForkchoiceUpdated(fcState, nil)
+	}
+	return b.forkchoiceUpdated(fcState, v3Attrs, attrs.InclusionListTransactions, attrs.SlotNumber)
 }
 
 // fcuCacheContains reports whether e is present in the FCU cache.

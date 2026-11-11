@@ -556,6 +556,8 @@ func (tx *Transaction) RawSignatureValues() (v, r, s *big.Int) {
 		return t.V, t.R, t.S
 	case *SetCodeTx:
 		return t.V, t.R, t.S
+	case *MultiDimFeeTx:
+		return t.rawSignatureValues()
 	case *FrameTx:
 		// Frame transactions have no traditional signature fields.
 		return nil, nil, nil

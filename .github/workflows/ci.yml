@@ -5,11 +5,15 @@ on:
     branches: [master]
     paths:
       - 'pkg/**'
+      - 'IFLOW.md'
+      - 'CLAUDE.md'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [master]
     paths:
       - 'pkg/**'
+      - 'IFLOW.md'
+      - 'CLAUDE.md'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 

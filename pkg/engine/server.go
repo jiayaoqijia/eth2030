@@ -375,7 +375,7 @@ func (api *EngineAPI) Start(addr string) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", api.httpHandler)
+	mux.Handle("/", api.Handler())
 
 	api.mu.Lock()
 	api.listener = ln
@@ -410,6 +410,9 @@ func (api *EngineAPI) Stop() error {
 	}
 	return srv.Shutdown(context.Background())
 }
+
+// Handler exposes the same HTTP handler used by Start.
+func (api *EngineAPI) Handler() http.Handler { return http.HandlerFunc(api.httpHandler) }
 
 // httpHandler handles incoming HTTP requests and dispatches them as JSON-RPC.
 // P0: Implements request timeout protection to prevent CL-EL cascade failures.

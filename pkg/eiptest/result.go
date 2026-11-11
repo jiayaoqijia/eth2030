@@ -1,6 +1,9 @@
 package eiptest
 
 import (
+	"testing"
+
+	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -9,6 +12,9 @@ type BlockResult struct {
 	Sim      *Sim
 	Block    *types.Block
 	Receipts []*types.Receipt
+	Logs     []*types.Log
+	BAL      *bal.BlockAccessList
+	Requests types.Requests
 }
 
 // TxCount returns the number of transactions in the block.
@@ -17,13 +23,14 @@ func (r *BlockResult) TxCount() int { return len(r.Receipts) }
 // Tx returns the result of the i-th transaction (index into the block).
 func (r *BlockResult) Tx(i int) *TxResult {
 	if i < 0 || i >= len(r.Receipts) {
-		return &TxResult{missing: true, Sim: r.Sim}
+		return &TxResult{missing: true, Sim: r.Sim, Index: i, block: r}
 	}
 	return &TxResult{
 		Sim:     r.Sim,
 		Tx:      r.Block.Transactions()[i],
 		Receipt: r.Receipts[i],
 		Index:   i,
+		block:   r,
 	}
 }
 
@@ -46,6 +53,7 @@ type TxResult struct {
 	Receipt *types.Receipt
 	Index   int
 	missing bool
+	block   *BlockResult
 }
 
 // Status returns the receipt status (1 success, 0 failure).
@@ -89,4 +97,22 @@ func (r *TxResult) ContractAddress() types.Address {
 		return types.Address{}
 	}
 	return r.Receipt.ContractAddress
+}
+
+// ExpectStatus asserts the receipt status and returns the transaction result.
+func (r *TxResult) ExpectStatus(t *testing.T, want uint64) *TxResult {
+	t.Helper()
+	if r.Missing() || r.Status() != want {
+		failBlock(t, r.block, "tx %d: want status %d, got status %d (missing=%t)", r.Index, want, r.Status(), r.Missing())
+	}
+	return r
+}
+
+// ExpectGas asserts an inclusive receipt gas range, independent of status.
+func (r *TxResult) ExpectGas(t *testing.T, lo, hi uint64) *TxResult {
+	t.Helper()
+	if r.Missing() || r.GasUsed() < lo || r.GasUsed() > hi {
+		failBlock(t, r.block, "tx %d: gas used %d, want [%d,%d]", r.Index, r.GasUsed(), lo, hi)
+	}
+	return r
 }

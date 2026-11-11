@@ -27,27 +27,26 @@ func TestEIP7904_GlamsterdamRepricing(t *testing.T) {
 
 	// Pre-fork execution: legacy KECCAK256 cost (30 + 6/word).
 	fp := s.Fork(eiptest.ForkGlamsterdan)
-	before := fp.Before()
-	rBefore := before.Commit()
-	_ = rBefore
 	// Pre-fork call of the deployed hasher.
 	txPre := eiptest.UnsignedDynamicFee(
 		s.Alice().Address, s.Config().ChainID, s.Nonce(s.Alice().Address),
 		eiptest.ToPtr(addr), nil, nil,
 		100_000, bigFeeCap, bigTipCap,
 	)
-	pre := s.Commit(txPre)
+	before := fp.Before(txPre)
+	before.ExpectInactive(t)
+	pre := before.Result()
 	preGas := eiptest.ExpectSuccess(t, pre, 0).GasUsed()
 
 	// Cross the boundary; same bytecode reprices.
-	at := fp.AtBoundary()
-	at.ExpectActive(t)
 	txPost := eiptest.UnsignedDynamicFee(
 		s.Alice().Address, s.Config().ChainID, s.Nonce(s.Alice().Address),
 		eiptest.ToPtr(addr), nil, nil,
 		100_000, bigFeeCap, bigTipCap,
 	)
-	post := s.Commit(txPost)
+	at := fp.AtBoundary(txPost)
+	at.ExpectActive(t)
+	post := at.Result()
 	postGas := eiptest.ExpectSuccess(t, post, 0).GasUsed()
 
 	// EIP-7904 reprices KECCAK256 base 30→45 (and warm SLOAD etc.); the same

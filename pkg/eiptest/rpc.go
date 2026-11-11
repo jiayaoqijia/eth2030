@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/mev"
@@ -20,10 +21,8 @@ import (
 // (node/backend.RPCBackend over httptest), so tests assert real RPC response
 // shapes: field presence, hex encoding, null vs empty-array semantics.
 type RPCProbe struct {
-	s    *Sim
-	url  string
-	srv  *httptest.Server
-	help *rpcHelpStub
+	client *http.Client
+	url    string
 }
 
 // rpcHelpStub implements node/backend.NodeDeps with only the core deps wired;
@@ -52,73 +51,62 @@ func (s *Sim) RPC() *RPCProbe {
 	s.t.Helper()
 	backend := nodebackend.NewRPCBackend(&rpcHelpStub{sim: s}, nil)
 	srv := httptest.NewServer(rpcserver.NewServer(backend).Handler())
-	p := &RPCProbe{s: s, url: srv.URL, srv: srv}
 	s.t.Cleanup(srv.Close)
-	return p
+	client := srv.Client()
+	client.Timeout = 10 * time.Second
+	return &RPCProbe{client: client, url: srv.URL}
 }
 
-// Call performs a JSON-RPC call and returns the raw result. Fails t on a
-// transport or RPC-level error unless failOnErr is false.
+// Call performs a successful JSON-RPC call and returns the raw result.
 func (p *RPCProbe) Call(t *testing.T, method string, params []interface{}) json.RawMessage {
 	t.Helper()
-	body := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  method,
-	}
-	if params != nil {
-		body["params"] = params
-	} else {
-		body["params"] = []interface{}{}
-	}
-	b, err := json.Marshal(body)
+	result, err := p.CallRaw(method, params)
 	if err != nil {
-		t.Fatalf("marshal request: %v", err)
+		t.Fatalf("rpc %s: %v", method, err)
 	}
-	resp, err := http.Post(p.url, "application/json", bytes.NewReader(b))
-	if err != nil {
-		t.Fatalf("POST %s: %v", method, err)
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Result json.RawMessage `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatalf("decode response for %s: %v", method, err)
-	}
-	if out.Error != nil {
-		t.Fatalf("rpc %s failed: code=%d %s", method, out.Error.Code, out.Error.Message)
-	}
-	return out.Result
+	return result
 }
 
-// CallRaw performs the call and returns both result and error without
-// failing the test (for negative RPC tests).
+// CallRaw performs a JSON-RPC call and exposes errors to negative tests.
 func (p *RPCProbe) CallRaw(method string, params []interface{}) (json.RawMessage, *rpcError) {
-	body := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "method": method}
-	if params != nil {
-		body["params"] = params
-	} else {
-		body["params"] = []interface{}{}
+	return callRPC(p.client, p.url, method, params)
+}
+
+func callRPC(client *http.Client, url, method string, params []any) (json.RawMessage, *rpcError) {
+	if params == nil {
+		params = []any{}
 	}
-	b, _ := json.Marshal(body)
-	resp, err := http.Post(p.url, "application/json", bytes.NewReader(b))
+	request := struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      int    `json:"id"`
+		Method  string `json:"method"`
+		Params  []any  `json:"params"`
+	}{"2.0", 1, method, params}
+	data, err := json.Marshal(request)
+	if err != nil {
+		return nil, &rpcError{Message: err.Error()}
+	}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return nil, &rpcError{Message: err.Error()}
 	}
 	defer resp.Body.Close()
-	var out struct {
-		Result json.RawMessage `json:"result"`
-		Error  *rpcError       `json:"error"`
+	if resp.StatusCode != http.StatusOK {
+		return nil, &rpcError{Message: fmt.Sprintf("HTTP %s", resp.Status)}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	var result struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      int             `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   *rpcError       `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, &rpcError{Message: err.Error()}
 	}
-	return out.Result, out.Error
+	if result.JSONRPC != "2.0" || result.ID != request.ID || (result.Error == nil && result.Result == nil) {
+		return nil, &rpcError{Message: "invalid JSON-RPC response envelope"}
+	}
+	return result.Result, result.Error
 }
 
 // rpcError mirrors the JSON-RPC error object.

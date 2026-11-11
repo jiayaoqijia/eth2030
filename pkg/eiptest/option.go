@@ -7,10 +7,12 @@ package eiptest
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/txpool"
 )
 
 // Fork names understood by the framework. The Shanghai/Cancun/Prague forks are
@@ -19,6 +21,7 @@ import (
 type Fork string
 
 const (
+	ForkOsaka       Fork = "Osaka"
 	ForkAmsterdam   Fork = "Amsterdam"
 	ForkGlamsterdan Fork = "Glamsterdan"
 	ForkHogota      Fork = "Hogota"
@@ -37,6 +40,8 @@ func newUint64p(v uint64) *uint64 { return &v }
 // field of cfg for the given fork name.
 func forkTimeField(cfg *config.ChainConfig, fork Fork) (**uint64, error) {
 	switch fork {
+	case ForkOsaka:
+		return &cfg.OsakaTime, nil
 	case ForkAmsterdam:
 		return &cfg.AmsterdamTime, nil
 	case ForkGlamsterdan:
@@ -71,6 +76,7 @@ type simOptions struct {
 	baseFee     *big.Int
 	forkTimes   map[Fork]uint64 // Never = deactivated
 	alloc       config.GenesisAlloc
+	poolConfig  *txpool.Config
 }
 
 func defaultSimOptions() *simOptions {
@@ -131,6 +137,22 @@ func WithChainID(id uint64) SimOption {
 	}
 }
 
+// WithGenesisTime sets the genesis timestamp. ForkAt offsets stay relative to it.
+func WithGenesisTime(timestamp uint64) SimOption {
+	return func(o *simOptions) error {
+		o.genesisTime = timestamp
+		return nil
+	}
+}
+
+// WithPoolConfig configures limits and admission policy for the simulation pool.
+func WithPoolConfig(cfg txpool.Config) SimOption {
+	return func(o *simOptions) error {
+		o.poolConfig = &cfg
+		return nil
+	}
+}
+
 // buildChainConfig assembles the chain config from the options. Shanghai,
 // Cancun and Prague are active from genesis; scheduled forks follow the
 // ForkAt options (unset forks stay inactive).
@@ -161,6 +183,9 @@ func (o *simOptions) buildChainConfig() (*config.ChainConfig, error) {
 		if offset == Never {
 			*field = nil
 		} else {
+			if offset > math.MaxUint64-o.genesisTime {
+				return nil, fmt.Errorf("%s fork timestamp overflows uint64", fork)
+			}
 			*field = newUint64p(o.genesisTime + offset)
 		}
 	}

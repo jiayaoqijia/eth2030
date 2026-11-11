@@ -1,6 +1,6 @@
 // Package contracts exposes scenario contract bytecode for eiptest tests.
 // The runtime hex is compiled from contracts/*.sol by `make contracts`
-// (solc → gen.go). Tests reference eiptest.Contracts.X() to deploy.
+// (solc and embedded runtime bytecode). Tests reference eiptest.Contracts.X() to deploy.
 package contracts
 
 import (
@@ -10,13 +10,6 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// Named scenario runtimes.
-var named = map[string]string{
-	"Storage42":    Storage42Runtime,
-	"SelfDestruct": SelfDestructRuntime,
-	"Echo":         EchoRuntime,
-}
-
 // Runtime returns the scenario runtime bytecode by name; ok=false for
 // unknown names.
 func Runtime(name string) (code []byte, ok bool) {
@@ -24,12 +17,7 @@ func Runtime(name string) (code []byte, ok bool) {
 	if !known {
 		return nil, false
 	}
-	return FromHex(hex), true
-}
-
-// Names lists the available scenario contracts.
-func Names() []string {
-	return []string{"Echo", "SelfDestruct", "Storage42"}
+	return FromHex(strings.TrimSpace(*hex)), true
 }
 
 // FromHex decodes a hex string (0x optional).

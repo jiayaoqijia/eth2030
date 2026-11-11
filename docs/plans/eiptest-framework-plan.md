@@ -1,10 +1,14 @@
 # `eiptest` — EIP Integration Test Framework: Design & Task Plan
 
-Status: proposed (2026-11-11)
-Owner: TBD
+Status: implemented with documented compatibility boundaries (2026-11-11)
 Target package: `pkg/eiptest/`
 
 ---
+
+The [framework README](../../pkg/eiptest/README.md) documents the implemented
+API and walkthrough. The [completion record](../../STATUS.md) lists the
+verification results and the remaining codec and upstream compatibility
+boundaries. The task tables retain the original acceptance criteria.
 
 ## 1. Purpose
 

@@ -1,14 +1,11 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -134,7 +131,8 @@ type EngineBackend struct {
 	cleanupWg     sync.WaitGroup
 
 	// txPool provides access to pending transactions for inclusion list generation.
-	txPool block.TxPoolReader
+	txPoolMu sync.RWMutex
+	txPool   block.TxPoolReader
 }
 
 // NewEngineBackend creates a new Engine API backend with default memory limits.
@@ -1015,7 +1013,7 @@ func payloadToBlock(payload *ExecutionPayloadV3, parentBeaconBlockRoot types.Has
 	// Compute withdrawals root.
 	// This matches the CL's ordered_trie_root computation for withdrawals.
 	var withdrawalsHash *types.Hash
-	if len(withdrawals) > 0 {
+	if payload.Withdrawals != nil {
 		wr := block.DeriveWithdrawalsRoot(withdrawals)
 		withdrawalsHash = &wr
 	}
@@ -1152,6 +1150,35 @@ func (b *EngineBackend) ProcessBlockV5(
 		return PayloadStatusV1{Status: StatusSyncing}, nil
 	}
 
+	header := blk.Header()
+	if b.config.IsCancun(header.Time) {
+		header.ParentBeaconRoot = &parentBeaconBlockRoot
+	}
+	if b.config.IsPrague(header.Time) {
+		var requests types.Requests
+		for _, raw := range executionRequests {
+			if len(raw) != 0 {
+				request, err := types.DecodeRequest(raw)
+				if err != nil {
+					message := err.Error()
+					return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
+				}
+				requests = append(requests, request)
+			}
+		}
+		hash := types.ComputeRequestsHash(requests)
+		header.RequestsHash = &hash
+	}
+	if b.config.IsAmsterdam(header.Time) {
+		hash, err := enginepayload.DecodeBlockAccessList(payload.BlockAccessList)
+		if err != nil {
+			message := err.Error()
+			return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
+		}
+		header.BlockAccessListHash = &hash
+	}
+	blk = types.NewBlock(header, blk.Body())
+
 	// SPEC-6.4: restore CalldataGasUsed/CalldataExcessGas stripped by the
 	// engine API wire format. These fields are part of the header hash
 	// (EIP-7706) but not included in ExecutionPayloadV5. We recompute them
@@ -1178,63 +1205,15 @@ func (b *EngineBackend) ProcessBlockV5(
 		}, nil
 	}
 
-	// Validate the BAL by comparing the computed BAL with the provided one.
-	if payload.BlockAccessList != nil {
-		computedBAL := result.BlockAccessList
-		if computedBAL == nil {
-			computedBAL = bal.NewBlockAccessList()
+	if expected := blk.Header().BlockAccessListHash; expected != nil {
+		if result.BlockAccessList == nil || result.BlockAccessList.Hash() != *expected {
+			message := "block access list does not match execution"
+			return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
 		}
-		computedEncoded, _ := computedBAL.EncodeRLP()
-
-		var providedBALBytes []byte
-		// The builder encodes blockAccessList as a 0x-prefixed hex STRING
-		// (lighthouse >= 8.4 hex_prog_var_list convention — see
-		// payload/conversion.go BlockToPayloadV5). Decode that form; a bare
-		// JSON byte array is also accepted for compatibility.
-		rawBAL := payload.BlockAccessList
-		if len(rawBAL) > 0 && rawBAL[0] == '"' {
-			var balHex string
-			if err := json.Unmarshal(rawBAL, &balHex); err != nil {
-				errMsg := fmt.Sprintf("invalid blockAccessList string encoding: %v", err)
-				backendLog.Warn("payload_bal_invalid",
-					"event", "payload_bal_invalid",
-					"blockHash", payload.BlockHash.Hex(),
-					"reason", "BAL string decode failed",
-					"error", errMsg,
-				)
-				return PayloadStatusV1{
-					Status:          StatusInvalid,
-					ValidationError: &errMsg,
-				}, nil
-			}
-			providedBALBytes, _ = hex.DecodeString(strings.TrimPrefix(balHex, "0x"))
-		} else if err := json.Unmarshal(rawBAL, &providedBALBytes); err != nil {
-			// If the blockAccessList isn't valid JSON bytes, it may be null.
-			if string(rawBAL) != "null" {
-				errMsg := fmt.Sprintf("invalid blockAccessList encoding: %v", err)
-				backendLog.Warn("payload_bal_invalid",
-					"event", "payload_bal_invalid",
-					"blockHash", payload.BlockHash.Hex(),
-					"reason", "BAL JSON decode failed",
-					"error", errMsg,
-				)
-				return PayloadStatusV1{
-					Status:          StatusInvalid,
-					ValidationError: &errMsg,
-				}, nil
-			}
-		}
-		if !bytes.Equal(computedEncoded, providedBALBytes) {
-			// BAL mismatch is logged but does not invalidate the block.
-			// EIP-7928 BALs are advisory for parallel execution hints;
-			// a mismatch may occur due to serialization differences or
-			// state divergence between build and validation paths.
-			backendLog.Debug("payload_bal_mismatch",
-				"event", "payload_bal_mismatch",
-				"blockHash", payload.BlockHash.Hex(),
-				"blockNum", payload.BlockNumber,
-			)
-		}
+	}
+	if blk.Hash() != payload.BlockHash {
+		message := "payload block hash does not match reconstructed header"
+		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
 	}
 
 	// EIP-7805: check IL satisfaction against block and stored ILs.
@@ -1342,7 +1321,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}
 
-		builder := block.NewBlockBuilder(b.config, nil, b.txPool)
+		builder := block.NewBlockBuilder(b.config, nil, b.payloadTxPool())
 		builder.SetState(b.statedb.Dup())
 		parentHeader := parentBlock.Header()
 
@@ -1639,11 +1618,12 @@ func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
 // EIP-7805: Select transactions up to MAX_BYTES_PER_INCLUSION_LIST (8 KiB).
 func (b *EngineBackend) GetInclusionList() *types.InclusionList {
 	// If no txpool is wired, return empty IL.
-	if b.txPool == nil {
+	pool := b.payloadTxPool()
+	if pool == nil {
 		return &types.InclusionList{Transactions: [][]byte{}}
 	}
 
-	selected, totalSize := eips.SelectTransactionsForInclusionList(b.txPool.Pending(), eips.MaxBytesPerInclusionList)
+	selected, totalSize := eips.SelectTransactionsForInclusionList(pool.Pending(), eips.MaxBytesPerInclusionList)
 
 	backendLog.Debug("getInclusionList", "tx_count", len(selected), "total_bytes", totalSize)
 
@@ -1653,10 +1633,18 @@ func (b *EngineBackend) GetInclusionList() *types.InclusionList {
 // SetTxPool wires a transaction pool reader for inclusion list generation
 // AND payload building (the async builder consumes pending txs per build).
 func (b *EngineBackend) SetTxPool(pool block.TxPoolReader) {
+	b.txPoolMu.Lock()
+	defer b.txPoolMu.Unlock()
 	b.txPool = pool
 	if b.asyncBuilder != nil {
 		b.asyncBuilder.SetTxPool(pool)
 	}
+}
+
+func (b *EngineBackend) payloadTxPool() block.TxPoolReader {
+	b.txPoolMu.RLock()
+	defer b.txPoolMu.RUnlock()
+	return b.txPool
 }
 
 // ilsAsFocil converts stored types.InclusionList entries to focil.InclusionList format.

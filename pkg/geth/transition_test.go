@@ -378,11 +378,12 @@ func TestMakeBlockContext_WithDifficulty(t *testing.T) {
 
 func TestMakeBlockContext_WithMixDigest(t *testing.T) {
 	header := &types.Header{
-		Number:    big.NewInt(10),
-		GasLimit:  1_000_000,
-		Time:      500,
-		MixDigest: types.Hash{0x01, 0x02, 0x03},
-		BaseFee:   big.NewInt(0),
+		Number:     big.NewInt(10),
+		GasLimit:   1_000_000,
+		Time:       500,
+		MixDigest:  types.Hash{0x01, 0x02, 0x03},
+		Difficulty: new(big.Int),
+		BaseFee:    big.NewInt(0),
 	}
 	ctx := MakeBlockContext(header, TestBlockHash)
 	if ctx.Random == nil {

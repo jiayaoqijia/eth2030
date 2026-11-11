@@ -309,8 +309,8 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			}
 			ilTxHashes[ilTx.Hash()] = struct{}{}
 
-			// Check gas pool.
-			if gp.Gas() < ilTx.Gas() {
+			// EIP-7825 caps individual transactions at Osaka.
+			if gp.Gas() < ilTx.Gas() || exceedsTxGasCap(b.config, header.Time, ilTx) {
 				continue
 			}
 			// Check base fee.
@@ -330,7 +330,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			var tracker *bal.AccessTracker
 			if balActive {
 				tracker = bal.NewTracker()
-				preBalances, preNonces = execution.CapturePreState(statedb, ilTx)
+				preBalances, preNonces = execution.CapturePreState(b.config, statedb, ilTx, header.Coinbase)
 			}
 
 			snap := statedb.Snapshot()
@@ -428,7 +428,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		}
 
 		// Skip if not enough gas left for this tx.
-		if gp.Gas() < tx.Gas() {
+		if gp.Gas() < tx.Gas() || exceedsTxGasCap(b.config, header.Time, tx) {
 			continue
 		}
 
@@ -460,7 +460,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		var tracker *bal.AccessTracker
 		if balActive {
 			tracker = bal.NewTracker()
-			preBalances, preNonces = execution.CapturePreState(statedb, tx)
+			preBalances, preNonces = execution.CapturePreState(b.config, statedb, tx, header.Coinbase)
 		}
 
 		// Try to apply the transaction.
@@ -660,8 +660,14 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	}
 
 	block := types.NewBlock(header, body)
-
+	if err := validateRLPBlockSize(b.config, block); err != nil {
+		return nil, nil, err
+	}
 	return block, receipts, nil
+}
+
+func exceedsTxGasCap(cfg *config.ChainConfig, timestamp uint64, tx *types.Transaction) bool {
+	return gas.IsGasLimitCapped(cfg, timestamp) && gas.ValidateTransactionGasLimit(tx.Gas()) != nil
 }
 
 // BuildBlockLegacy constructs a new block using the legacy interface (for backward
@@ -802,7 +808,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		}
 
 		// Skip if not enough gas left for this tx.
-		if gp.Gas() < tx.Gas() {
+		if gp.Gas() < tx.Gas() || exceedsTxGasCap(b.config, header.Time, tx) {
 			continue
 		}
 
@@ -828,7 +834,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		var tracker *bal.AccessTracker
 		if balActive {
 			tracker = bal.NewTracker()
-			preBalances, preNonces = execution.CapturePreState(statedb, tx)
+			preBalances, preNonces = execution.CapturePreState(b.config, statedb, tx, header.Coinbase)
 		}
 
 		// Try to apply the transaction.
@@ -935,7 +941,9 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 	}
 
 	block := types.NewBlock(header, body)
-
+	if err := validateRLPBlockSize(b.config, block); err != nil {
+		return nil, nil, err
+	}
 	return block, receipts, nil
 }
 

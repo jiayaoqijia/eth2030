@@ -42,8 +42,8 @@ func TestCalldataFloorGas(t *testing.T) {
 			data:     []byte{0xff, 0xff},
 			isCreate: true,
 			// tokens = 2 * 4 = 8
-			// floor = 21000 + 32000 + 8 * 10 = 53080
-			want: TxGas + TxCreateGas + 8*TotalCostFloorPerToken,
+			// floor = 21000 + 8 * 10 = 21080
+			want: TxGas + 8*TotalCostFloorPerToken,
 		},
 	}
 

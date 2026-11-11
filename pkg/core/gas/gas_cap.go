@@ -32,7 +32,7 @@ func ValidateTransactionGasLimit(gasLimit uint64) error {
 
 // IsGasLimitCapped returns true if the EIP-7825 transaction gas cap is
 // active for the given chain config and block timestamp. The gas cap
-// activates with the Prague fork.
+// activates with the Osaka fork.
 func IsGasLimitCapped(config *config.ChainConfig, time uint64) bool {
-	return config.IsPrague(time)
+	return config != nil && config.IsOsaka(time)
 }

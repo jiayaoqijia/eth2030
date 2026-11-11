@@ -1,5 +1,14 @@
 # Lean4 Verification Check-list
 
+## EIP Test Framework Completion
+
+- [x] Repair simulator results, fork timing, transaction signing, and failure assertions.
+- [x] Complete STF, pool, encoding, RPC, Engine, and differential probes with regression tests.
+- [x] Enforce the coverage gate and verify generated scaffolds and the README walkthrough.
+- [x] Develop and verify a new EIP test-first through the scaffold.
+- [x] Complete scenario contracts and run Amsterdam fixture generation and consumption.
+- [x] Run the default and variant suites, verify the build, and reconcile the plan and status.
+
 ## EIP Test Framework Acceptance Review (2026-11-11)
 
 - [x] Compare the implementation and examples with the plan's acceptance criteria.

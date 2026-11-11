@@ -319,7 +319,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		var tracker *bal.AccessTracker
 		if balActive {
 			tracker = bal.NewTracker()
-			preBalances, preNonces = capturePreState(statedb, tx)
+			preBalances, preNonces = capturePreState(p.config, statedb, tx, header.Coinbase)
 		}
 
 		// EIP-7701: pre-execution AA validation and gas estimation for AA txs.
@@ -564,14 +564,35 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	}, nil
 }
 
+func cacheTransactionSender(cfg *corconfig.ChainConfig, tx *types.Transaction) {
+	if tx.Sender() != nil {
+		return
+	}
+	switch inner := tx.Inner().(type) {
+	case *types.AATx:
+		tx.SetSender(inner.Sender)
+	case *types.FrameTx:
+		tx.SetSender(inner.Sender)
+	case *types.PQTransaction:
+		tx.SetSender(types.PQPubKeyToAddress(inner.PQPublicKey))
+	default:
+		if cfg != nil && cfg.ChainID != nil {
+			if addr, err := types.MakeSigner(cfg.ChainID.Uint64(), tx.Type()).Sender(tx); err == nil {
+				tx.SetSender(addr)
+			}
+		}
+	}
+}
+
 // capturePreState captures balance and nonce values for addresses involved
 // in a transaction before it is applied. This allows computing the delta
 // for the BAL after the transaction completes.
-func capturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Address]*big.Int, map[types.Address]uint64) {
+func capturePreState(cfg *corconfig.ChainConfig, statedb state.StateDB, tx *types.Transaction, coinbase types.Address) (map[types.Address]*big.Int, map[types.Address]uint64) {
 	balances := make(map[types.Address]*big.Int)
 	nonces := make(map[types.Address]uint64)
 
-	// Sender (from cached sender on the tx).
+	// Resolve wire-decoded transactions before recording the pre-state.
+	cacheTransactionSender(cfg, tx)
 	if sender := tx.Sender(); sender != nil {
 		balances[*sender] = new(big.Int).Set(statedb.GetBalance(*sender))
 		nonces[*sender] = statedb.GetNonce(*sender)
@@ -583,6 +604,7 @@ func capturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Ad
 		nonces[*to] = statedb.GetNonce(*to)
 	}
 
+	balances[coinbase] = new(big.Int).Set(statedb.GetBalance(coinbase))
 	return balances, nonces
 }
 
@@ -590,6 +612,7 @@ func capturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Ad
 // by comparing pre-tx state snapshots with post-tx state.
 func populateTracker(tracker *bal.AccessTracker, statedb state.StateDB, preBalances map[types.Address]*big.Int, preNonces map[types.Address]uint64) {
 	for addr, preBal := range preBalances {
+		tracker.RecordAddressTouch(addr)
 		postBal := statedb.GetBalance(addr)
 		if preBal.Cmp(postBal) != 0 {
 			tracker.RecordBalanceChange(addr, preBal, postBal)
@@ -880,17 +903,7 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 		tx.SetSender(types.PQPubKeyToAddress(pq.PQPublicKey))
 	}
 
-	// Recover sender if not already cached.
-	if tx.Sender() == nil {
-		if aatx, ok := tx.Inner().(*types.AATx); ok {
-			tx.SetSender(aatx.Sender)
-		} else if config.ChainID != nil {
-			signer := types.NewLondonSigner(config.ChainID.Uint64())
-			if addr, err := signer.Sender(tx); err == nil {
-				tx.SetSender(addr)
-			}
-		}
-	}
+	cacheTransactionSender(config, tx)
 	msg := corconfig.TransactionToMessage(tx)
 	// AA-1.3: wire slasher so applyMessage can slash paymasters on bad settlement.
 	msg.Slasher = slasher
@@ -1061,11 +1074,7 @@ func calldataFloorGas(data []byte, isCreate bool) uint64 {
 			tokens += 4
 		}
 	}
-	floor := TxGas + tokens*TotalCostFloorPerToken
-	if isCreate {
-		floor += TxCreateGas
-	}
-	return floor
+	return TxGas + tokens*TotalCostFloorPerToken
 }
 
 // calldataFloorGasGlamst computes the EIP-7976 calldata floor gas cost for Glamsterdam.
@@ -1080,11 +1089,7 @@ func calldataFloorGasGlamst(data []byte, accessList types.AccessList, isCreate b
 	accessListTokens := accessListDataTokens(accessList)
 
 	totalTokens := calldataFloorTokens + accessListTokens
-	floor := vm.TxBaseGlamsterdam + totalTokens*TotalCostFloorPerTokenGlamst
-	if isCreate {
-		floor += TxCreateGas
-	}
-	return floor
+	return vm.TxBaseGlamsterdam + totalTokens*TotalCostFloorPerTokenGlamst
 }
 
 // calldataTokens computes calldata tokens for the standard path.
@@ -1324,7 +1329,9 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		igas += accessListGas(msg.AccessList)
 	}
 
-	// EIP-7623/7976: the gas limit must also cover the calldata floor (Prague+).
+	// EIP-7623/7976: the gas limit must cover both intrinsic gas and the
+	// calldata floor. Only the intrinsic cost is deducted before execution.
+	requiredGas := igas
 	// This prevents post-execution floor adjustment from exceeding gas limit.
 	if config != nil && config.IsPrague(header.Time) {
 		var floor uint64
@@ -1334,15 +1341,13 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		} else {
 			floor = calldataFloorGas(msg.Data, isCreate)
 		}
-		if floor > igas {
-			igas = floor
-		}
+		requiredGas = max(igas, floor)
 	}
 
-	if igas > msg.GasLimit {
+	if requiredGas > msg.GasLimit {
 		// Intrinsic gas exceeds gas limit — return as error (matching go-ethereum).
 		gp.AddGas(msg.GasLimit)
-		return nil, fmt.Errorf("intrinsic gas too low: have %d, want %d", msg.GasLimit, igas)
+		return nil, fmt.Errorf("intrinsic gas too low: have %d, want %d", msg.GasLimit, requiredGas)
 	}
 
 	gasLeft := msg.GasLimit - igas
@@ -1758,8 +1763,8 @@ func CalldataFloorGasGlamst(data []byte, accessList types.AccessList, isCreate b
 }
 
 // CapturePreState captures balance and nonce values for a transaction's addresses.
-func CapturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Address]*big.Int, map[types.Address]uint64) {
-	return capturePreState(statedb, tx)
+func CapturePreState(cfg *corconfig.ChainConfig, statedb state.StateDB, tx *types.Transaction, coinbase types.Address) (map[types.Address]*big.Int, map[types.Address]uint64) {
+	return capturePreState(cfg, statedb, tx, coinbase)
 }
 
 // BalTrackerOrNil converts a *bal.AccessTracker to vm.BALTracker safely.

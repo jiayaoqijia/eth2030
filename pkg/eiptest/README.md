@@ -1,135 +1,116 @@
-# eiptest — EIP Integration Test Framework
+# EIP integration tests
 
-In-process integration testing for ETH2030. `eiptest` wires the real
-production modules (blockchain, block builder, state processor, txpool,
-engine backend, JSON-RPC server, geth differential adapter) behind a small
-probe API, so an EIP's integration test contains **only feature-specific
-assertions** — no genesis/signing/builder/server setup code.
+`eiptest` runs the native execution client in-process. Its simulator builds and
+validates blocks using the production builder and chain. The RPC and Engine
+probes use the node's HTTP handlers. The differential probe replays blocks
+through native execution and Geth.
 
-Design and task plan: [docs/plans/eiptest-framework-plan.md](../docs/plans/eiptest-framework-plan.md).
+See the [framework plan](../../docs/plans/eiptest-framework-plan.md) for acceptance
+criteria and [project status](../../STATUS.md) for verification results.
 
-## Quick start: test a new EIP
+## Test a new EIP
+
+Run these commands from the repository root. The preview uses an example ID.
+Supply the actual EIP number, name, fork and surfaces when generating files.
 
 ```bash
-# 1. Generate the skeleton (test file + registry entry guidance):
-go run ./tools/eiptest-scaffold -eip 8200 -name "My Feature" -fork glamsterdan
-
-# 2. Add the Registry entry in registry.go (the scaffold prints the line).
-
-# 3. Fill in the surface sections and run:
-cd pkg && go test ./eiptest/ -run TestEIP8200 -v
-
-# Optionally also emit a devnet feature config + verify script stub:
-go run ./tools/eiptest-scaffold -eip 8200 -devnet
+go -C pkg run ./tools/eiptest-scaffold -eip 8200 -name "My feature" -fork osaka -surfaces stf,fork -dry-run
+go -C pkg run ./tools/eiptest-scaffold -eip 8200 -name "My feature" -fork osaka -surfaces stf,fork
 ```
 
-## The Sim
+The generator creates `pkg/eiptest/eip8200_test.go` and inserts its registry
+entry. Replace the TODOs with observable assertions. Start by running the
+new test and checking it fails on the behavior the implementation is meant
+to change. Run it again after implementing the feature.
+
+```bash
+go -C pkg test ./eiptest -count=1 -run '^TestEIP8200($|_)' -v
+go -C pkg test ./eiptest/...
+```
+
+Add the completed EIP to the implementation status in `CLAUDE.md`, which
+`IFLOW.md` points to. The default suite checks the status list, registry, and
+test source. The gate catches missing entries, missing files, build-tagged
+files, and assertion-free scaffolds. Declare only surfaces exercised by the
+test. Use `-tier D -exempt "Covered by ..."` for a documented network exemption.
+
+[EIP-7934](eip7934_test.go) is the test-first example. The test checks the
+Osaka boundary and requires the execution block size rejection to come
+from block validation. The first run reached the unrelated intrinsic-gas
+check. The implementation made the size assertion pass.
+
+## Common operations
 
 ```go
 s := eiptest.New(t,
-    eiptest.ForkAt(eiptest.ForkGlamsterdan, 100), // scheduled fork (seconds from genesis)
-    eiptest.Fund(someAddr, 100*eiptest.Ether),
+    eiptest.WithGenesisTime(100),
+    eiptest.ForkAt(eiptest.ForkGlamsterdan, 18),
 )
-r := s.Commit(tx1, tx2)      // build → insert (BAL hash / header validation enforced)
-eiptest.ExpectSuccess(t, r, 0)
-eiptest.ExpectStorage(t, s, contract, slot, value)
-s.AdvanceTime(200)           // cross fork boundaries with real timestamps
+fork := s.Fork(eiptest.ForkGlamsterdan)
+fork.Before().ExpectInactive(t)
+at := fork.AtBoundary()
+at.ExpectActive(t)
+if at.Time() != 118 || at.Header().CalldataGasUsed == nil {
+    t.Fatal("calldata header fields were not activated at the boundary")
+}
+s.STF().Transfer(s.Alice(), s.Bob().Address, eiptest.Wei(5))
 ```
 
-`Commit` drives `block.NewBlockBuilder.BuildBlock` → `chain.Blockchain.InsertBlock`
-exactly as production does; blocks failing insert-time validation fail the test
-with the validator's error. State continuity across blocks is handled by the
-chain reader (no manual state plumbing).
-
-Six standard accounts (`s.Alice()` … `s.Faythe()`) are deterministic and
-genesis-funded with 1000 ETH each; `s.Account(i)` for i ≥ 6 mints additional
-scratch accounts (not funded).
-
-## Surface probes
-
-| Probe | Entry | Covers |
-|---|---|---|
-| STF | `s.STF()` | deploy / tx / read-only call against production `StateProcessor` |
-| Pool | `s.Pool()` | real `txpool.TxPool`: admission, replacement, eviction, nonce-gap invariant |
-| Fork | `s.Fork(fork)` | `Before/AtBoundary/After` around real fork-timestamp activation |
-| Encoding | `s.Encoding()` | RLP roundtrip, SSZ determinism, JSON vector loading (`eiptest.LoadVectors`) |
-| RPC | `s.RPC()` | production `node/backend.RPCBackend` over httptest; field-level assertions |
-| Engine | `s.Engine()` | `forkchoiceUpdated → getPayload → newPayload` with **tx injection** (real pool wired) |
-| Diff | `s.Diff()` | native vs `pkg/geth` dual-backend execution (receipts parity; see boundary note) |
-
-Example per probe: `eip7702_test.go` (STF+pool+fork+encoding), `eip7805_test.go`
-(engine), `eip7825_test.go` (pool), `eip7691_test.go` (fork), `rpc_probe_test.go`,
-`diff_probe_test.go`.
-
-## Scenario contracts (solc pipeline)
-
-```bash
-make contracts   # solc → eiptest/contracts/*.bin-runtime → gen.go (requires solc)
-```
-
-`eiptest/contracts/*.sol` hold scenario contracts (Storage42, SelfDestruct,
-Echo). Committed `gen.go` keeps normal builds solc-free. Tests use
-`s.Contracts().Storage42()` or `contracts.Runtime(name)` plus
-`contracts.ABISelector("set(uint256)")` for calldata.
-
-## Spec vectors (EEST pipeline)
-
-```bash
-make eest        # execution-spec-tests fill → eiptest/testdata/eest/ (requires uv + bin/evm)
-```
-
-Build the transition tool once: `cd ../refs/go-ethereum && go build -o ../../eth2030/pkg/bin/evm ./cmd/evm`.
-
-**Known blocker (2026-11):** the pinned `refs/execution-spec-tests` checkout is
-mid-migration to the "weld"/EELS framework; pytest cannot collect tests there
-(rc=4) and `fill` produces no fixtures. The consumption side is verified
-end-to-end by `eest_test.go`, which runs a real GeneralStateTests fixture (same
-state_test JSON format EEST emits) through `eftest.RunSingleFixture`. When the
-EEST pin advances, `make eest` output flows through the same path.
-
-## Coverage gate
-
-`registry_test.go` enforces two invariants in the default suite:
-
-1. every EIP in IFLOW.md's implementation list has a `Registry` entry;
-2. every non-exempt entry points to an existing test file (tier D
-   network-only and tier E CL-side entries carry documented exemptions).
-
-A new EIP landing without a test file fails `go test ./eiptest/`.
-
-## Performance
-
-Measured on the 24-core dev host (2026-11-11):
-
-| Command | Time |
+| Probe | Use |
 |---|---|
-| `go test ./eiptest/` (full framework suite, ~58 tests) | **0.75s** |
-| single EIP test (`-run TestEIP7702`) | < 1s |
-| `make contracts` (solc + regenerate) | ~2s |
+| Sim | `Commit(txs...)` builds with explicit candidates. `Commit()` builds an empty block. Use `CommitFromPool()` to select from the pool. `TryBlock` mutates a candidate for a negative validation check. |
+| STF | `s.STF().Deploy`, `Tx`, and `Transfer` require success. Use `Execute(...).ExpectStatus(t, status).ExpectGas(t, min, max)` to assert reverts. `CallAtBlock` selects historical state and fork context. |
+| Results | `BlockResult` carries validated receipts, block logs, BAL and execution requests. Transaction assertion failures include receipt and state diagnostics. |
+| Fork | Pass candidate transactions to `Before(txs...)` or `AtBoundary(txs...)` to execute at the exact phase. The returned view retains its block and result. |
+| Pool | `s.Pool()` uses the real pool. Use `ExpectAccepted`, `ExpectRejected`, `ExpectPresent`, and `CommitPending`. `s.Finalize` and `s.Reorg` exercise finality and pool state updates. |
+| Encoding | `RLPRoundTrip` checks the decoded transaction and recovers signed senders. `SSZRoundTrip` decodes and re-encodes the supported transaction formats. `LoadVectors(t, "eip155")` reads fixture JSON under `testdata`. |
+| RPC | `s.RPC().Call` returns raw JSON for `ExpectField`. `CallRaw` exposes errors for negative cases. |
+| Engine | `s.Engine().Submit` admits real pool transactions. `BuildAndProcess` drives HTTP FCU, getPayload, and newPayload using independent proposer and verifier state. `FCUWith` accepts custom attributes. |
+| Diff | Capture the complete pre-state with `SnapshotAccounts` before committing. `DiffBlocks` replays a contiguous sequence and compares state roots and receipt contents after each block. |
 
-The suite runs inside the default `go test ./...` (no build tag).
+Six deterministic accounts are funded with 1,000 ETH at genesis. Additional
+accounts returned by `s.Account(i)` start unfunded. The legacy, access-list,
+dynamic-fee, blob, set-code, and multidimensional builders support ECDSA
+signing and sender-cache variants. AA and Frame use their protocol-specific
+authorization mechanisms. Local transactions are sender-cached, and EOF
+creation uses an ordinary create envelope with EOF initcode.
 
-## Known findings & boundaries (recorded by the framework itself)
+The current repository SSZ codec supports the legacy, access-list, dynamic-fee,
+blob, and set-code formats. Its legacy `v` field fits one byte, so encoding a
+larger replay-protected `v` returns an explicit error. Use RLP for that envelope
+until the codec adopts the EIP-6404 signature representation.
 
-- **Contract-creation gas divergence** (diff surface): native vs geth differ
-  ~360 gas on creation (see `diff_probe_test.go` TestDiffProbe_ContractParity).
-  Transfer path is at exact parity.
-- **Post-Glamsterdan calldata cliff** (builder): calldata-carrying txs are
-  dropped state-dependently between 1 KB and 2 KB payloads (see
-  `eip7706_test.go` notes).
-- **EIP-8141 frame execution reverts** across all probed variants while the
-  envelope/pool/nonce surfaces work (`eip8141_test.go` documents this; the
-  devnet `test-frametx.sh` flow historically succeeded — root-cause pending).
-- **geth differential adapter** does not apply post-block system contracts
-  (EIP-4788/2935), so Diff compares receipts (tx semantics), not full-block
-  state roots.
+## Scenario contracts and fixtures
 
-## Relationship to other test layers
+```bash
+make -C pkg contracts
+make -C pkg eest
+```
 
-- EF state tests (`pkg/core/eftest`): `eiptest` consumes, never replaces.
-- Tagged `integration` suite (`pkg/core/*_test.go`): already wired into CI's
-  `test-variants` matrix and green locally; superseded by `eiptest` for
-  *future* feature work — new EIP tests go here, legacy suites stay for their
-  existing coverage.
-- Devnet (`pkg/devnet/kurtosis`): multi-node surfaces only (tier D in the
-  registry). The scaffold's `--devnet` flag bridges a feature to that layer.
+The contract target compiles Solidity and the Frame `APPROVE` Yul scenario,
+then regenerates the embedded runtime accessors. The Go build reads the
+committed runtimes. Examples cover storage, self-destruct, echo, delegate
+calls, the AA entry point, rollup anchors, and frame approval.
+
+The EEST target uses Python 3.11 and `uv` with the pinned
+`refs/execution-specs` workspace. It fills an Amsterdam state test in a
+fresh directory, runs it through the Go Geth-backed runner, and copies the
+verified output to `pkg/eiptest/testdata/eest-generated`. The default Go suite
+also runs the committed fixture. The smoke scenario uses a zero base fee
+and zero gas price to compare storage behavior shared by the two pinned
+Amsterdam revisions. The EELS transition tool is the default filler for
+Amsterdam. Use `EVM_BIN` for another fork-compatible transition tool, or
+`make -C pkg bin/evm` to build the pinned Geth binary for forks it supports.
+
+## Optional devnet scenarios
+
+Use `-devnet` to generate the feature config and executable verifier in
+`pkg/devnet/kurtosis`. Implement the feature-specific verification, then run:
+
+```bash
+cd pkg/devnet/kurtosis
+./scripts/run-feature-tests.sh eip8200
+```
+
+The generated verifier exits unsuccessfully until it has a feature assertion.
+The legacy tagged integration suite remains in CI.

@@ -57,8 +57,8 @@ func TestEIP7976CalldataFloorGas(t *testing.T) {
 			data:     []byte{0xff, 0xff},
 			isCreate: true,
 			// floor_tokens = 2 * 4 = 8
-			// floor = 4500 + 32000 + 8 * 16 = 36628
-			want: vm.TxBaseGlamsterdam + execution.TxCreateGas + 8*gas.TotalCostFloorPerTokenGlamst,
+			// floor = 4500 + 8 * 16 = 36628
+			want: vm.TxBaseGlamsterdam + 8*gas.TotalCostFloorPerTokenGlamst,
 		},
 	}
 

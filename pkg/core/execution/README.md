@@ -41,7 +41,7 @@ Key package-level helpers:
   a single transaction against the EVM and populates the BAL tracker.
 - `CalldataFloorGas(data, isCreate)` — EIP-7623 calldata floor gas.
 - `CalcBlobBaseFee(excessBlobGas)` — EIP-4844 blob base fee.
-- `CapturePreState(statedb, tx)` — snapshots balances and nonces before a tx.
+- `CapturePreState(config, statedb, tx, coinbase)` — snapshots balances and nonces before a tx.
 - `PopulateTracker(tracker, statedb, preBalances, preNonces)` — fills the BAL
   tracker with post-execution state deltas.
 - `BalTrackerOrNil(t)` — safely converts `*bal.AccessTracker` to the

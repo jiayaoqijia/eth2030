@@ -1,7 +1,10 @@
 package eiptest
 
 import (
+	"fmt"
 	"testing"
+
+	"github.com/eth2030/eth2030/core/types"
 
 	coreconfig "github.com/eth2030/eth2030/core/config"
 )
@@ -10,79 +13,92 @@ import (
 // fork rules active at each phase. This fixes the historical gap where no
 // test chain crossed a real fork activation timestamp.
 type ForkProbe struct {
-	s       *Sim
-	fork    Fork
-	seconds uint64 // phase lead/lag around the boundary, in seconds
+	s          *Sim
+	fork       Fork
+	activation uint64
 }
 
 // Fork returns a probe for the given fork. The sim must have scheduled it via
 // ForkAt(fork, offset).
 func (s *Sim) Fork(fork Fork) *ForkProbe {
-	s.t.Helper()
-	if _, scheduled := s.forkOffset(fork); !scheduled {
-		s.t.Fatalf("eiptest: fork %q not scheduled; add eiptest.ForkAt(eiptest.Fork%s, offset) to New()", fork, fork)
+	s.helper()
+	offset, scheduled := s.scheduledForks[fork]
+	if !scheduled || offset == Never {
+		s.fail(fmt.Errorf("eiptest: fork %s has no activation timestamp", fork))
 	}
-	return &ForkProbe{s: s, fork: fork, seconds: 12}
+	return &ForkProbe{s: s, fork: fork, activation: s.Genesis().Time() + offset}
 }
 
-func (s *Sim) forkOffset(fork Fork) (uint64, bool) {
-	if s.scheduledForks == nil {
-		return 0, false
+// Before materializes the last timestamp before activation. If genesis already
+// occupies that timestamp, it returns genesis and requires an empty tx list.
+func (p *ForkProbe) Before(txs ...*types.Transaction) *ForkPhase {
+	p.s.helper()
+	if p.activation <= p.s.Genesis().Time() {
+		p.s.fail(fmt.Errorf("eiptest: fork %s is active at genesis", p.fork))
 	}
-	off, ok := s.scheduledForks[fork]
-	return off, ok
+	return p.at(p.activation-1, "before", txs)
 }
 
-// Before advances to just below the fork boundary and returns the phase view.
-func (p *ForkProbe) Before() *ForkPhase {
-	p.s.t.Helper()
-	off, _ := p.s.forkOffset(p.fork)
-	target := p.s.genesis.Time() + off - p.seconds
-	p.s.AdvanceTo(target)
-	p.s.Commit() // materialize the pre-boundary head
-	return &ForkPhase{s: p.s, fork: p.fork, label: "before"}
+// AtBoundary materializes a block with exactly the fork activation timestamp.
+func (p *ForkProbe) AtBoundary(txs ...*types.Transaction) *ForkPhase {
+	p.s.helper()
+	return p.at(p.activation, "boundary", txs)
 }
 
-// AtBoundary advances to exactly the fork activation timestamp and returns
-// the phase view. The boundary block itself activates the new rules.
-func (p *ForkProbe) AtBoundary() *ForkPhase {
-	p.s.t.Helper()
-	off, _ := p.s.forkOffset(p.fork)
-	target := p.s.genesis.Time() + off
-	p.s.AdvanceTo(target)
-	p.s.Commit() // the boundary block activates the new rules
-	return &ForkPhase{s: p.s, fork: p.fork, label: "boundary"}
+func (p *ForkProbe) at(timestamp uint64, label string, txs []*types.Transaction) *ForkPhase {
+	head := p.s.CurrentBlock()
+	phase := &ForkPhase{s: p.s, fork: p.fork, label: label, block: head}
+	switch {
+	case head.Time() == timestamp && len(txs) == 0:
+		return phase
+	case head.Time() >= timestamp:
+		p.s.fail(fmt.Errorf("eiptest: fork %s %s timestamp %d cannot follow head time %d", p.fork, label, timestamp, head.Time()))
+	}
+	attrs := p.s.attributes()
+	attrs.Timestamp = timestamp
+	r, err := p.s.commit(&slicePool{txs: txs}, attrs, nil)
+	if err != nil {
+		p.s.fail(err)
+	}
+	phase.block, phase.result = r.Block, r
+	return phase
 }
 
-// After commits n more blocks (post-boundary rules) and returns the phase view.
+// After commits blocks from the current head and returns a new phase view.
 func (p *ForkPhase) After(blocks int) *ForkPhase {
-	p.s.t.Helper()
+	p.s.helper()
+	phase := *p
 	for i := 0; i < blocks; i++ {
-		p.s.Commit()
+		phase.result = p.s.Commit()
+		phase.block = phase.result.Block
 	}
-	return p
+	phase.label = "after"
+	return &phase
 }
 
-// ForkPhase is a view of the chain at one point relative to a fork boundary.
+// ForkPhase is a snapshot of a block relative to a fork boundary.
 type ForkPhase struct {
-	s     *Sim
-	fork  Fork
-	label string
+	s      *Sim
+	fork   Fork
+	label  string
+	block  *types.Block
+	result *BlockResult
 }
 
-// Commit builds one block at the current phase timestamp.
-func (p *ForkPhase) Commit() *BlockResult { return p.s.Commit() }
+// Result returns the execution result of the phase's new block, if it built one.
+func (p *ForkPhase) Result() *BlockResult { return p.result }
 
-// RulesActive reports whether the fork rules are active at the phase head.
-func (p *ForkPhase) RulesActive() bool {
-	return p.s.forkActiveAt(p.fork, p.s.bc.CurrentBlock().Header().Time)
-}
+// Header returns the header of the phase block.
+func (p *ForkPhase) Header() *types.Header { return p.block.Header() }
+
+// RulesActive reports whether the fork was active at the phase block.
+func (p *ForkPhase) RulesActive() bool { return p.s.forkActiveAt(p.fork, p.block.Time()) }
 
 // ExpectActive asserts the fork rules are active at this phase.
 func (p *ForkPhase) ExpectActive(t *testing.T) {
 	t.Helper()
 	if !p.RulesActive() {
-		t.Fatalf("fork %s: expected active at %s phase (head time %d)", p.fork, p.label, p.s.bc.CurrentBlock().Header().Time)
+		t.Fatalf("fork %s: expected active at %s phase (head time %d)", p.fork, p.label, p.block.Time())
 	}
 }
 
@@ -90,18 +106,18 @@ func (p *ForkPhase) ExpectActive(t *testing.T) {
 func (p *ForkPhase) ExpectInactive(t *testing.T) {
 	t.Helper()
 	if p.RulesActive() {
-		t.Fatalf("fork %s: expected inactive at %s phase (head time %d)", p.fork, p.label, p.s.bc.CurrentBlock().Header().Time)
+		t.Fatalf("fork %s: expected inactive at %s phase (head time %d)", p.fork, p.label, p.block.Time())
 	}
 }
 
 // Rules returns the full fork rules struct at the current phase head.
 func (p *ForkPhase) Rules() coreconfig.Rules {
-	head := p.s.bc.CurrentBlock().Header()
-	return p.s.cfg.Rules(head.Number, true, head.Time)
+	head := p.block.Header()
+	return p.s.cfg.Rules(head.Number, p.s.cfg.IsMerge(), head.Time)
 }
 
 // Time returns the current phase head timestamp.
-func (p *ForkPhase) Time() uint64 { return p.s.bc.CurrentBlock().Header().Time }
+func (p *ForkPhase) Time() uint64 { return p.block.Time() }
 
 // HeadNumber returns the current head block number.
-func (p *ForkPhase) HeadNumber() uint64 { return p.s.bc.CurrentBlock().NumberU64() }
+func (p *ForkPhase) HeadNumber() uint64 { return p.block.NumberU64() }

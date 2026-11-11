@@ -137,7 +137,7 @@ func (s LondonSigner) Sender(tx *Transaction) (Address, error) {
 		} else {
 			recovery = byte(vVal - 35 - 2*s.chainID)
 		}
-	case AccessListTxType, DynamicFeeTxType, BlobTxType, SetCodeTxType:
+	case AccessListTxType, DynamicFeeTxType, BlobTxType, SetCodeTxType, MultiDimFeeTxType:
 		if v == nil {
 			recovery = 0
 		} else {

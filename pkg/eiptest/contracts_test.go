@@ -2,6 +2,8 @@ package eiptest_test
 
 import (
 	"math/big"
+
+	"github.com/eth2030/eth2030/core/types"
 	"testing"
 
 	"github.com/eth2030/eth2030/eiptest"
@@ -48,12 +50,28 @@ func TestContractsPipeline(t *testing.T) {
 		t.Fatalf("echo returned %x, want %x", ret2, payload)
 	}
 
+	delegate := stf.Deploy(s.Alice(), s.Contracts().DelegateCaller())
+	args := append(make([]byte, 12), addr[:]...)
+	args = append(args, contracts.ABIEncodeUint256(11)...)
+	stf.Tx(s.Alice(), delegate, append(contracts.ABISelector("setThrough(address,uint256)"), args...))
+	eiptest.ExpectStorage(t, s, delegate, types.Hash{}, eiptest.Uint64ToHash(11))
+	eiptest.ExpectStorage(t, s, addr, types.Hash{}, eiptest.Uint64ToHash(7))
+
+	entry := stf.Deploy(s.Alice(), s.Contracts().AAEntrypoint())
+	stf.Tx(s.Alice(), entry, contracts.ABISelector("execute()"))
+	eiptest.ExpectStorage(t, s, entry, types.Hash{}, eiptest.Uint64ToHash(1))
+
+	anchor := stf.Deploy(s.Alice(), s.Contracts().RollupAnchor())
+	root := types.Hash{0x42}
+	stf.Tx(s.Alice(), anchor, append(contracts.ABISelector("record(bytes32)"), root[:]...))
+	eiptest.ExpectStorage(t, s, anchor, types.Hash{}, root)
+
 	// Named accessor parity.
 	if len(s.Contracts().Storage42()) != len(storage) {
 		t.Fatal("Named accessor diverges from Runtime() lookup")
 	}
 	// Names list is stable.
-	if len(contracts.Names()) != 3 {
+	if len(contracts.Names()) != 7 {
 		t.Fatalf("scenario contract count = %d, want 3", len(contracts.Names()))
 	}
 }

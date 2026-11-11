@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := all
+
 .PHONY: all build eth2030 eth2030-geth docker devnet devnet-down clean contracts eest
 
 SOLC := solc
@@ -7,28 +9,41 @@ SOLC := solc
 # solc on PATH; the committed gen.go keeps normal builds solc-free.
 contracts:
 	@command -v $(SOLC) >/dev/null 2>&1 || { echo "solc not found — install https://docs.soliditylang.org/en/latest/installing-solidity.html"; exit 1; }
-	cd eiptest/contracts && for f in *.sol; do \
+	cd eiptest/contracts && set -eu; for f in *.sol; do \
 		$(SOLC) --bin-runtime --overwrite -o . "$$f" >/dev/null; \
+	done
+	cd eiptest/contracts && set -eu; for f in *.yul; do \
+		output="$$($(SOLC) --strict-assembly --bin "$$f")"; \
+		bin="$$(printf '%s\n' "$$output" | awk '/Binary representation:/ {getline; print}')"; \
+		test -n "$$bin"; printf '%s' "$$bin" > "$${f%.yul}.bin-runtime"; \
 	done
 	go run ./tools/gen-contracts eiptest/contracts
 	go build ./eiptest/...
 
-# eest: run execution-spec-tests `fill` for the configured fork to produce
-# state-test vectors consumed by pkg/core/eftest (plan T4.2). Requires uv
-# (python) and the geth evm binary; EEST_DIR points at the refs checkout.
-EEST_DIR ?= ../refs/execution-spec-tests
-EVM_BIN ?= $(BIN_DIR)/evm
-EEST_FORK ?= amsterdam
-EEST_OUT ?= eiptest/testdata/eest
+# EEST's fill command now ships with the pinned execution-specs workspace.
+# Its default transition tool supports Amsterdam. EVM_BIN is optional for
+# fork-compatible Geth builds, and "make bin/evm" builds the pinned Geth tool.
+EEST_DIR ?= ../refs/execution-specs
+EEST_PYTHON ?= 3.11
+EEST_FORK ?= Amsterdam
+EEST_TARGET ?= $(abspath eiptest/testdata/eest-fill/test_amsterdam_state.py)
+EEST_SELECT ?= state_test and not from_state_test
+EEST_OUT ?= eiptest/testdata/eest-generated
+EEST_ENV ?= $(abspath bin/eest-venv)
+EVM_BIN ?=
 
-$(EVM_BIN):
-	@mkdir -p $(BIN_DIR)
-	go build -o $(EVM_BIN) ../refs/go-ethereum/cmd/evm
+bin/evm:
+	@mkdir -p bin
+	cd ../refs/go-ethereum && go build -o "$(abspath bin/evm)" ./cmd/evm
 
-eest: $(EVM_BIN)
-	@command -v uv >/dev/null 2>&1 || { echo "uv not found — install https://docs.astral.sh/uv/"; exit 1; }
-	cd $(EEST_DIR) && uv run fill "tests/$(EEST_FORK)" --evm-bin=../../$(EVM_BIN) --output ../../$(EEST_OUT)
-	@echo "EEST fixtures written to $(EEST_OUT)"
+eest:
+	@command -v uv >/dev/null 2>&1 || { echo "uv is required"; exit 1; }
+	@set -eu; \
+		tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+		UV_PROJECT_ENVIRONMENT="$(EEST_ENV)" uv run --project "$(abspath $(EEST_DIR))" --python "$(EEST_PYTHON)" --frozen --package ethereum-execution-testing fill "$(EEST_TARGET)" --fork "$(EEST_FORK)" -k "$(EEST_SELECT)" $(if $(EVM_BIN),--evm-bin="$(abspath $(EVM_BIN))") --output "$$tmp"; \
+		EIPTEST_EEST_DIR="$$tmp/state_tests" EIPTEST_EEST_FORK="$(EEST_FORK)" go test -count=1 ./eiptest -run '^TestEESTVectorPipeline$$'; \
+		mkdir -p "$(EEST_OUT)"; cp -R "$$tmp"/. "$(EEST_OUT)"/
+
 
 BIN_DIR := ./bin
 

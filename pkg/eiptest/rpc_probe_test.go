@@ -54,6 +54,18 @@ func TestRPCProbe_BlockQueries(t *testing.T) {
 		t.Fatalf("block transactions = %v, want exactly the one transfer", txHashes)
 	}
 
+	hash := tx.Hash().Hex()
+	transaction := rpc.Call(t, "eth_getTransactionByHash", []any{hash})
+	rpc.ExpectField(t, transaction, "type", `"0x2"`)
+	rpc.ExpectField(t, transaction, "hash", `"`+hash+`"`)
+	rpc.ExpectField(t, transaction, "from", `"`+s.Alice().Address.Hex()+`"`)
+	rpc.ExpectField(t, transaction, "maxFeePerGas", `"0x77359400"`)
+	receipt := rpc.Call(t, "eth_getTransactionReceipt", []any{hash})
+	rpc.ExpectField(t, receipt, "type", `"0x2"`)
+	rpc.ExpectField(t, receipt, "transactionHash", `"`+hash+`"`)
+	rpc.ExpectField(t, receipt, "status", `"0x1"`)
+	rpc.ExpectField(t, receipt, "blockHash", `"`+headHash+`"`)
+
 	// An empty block must report [] (not null).
 	s.Commit()
 	res = rpc.Call(t, "eth_getBlockByNumber", []interface{}{"latest", false})

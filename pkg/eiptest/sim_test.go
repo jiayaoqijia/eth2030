@@ -2,6 +2,7 @@ package eiptest_test
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -47,6 +48,13 @@ func TestSimDemo(t *testing.T) {
 	r3 := s.Commit(call)
 	eiptest.ExpectSuccess(t, r3, 0)
 	eiptest.ExpectStorage(t, s, contract, types.Hash{}, eiptest.Uint64ToHash(42))
+	for height := uint64(4); height <= 5; height++ {
+		if got := s.Commit().Block.NumberU64(); got != height {
+			t.Fatalf("head = %d, want %d", got, height)
+		}
+		eiptest.ExpectStorage(t, s, contract, types.Hash{}, eiptest.Uint64ToHash(42))
+	}
+
 }
 
 // contractStore42Init is hand-written initcode: constructor SSTOREs 42 at slot
@@ -63,4 +71,65 @@ var contractStore42Init = []byte{
 	0x60, 0x00, // PUSH1 0
 	0xf3, // RETURN
 	0x00, // runtime: STOP
+}
+
+func TestForkProbe_ExactBoundaryAndStableView(t *testing.T) {
+	s := eiptest.New(t, eiptest.WithGenesisTime(100), eiptest.ForkAt(eiptest.ForkGlamsterdan, 18),
+		eiptest.ForkAt(eiptest.ForkHogota, 37), eiptest.ForkAt(eiptest.ForkBPO2, 63))
+	fork := s.Fork(eiptest.ForkGlamsterdan)
+	before := fork.Before()
+	at := fork.AtBoundary()
+	before.ExpectInactive(t)
+	at.ExpectActive(t)
+	if before.Time() != 117 || at.Time() != 118 || before.Header().CalldataGasUsed != nil || at.Header().CalldataGasUsed == nil {
+		t.Fatalf("incorrect boundary: before=%d, at=%d", before.Time(), at.Time())
+	}
+	hogota := s.Fork(eiptest.ForkHogota).AtBoundary()
+	hogota.ExpectActive(t)
+	s.Fork(eiptest.ForkBPO2).AtBoundary().ExpectActive(t)
+	if hogota.Time() != 137 || s.CurrentBlock().Time() != 163 {
+		t.Fatal("later forks crossed at the wrong timestamp")
+	}
+}
+
+func TestSim_NegativeValidationLeavesHeadUnchanged(t *testing.T) {
+	s := eiptest.New(t, eiptest.ForkAt(eiptest.ForkAmsterdam, 0))
+	head := s.CurrentBlock().Hash()
+	tx := eiptest.UnsignedDynamicFee(s.Alice().Address, s.Config().ChainID, 5, eiptest.ToPtr(s.Bob().Address), eiptest.Wei(1), nil, 21_000, bigFeeCap, bigTipCap)
+	if err := s.CommitInvalid(tx); err == nil || !strings.Contains(err.Error(), "nonce too high") {
+		t.Fatalf("invalid nonce: %v", err)
+	}
+	if err := s.TryBlock(func(h *types.Header, _ *types.Body) { h.BlockAccessListHash = new(types.Hash) }); err == nil || !strings.Contains(err.Error(), "block access list hash") {
+		t.Fatalf("invalid BAL: %v", err)
+	}
+	if s.CurrentBlock().Hash() != head {
+		t.Fatal("negative validation changed head")
+	}
+}
+
+func TestSTF_ReceiptsLogsAndHistoricalCalls(t *testing.T) {
+	s := eiptest.New(t, eiptest.ForkAt(eiptest.ForkAmsterdam, 0))
+	p := s.STF()
+	log := p.Deploy(s.Alice(), []byte{0x60, 42, 0x5f, 0x5f, 0xa1, 0x00})
+	tx := p.Execute(s.Alice(), log, nil).ExpectStatus(t, types.ReceiptStatusSuccessful).ExpectGas(t, 21_000, 25_000)
+	result := s.Chain().GetReceipts(s.CurrentBlock().Hash())
+	if len(result) != 1 || len(tx.Logs()) != 1 || tx.Logs()[0].Topics[0] != eiptest.Uint64ToHash(42) {
+		t.Fatal("missing log topic or persisted receipt")
+	}
+
+	clock := p.Deploy(s.Alice(), []byte{0x42, 0x5f, 0x52, 0x60, 32, 0x5f, 0xf3})
+	block := s.CurrentBlock()
+	s.Commit()
+	out, err := p.CallAtBlock(s.Alice().Address, clock, nil, block.NumberU64())
+	if err != nil || new(big.Int).SetBytes(out).Uint64() != block.Time() {
+		t.Fatalf("historical TIMESTAMP: %x: %v", out, err)
+	}
+
+	writer := p.Deploy(s.Alice(), []byte{0x60, 42, 0x5f, 0x55, 0x00})
+	if _, err := p.Call(s.Alice().Address, writer, nil); err != nil {
+		t.Fatal(err)
+	}
+	eiptest.ExpectStorage(t, s, writer, types.Hash{}, types.Hash{})
+	reverter := p.Deploy(s.Alice(), []byte{0x5f, 0x5f, 0xfd})
+	p.Execute(s.Alice(), reverter, nil).ExpectStatus(t, types.ReceiptStatusFailed)
 }

@@ -473,7 +473,7 @@ func TestNewPayloadV4_ValidWithRequests(t *testing.T) {
 	hashesJSON, _ := json.Marshal([]types.Hash{})
 	beaconRoot := types.HexToHash("0xbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeac")
 	rootJSON, _ := json.Marshal(beaconRoot)
-	requestsJSON, _ := json.Marshal([][]byte{{0x00, 0x01, 0x02}, {0x01, 0x03, 0x04}})
+	requestsJSON, _ := json.Marshal([]string{"0x000102", "0x010304"})
 
 	req := fmt.Sprintf(`{"jsonrpc":"2.0","method":"engine_newPayloadV4","params":[%s,%s,%s,%s],"id":1}`,
 		payloadJSON, hashesJSON, rootJSON, requestsJSON)
@@ -650,7 +650,7 @@ func TestNewPayloadV5_Valid(t *testing.T) {
 	hashesJSON, _ := json.Marshal([]types.Hash{})
 	beaconRoot := types.HexToHash("0xbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeac")
 	rootJSON, _ := json.Marshal(beaconRoot)
-	requestsJSON, _ := json.Marshal([][]byte{{0x00}})
+	requestsJSON, _ := json.Marshal([]string{"0x00"})
 
 	req := fmt.Sprintf(`{"jsonrpc":"2.0","method":"engine_newPayloadV5","params":[%s,%s,%s,%s],"id":1}`,
 		payloadJSON, hashesJSON, rootJSON, requestsJSON)

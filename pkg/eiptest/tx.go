@@ -29,9 +29,7 @@ func sign(inner types.TxData, key *ecdsa.PrivateKey) *types.Transaction {
 	r := new(big.Int).SetBytes(sig[0:32])
 	s := new(big.Int).SetBytes(sig[32:64])
 	setVRS(inner, v, r, s)
-	signed := types.NewTransaction(inner)
-	signed.SetSender(crypto.PubkeyToAddress(key.PublicKey))
-	return signed
+	return types.NewTransaction(inner)
 }
 
 func fillVRS(inner types.TxData) {
@@ -49,6 +47,8 @@ func setVRS(inner types.TxData, v, r, s *big.Int) {
 	case *types.BlobTx:
 		t.V, t.R, t.S = v, r, s
 	case *types.SetCodeTx:
+		t.V, t.R, t.S = v, r, s
+	case *types.MultiDimFeeTx:
 		t.V, t.R, t.S = v, r, s
 	}
 }
@@ -69,44 +69,23 @@ func UnsignedLegacy(sender types.Address, nonce uint64, to *types.Address, value
 // Legacy builds a signed EIP-155 legacy tx.
 func Legacy(chainID uint64, from *Account, nonce uint64, to *types.Address, value *big.Int, data []byte, gas uint64, gasPrice *big.Int) *types.Transaction {
 	inner := &types.LegacyTx{Nonce: nonce, To: to, Value: value, Data: data, Gas: gas, GasPrice: gasPrice}
-	fillVRS(inner)
-	sigHash := eip155SigningHash(inner, chainID)
-	sig, err := crypto.Sign(sigHash[:], from.Key)
+	// Set the provisional V so the production signing hash selects the
+	// protected EIP-155 form. Chain ID zero uses the unprotected form.
+	v := big.NewInt(27)
+	if chainID != 0 {
+		v.Lsh(new(big.Int).SetUint64(chainID), 1)
+		v.Add(v, big.NewInt(35))
+	}
+	setVRS(inner, v, new(big.Int), new(big.Int))
+	digest := types.NewTransaction(inner).SigningHash()
+	sig, err := crypto.Sign(digest[:], from.Key)
 	if err != nil {
 		panic(err)
 	}
-	recid := sig[64]
-	v := new(big.Int).SetUint64(uint64(recid) + chainID*2 + 35)
-	inner.V = v
-	inner.R = new(big.Int).SetBytes(sig[0:32])
+	inner.V = new(big.Int).Add(v, new(big.Int).SetUint64(uint64(sig[64])))
+	inner.R = new(big.Int).SetBytes(sig[:32])
 	inner.S = new(big.Int).SetBytes(sig[32:64])
-	signed := types.NewTransaction(inner)
-	signed.SetSender(crypto.PubkeyToAddress(from.Key.PublicKey))
-	return signed
-}
-
-// eip155SigningHash computes Keccak256(RLP([nonce, gasPrice, gas, to, value, data, chainID, 0, 0])).
-func eip155SigningHash(tx *types.LegacyTx, chainID uint64) types.Hash {
-	toBytes := []byte{}
-	if tx.To != nil {
-		toBytes = tx.To[:]
-	}
-	enc := func(v interface{}) []byte {
-		b, err := rlp.EncodeToBytes(v)
-		if err != nil {
-			panic(err)
-		}
-		return b
-	}
-	payload := [][]byte{
-		enc(tx.Nonce), enc(tx.GasPrice), enc(tx.Gas), enc(toBytes),
-		enc(tx.Value), enc(tx.Data), enc(chainID), enc(uint(0)), enc(uint(0)),
-	}
-	list, err := rlp.EncodeToBytes(payload)
-	if err != nil {
-		panic(err)
-	}
-	return keccak256(list)
+	return types.NewTransaction(inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +102,11 @@ func UnsignedAccessList(sender types.Address, chainID *big.Int, nonce uint64, to
 	tx := types.NewTransaction(inner)
 	tx.SetSender(sender)
 	return tx
+}
+
+// AccessList builds a signed EIP-2930 transaction.
+func AccessList(chainID *big.Int, from *Account, nonce uint64, to *types.Address, value *big.Int, data []byte, gas uint64, gasPrice *big.Int, accessList types.AccessList) *types.Transaction {
+	return sign(&types.AccessListTx{ChainID: chainID, Nonce: nonce, To: to, Value: value, Data: data, Gas: gas, GasPrice: gasPrice, AccessList: accessList}, from.Key)
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +158,27 @@ func UnsignedBlob(sender types.Address, chainID *big.Int, nonce uint64, to types
 	tx := types.NewTransaction(inner)
 	tx.SetSender(sender)
 	return tx
+}
+
+// Blob builds a signed EIP-4844 transaction. For payload builds, attach a
+// matching KZG sidecar with Transaction.SetBlobSidecar.
+func Blob(chainID *big.Int, from *Account, nonce uint64, to types.Address, value *big.Int, gas uint64, gasFeeCap, gasTipCap, blobFeeCap *big.Int, hashes []types.Hash, sidecar *types.BlobSidecarData) *types.Transaction {
+	tx := sign(&types.BlobTx{ChainID: chainID, Nonce: nonce, To: to, Value: value, Gas: gas, GasFeeCap: gasFeeCap, GasTipCap: gasTipCap, BlobFeeCap: blobFeeCap, BlobHashes: hashes}, from.Key)
+	if sidecar != nil {
+		tx.SetBlobSidecar(sidecar)
+	}
+	return tx
+}
+
+// EOFCreate builds an EIP-7698 EOF creation transaction. The envelope is a
+// dynamic-fee transaction with a nil recipient and EOF initcode as calldata.
+func EOFCreate(chainID *big.Int, from *Account, nonce uint64, initcode []byte, gas uint64, feeCap, tipCap *big.Int) *types.Transaction {
+	return DynamicFee(chainID, from, nonce, nil, nil, initcode, gas, feeCap, tipCap)
+}
+
+// UnsignedEOFCreate builds the sender-cached form of EOFCreate.
+func UnsignedEOFCreate(sender types.Address, chainID *big.Int, nonce uint64, initcode []byte, gas uint64, feeCap, tipCap *big.Int) *types.Transaction {
+	return UnsignedDynamicFee(sender, chainID, nonce, nil, nil, initcode, gas, feeCap, tipCap)
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +296,11 @@ func UnsignedMultiDimFee(sender types.Address, chainID *big.Int, nonce uint64, t
 	tx := types.NewTransaction(inner)
 	tx.SetSender(sender)
 	return tx
+}
+
+// MultiDimFee builds a signed multidimensional fee transaction.
+func MultiDimFee(chainID *big.Int, from *Account, nonce uint64, to *types.Address, value *big.Int, data []byte, gas uint64, maxFees, priorityFees [3]*big.Int) *types.Transaction {
+	return sign(&types.MultiDimFeeTx{ChainID: chainID, Nonce: nonce, To: to, Value: value, Data: data, GasLimit: gas, MaxFeesPerGas: maxFees, PriorityFeesPerGas: priorityFees}, from.Key)
 }
 
 // ---------------------------------------------------------------------------

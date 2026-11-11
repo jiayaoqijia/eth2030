@@ -15,6 +15,7 @@ import (
 	"github.com/holiman/uint256"
 
 	eth2030cfg "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -70,6 +71,17 @@ func (p *GethBlockProcessor) ProcessBlock(
 ) ([]*types.Receipt, types.Hash, error) {
 	header := block.Header()
 	blockCtx := MakeBlockContext(header, getHash)
+	if p.eth2030Cfg != nil {
+		// Match the native chain's system storage effects before comparing the
+		// independently executed transactions and their state commitments.
+		storage := gethSystemStorage{statedb}
+		if p.eth2030Cfg.IsCancun(header.Time) {
+			eips.ProcessBeaconBlockRoot(storage, header)
+		}
+		if p.eth2030Cfg.IsPrague(header.Time) && block.NumberU64() > 0 {
+			eips.ProcessParentBlockHash(storage, block.NumberU64()-1, header.ParentHash)
+		}
+	}
 
 	gasPool := gethcore.NewGasPool(header.GasLimit)
 
@@ -117,18 +129,26 @@ func (p *GethBlockProcessor) ProcessBlock(
 		}
 	}
 
-	// Touch coinbase to ensure it exists in state.
-	TouchCoinbase(statedb, blockCtx.Coinbase)
-
-	// Commit state and compute root. Rules carry the EIP-158/161 emptiness
-	// semantics that the old Commit(bool, bool) flags used to control.
-	rules := p.config.Rules(header.Number, true, header.Time)
+	rules := p.config.Rules(header.Number, blockCtx.Random != nil, header.Time)
+	if p.eth2030Cfg == nil {
+		TouchCoinbase(statedb, blockCtx.Coinbase)
+	} else {
+		// The native system rings use storage-only accounts. Preserve them
+		// when computing the root for the native/Geth differential probe.
+		rules.IsEIP158 = false
+	}
 	root, err := statedb.Commit(rules, header.Number.Uint64())
 	if err != nil {
 		return nil, types.Hash{}, fmt.Errorf("commit state: %w", err)
 	}
 
 	return receipts, FromGethHash(root), nil
+}
+
+type gethSystemStorage struct{ db *gethstate.StateDB }
+
+func (s gethSystemStorage) SetState(addr types.Address, slot, value types.Hash) {
+	s.db.SetState(ToGethAddress(addr), ToGethHash(slot), ToGethHash(value))
 }
 
 // applyTransaction converts an eth2030 transaction to a go-ethereum message

@@ -1,8 +1,11 @@
 package eiptest
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -14,48 +17,25 @@ import (
 // ExpectSuccess asserts the tx at index i succeeded.
 func ExpectSuccess(t *testing.T, r *BlockResult, i int) *TxResult {
 	t.Helper()
-	tx := r.Tx(i)
-	if tx.Missing() {
-		t.Fatalf("tx %d: missing (block has %d txs)", i, r.TxCount())
-	}
-	if !tx.Success() {
-		t.Fatalf("tx %d: want success, got failed status=%d gas=%d logs=%d",
-			i, tx.Status(), tx.GasUsed(), len(tx.Logs()))
-	}
-	return tx
+	return r.Tx(i).ExpectStatus(t, types.ReceiptStatusSuccessful)
 }
 
 // ExpectRevert asserts the tx at index i reverted.
 func ExpectRevert(t *testing.T, r *BlockResult, i int) *TxResult {
 	t.Helper()
-	tx := r.Tx(i)
-	if tx.Missing() {
-		t.Fatalf("tx %d: missing (block has %d txs)", i, r.TxCount())
-	}
-	if !tx.Reverted() {
-		t.Fatalf("tx %d: want revert, got status=%d", i, tx.Status())
-	}
-	return tx
+	return r.Tx(i).ExpectStatus(t, types.ReceiptStatusFailed)
 }
 
-// ExpectGasUsed asserts the exact gas used by tx i.
+// ExpectGasUsed asserts the exact gas used by a successful transaction.
 func ExpectGasUsed(t *testing.T, r *BlockResult, i int, want uint64) *TxResult {
 	t.Helper()
-	tx := ExpectSuccess(t, r, i)
-	if tx.GasUsed() != want {
-		t.Fatalf("tx %d: gas used = %d, want %d", i, tx.GasUsed(), want)
-	}
-	return tx
+	return ExpectSuccess(t, r, i).ExpectGas(t, want, want)
 }
 
-// ExpectGasBetween asserts tx i's gas used is in [lo, hi].
+// ExpectGasBetween asserts a successful transaction's gas used is in [lo, hi].
 func ExpectGasBetween(t *testing.T, r *BlockResult, i int, lo, hi uint64) *TxResult {
 	t.Helper()
-	tx := ExpectSuccess(t, r, i)
-	if tx.GasUsed() < lo || tx.GasUsed() > hi {
-		t.Fatalf("tx %d: gas used = %d, want in [%d, %d]", i, tx.GasUsed(), lo, hi)
-	}
-	return tx
+	return ExpectSuccess(t, r, i).ExpectGas(t, lo, hi)
 }
 
 // ExpectLogCount asserts the tx emitted exactly n logs.
@@ -63,7 +43,7 @@ func ExpectLogCount(t *testing.T, r *BlockResult, i int, n int) *TxResult {
 	t.Helper()
 	tx := ExpectSuccess(t, r, i)
 	if len(tx.Logs()) != n {
-		t.Fatalf("tx %d: log count = %d, want %d (%v)", i, len(tx.Logs()), n, tx.Logs())
+		failBlock(t, r, "tx %d: log count = %d, want %d (%v)", i, len(tx.Logs()), n, tx.Logs())
 	}
 	return tx
 }
@@ -74,15 +54,15 @@ func ExpectLog(t *testing.T, r *BlockResult, i, logIdx int, addr types.Address, 
 	t.Helper()
 	tx := ExpectSuccess(t, r, i)
 	logs := tx.Logs()
-	if logIdx >= len(logs) {
-		t.Fatalf("tx %d: log %d missing (have %d logs)", i, logIdx, len(logs))
+	if logIdx < 0 || logIdx >= len(logs) {
+		failBlock(t, r, "tx %d: log %d missing (have %d logs)", i, logIdx, len(logs))
 	}
 	log := logs[logIdx]
 	if log.Address != addr {
-		t.Fatalf("tx %d log %d: emitter = %s, want %s", i, logIdx, log.Address.Hex(), addr.Hex())
+		failBlock(t, r, "tx %d log %d: emitter = %s, want %s", i, logIdx, log.Address.Hex(), addr.Hex())
 	}
 	if len(log.Topics) == 0 || log.Topics[0] != topic {
-		t.Fatalf("tx %d log %d: first topic = %v, want %s", i, logIdx, log.Topics, topic.Hex())
+		failBlock(t, r, "tx %d log %d: first topic = %v, want %s", i, logIdx, log.Topics, topic.Hex())
 	}
 	return log
 }
@@ -170,12 +150,82 @@ func ExpectBaseFeeAtLeast(t *testing.T, s *Sim, n uint64, min *big.Int) {
 
 // dumpReceipts produces a readable dump of block receipts for failure context.
 func dumpReceipts(r *BlockResult) string {
-	out := fmt.Sprintf("block %d (%d txs, gasUsed %d):\n", r.Block.NumberU64(), r.TxCount(), r.GasUsed())
+	var out strings.Builder
+	fmt.Fprintf(&out, "block %d (%d txs, gasUsed %d):\n", r.Block.NumberU64(), r.TxCount(), r.GasUsed())
 	for i, tx := range r.Txs() {
-		out += fmt.Sprintf("  tx[%d] status=%d gas=%d logs=%d\n", i, tx.Status(), tx.GasUsed(), len(tx.Logs()))
+		fmt.Fprintf(&out, "  tx[%d] status=%d gas=%d logs=%d\n", i, tx.Status(), tx.GasUsed(), len(tx.Logs()))
 		for j, l := range tx.Logs() {
-			out += fmt.Sprintf("    log[%d] addr=%s topics=%x data=%x\n", j, l.Address.Hex(), l.Topics, l.Data)
+			fmt.Fprintf(&out, "    log[%d] addr=%s topics=%x data=%x\n", j, l.Address.Hex(), l.Topics, l.Data)
 		}
 	}
-	return out
+	return out.String()
+}
+
+// ExpectBAL asserts that the returned execution BAL matches the block header.
+func ExpectBAL(t *testing.T, r *BlockResult) {
+	t.Helper()
+	h := r.Block.Header()
+	if r.BAL == nil || h.BlockAccessListHash == nil || r.BAL.Hash() != *h.BlockAccessListHash {
+		failBlock(t, r, "BAL missing or inconsistent with header")
+	}
+}
+
+// ExpectRequestCount asserts the number of execution requests in the result.
+func ExpectRequestCount(t *testing.T, r *BlockResult, want int) {
+	t.Helper()
+	if len(r.Requests) != want {
+		failBlock(t, r, "requests: got %d, want %d", len(r.Requests), want)
+	}
+}
+
+func failBlock(t *testing.T, r *BlockResult, format string, args ...any) {
+	t.Helper()
+	if r == nil {
+		t.Fatalf(format, args...)
+	}
+	t.Fatalf("%s\n%s", fmt.Sprintf(format, args...), blockDiagnostics(r))
+}
+
+func blockDiagnostics(r *BlockResult) string {
+	var out strings.Builder
+	out.WriteString(dumpReceipts(r))
+	balJSON, _ := json.Marshal(r.BAL)
+	fmt.Fprintf(&out, "BAL: %s\nrequests: %x\n", balJSON, types.EncodeRequests(r.Requests))
+	if r.Sim != nil {
+		parent := r.Sim.bc.GetBlock(r.Block.ParentHash())
+		if parent != nil {
+			fmt.Fprintf(&out, "state roots: %s -> %s\n", parent.Header().Root.Hex(), r.Block.Header().Root.Hex())
+			before, beforeErr := r.Sim.bc.StateAtBlock(parent)
+			after, afterErr := r.Sim.bc.StateAtBlock(r.Block)
+			if beforeErr == nil && afterErr == nil {
+				addresses := map[types.Address]bool{r.Block.Header().Coinbase: true}
+				for _, tx := range r.Block.Transactions() {
+					if sender := tx.Sender(); sender != nil {
+						addresses[*sender] = true
+					}
+					if to := tx.To(); to != nil {
+						addresses[*to] = true
+					}
+				}
+				if r.BAL != nil {
+					for _, entry := range r.BAL.Entries {
+						addresses[entry.Address] = true
+					}
+				}
+				ordered := make([]types.Address, 0, len(addresses))
+				for addr := range addresses {
+					ordered = append(ordered, addr)
+				}
+				sort.Slice(ordered, func(i, j int) bool { return ordered[i].Hex() < ordered[j].Hex() })
+				for _, addr := range ordered {
+					oldBalance, newBalance := before.GetBalance(addr), after.GetBalance(addr)
+					oldNonce, newNonce := before.GetNonce(addr), after.GetNonce(addr)
+					if oldBalance.Cmp(newBalance) != 0 || oldNonce != newNonce {
+						fmt.Fprintf(&out, "state delta %s: balance %s -> %s, nonce %d -> %d\n", addr.Hex(), oldBalance, newBalance, oldNonce, newNonce)
+					}
+				}
+			}
+		}
+	}
+	return out.String()
 }

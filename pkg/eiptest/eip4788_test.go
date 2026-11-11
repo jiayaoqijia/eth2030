@@ -15,17 +15,9 @@ func TestEIP4788_BeaconRootRing(t *testing.T) {
 	s := eiptest.New(t)
 
 	beaconRoot := types.Hash{0xAB, 0xCD}
-	// Commit one block carrying a known ParentBeaconRoot.
-	// Sim.Commit uses a zero beacon root; drive the ring via two commits and
-	// check the second block's entries.
-	r1 := s.Commit()
-	_ = r1
-	ts := s.CurrentBlock().Header().Time
-	r2 := s.Commit()
-
-	ts2 := s.CurrentBlock().Header().Time
-	_ = beaconRoot
-	_ = r2
+	first := s.CommitWithBeaconRoot(types.Hash{1})
+	second := s.CommitWithBeaconRoot(beaconRoot)
+	ts, ts2 := first.Block.Time(), second.Block.Time()
 
 	slotTS := ts2 % eips.BeaconHistoryBufferLength
 	storedTS := s.StorageAt(eips.BeaconRootAddress, eiptest.Uint64ToHash(slotTS))
@@ -35,10 +27,8 @@ func TestEIP4788_BeaconRootRing(t *testing.T) {
 
 	rootSlot := eiptest.Uint64ToHash(eips.BeaconHistoryBufferLength + slotTS)
 	storedRoot := s.StorageAt(eips.BeaconRootAddress, rootSlot)
-	if storedRoot != (types.Hash{}) {
-		// Zero beacon roots are legal inputs; the entry must at least exist
-		// as the value we fed (zero). Non-zero would mean cross-block bleed.
-		t.Fatalf("beacon root slot unexpectedly non-zero: %s", storedRoot.Hex())
+	if storedRoot != beaconRoot {
+		t.Fatalf("beacon root = %s, want %s", storedRoot.Hex(), beaconRoot.Hex())
 	}
 
 	// The previous block's timestamp slot must still hold block 1's time

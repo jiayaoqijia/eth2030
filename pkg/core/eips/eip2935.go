@@ -33,11 +33,7 @@ var HistoryStorageAddress = types.HexToAddress("0x0F792be4B0c0cb4DAE440Ef133E90C
 //
 // The parent's hash is stored at slot = parentNumber % HISTORY_SERVE_WINDOW.
 // If the contract does not exist yet, it is created with empty code.
-func ProcessParentBlockHash(statedb state.StateDB, parentNumber uint64, parentHash types.Hash) {
-	// Ensure the history storage contract exists.
-	if !statedb.Exist(HistoryStorageAddress) {
-		statedb.CreateAccount(HistoryStorageAddress)
-	}
+func ProcessParentBlockHash(statedb systemStorage, parentNumber uint64, parentHash types.Hash) {
 
 	// Store the parent hash at slot = parentNumber % HISTORY_SERVE_WINDOW.
 	slot := new(big.Int).SetUint64(parentNumber % HistoryServeWindow)

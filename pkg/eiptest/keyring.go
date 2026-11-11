@@ -87,7 +87,7 @@ func (s *Sim) Faythe() *Account  { return s.keyAccounts[5] }
 // generates additional deterministic scratch accounts on demand; scratch
 // accounts are NOT genesis-funded, send them funds first.
 func (s *Sim) Account(i int) *Account {
-	if i < len(s.keyAccounts) {
+	if i < len(s.keyAccounts) && s.keyAccounts[i] != nil {
 		return s.keyAccounts[i]
 	}
 	name := fmt.Sprintf("acct%d", i)
@@ -96,9 +96,9 @@ func (s *Sim) Account(i int) *Account {
 	if err != nil {
 		panic(err) // deterministic input; unreachable
 	}
-	for len(s.keyAccounts) < i {
+	for len(s.keyAccounts) <= i {
 		s.keyAccounts = append(s.keyAccounts, nil)
 	}
-	s.keyAccounts = append(s.keyAccounts, acc)
+	s.keyAccounts[i] = acc
 	return acc
 }

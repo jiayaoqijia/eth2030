@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -27,13 +28,12 @@ import (
 // chain reader (BlockchainReader.StateAtBlock), so every block executes on the
 // real post-parent state with no manual rebuilds.
 type Sim struct {
-	t       *testing.T
-	cfg     *config.ChainConfig
-	bc      *chain.Blockchain
-	db      rawdb.Database
-	builder *block.BlockBuilder
-	pool    *txpool.TxPool
-	genesis *types.Block
+	t          *testing.T
+	cfg        *config.ChainConfig
+	bc         *chain.Blockchain
+	pool       *txpool.TxPool
+	poolConfig *txpool.Config
+	genesis    *types.Block
 
 	now            uint64 // timestamp of the next block
 	timeStep       uint64
@@ -112,8 +112,7 @@ func newSim(o *simOptions) (*Sim, error) {
 	s := &Sim{
 		cfg:            cfg,
 		bc:             bc,
-		db:             db,
-		builder:        block.NewBlockBuilder(cfg, bc, nil),
+		poolConfig:     o.poolConfig,
 		genesis:        res.Block,
 		now:            o.genesisTime,
 		timeStep:       12,
@@ -129,15 +128,23 @@ type poolReaderAdapter struct{ pool *txpool.TxPool }
 
 func (a *poolReaderAdapter) Pending() []*types.Transaction { return a.pool.PendingFlat() }
 
-// WirePool attaches a real txpool to the simulation. Commit() then pulls from
-// the pool, and chain events (insert) are fed back via pool.Reset/RecordBlock
-// mirroring node wiring.
+// WirePool attaches a real txpool to the simulation. CommitFromPool selects
+// pending transactions and canonical head changes refresh admission state.
 func (s *Sim) WirePool() *txpool.TxPool {
 	if s.pool != nil {
 		return s.pool
 	}
-	s.pool = txpool.New(txpool.DefaultConfig(), &poolStateReader{sim: s})
-	s.builder = block.NewBlockBuilder(s.cfg, s.bc, &poolReaderAdapter{pool: s.pool})
+	cfg := txpool.DefaultConfig()
+	if s.poolConfig != nil {
+		cfg = *s.poolConfig
+	}
+	rules := s.cfg.Rules(s.CurrentBlock().Number(), s.cfg.IsMerge(), s.CurrentBlock().Time())
+	cfg.IsPrague, cfg.IsGlamsterdan = rules.IsPrague, rules.IsGlamsterdan
+	cfg.IsOsaka = s.cfg.IsOsaka(s.CurrentBlock().Time())
+	reader := &poolStateReader{sim: s}
+	s.pool = txpool.New(cfg, reader)
+	s.pool.SetCodeReader(reader)
+	s.pool.SetBaseFee(s.CurrentBlock().Header().BaseFee)
 	return s.pool
 }
 
@@ -147,10 +154,12 @@ type poolStateReader struct{ sim *Sim }
 func (r *poolStateReader) snapshot() state.StateDB {
 	st, err := r.sim.bc.StateAtBlock(r.sim.bc.CurrentBlock())
 	if err != nil {
-		return state.NewMemoryStateDB()
+		panic(fmt.Errorf("eiptest: read pool head state: %w", err))
 	}
 	return st
 }
+
+func (r *poolStateReader) GetCodeSize(addr types.Address) int { return r.snapshot().GetCodeSize(addr) }
 
 func (r *poolStateReader) GetNonce(addr types.Address) uint64 { return r.snapshot().GetNonce(addr) }
 func (r *poolStateReader) GetBalance(addr types.Address) *big.Int {
@@ -173,32 +182,32 @@ func (s *Sim) CurrentBlock() *types.Block { return s.bc.CurrentBlock() }
 func (s *Sim) Now() uint64 { return s.nextTime() }
 
 func (s *Sim) nextTime() uint64 {
-	if t := s.bc.CurrentBlock().Time(); t+s.timeStep > s.now {
-		return t + s.timeStep
+	parent := s.CurrentBlock().Time()
+	if s.now > parent {
+		return s.now
 	}
-	return s.now
+	return parent + s.timeStep
 }
 
-// AdvanceTime moves the simulated clock forward by d seconds. The next block
-// carries at least this timestamp. Fork activations scheduled via ForkAt are
-// crossed by advancing time past the boundary.
-func (s *Sim) AdvanceTime(d uint64) {
-	s.now += d
-}
+// AdvanceTime moves the next block timestamp by d seconds from the staged time.
+func (s *Sim) AdvanceTime(d uint64) { s.now += d }
 
-// AdvanceTo moves the simulated clock to the absolute timestamp. The next
-// Commit block carries exactly this time (bounded by the parent time).
+// AdvanceTo stages an exact timestamp for the next block if it is after the head.
 func (s *Sim) AdvanceTo(abs uint64) {
-	if abs < s.now {
-		abs = s.now
+	if abs > s.now {
+		s.now = abs
 	}
-	s.now = abs
 }
+
+// Slot stages a timestamp at a genesis-relative 12-second slot.
+func (s *Sim) Slot(n uint64) { s.AdvanceTo(s.genesis.Time() + n*s.timeStep) }
 
 // forkActiveAt reports whether the fork rules are active at the given
 // timestamp, via the config's fork checkers.
 func (s *Sim) forkActiveAt(fork Fork, ts uint64) bool {
 	switch fork {
+	case ForkOsaka:
+		return s.cfg.IsOsaka(ts)
 	case ForkAmsterdam:
 		return s.cfg.IsAmsterdam(ts)
 	case ForkGlamsterdan:
@@ -218,86 +227,196 @@ func (s *Sim) forkActiveAt(fork Fork, ts uint64) bool {
 // SetBeneficiary sets the fee recipient for subsequent blocks.
 func (s *Sim) SetBeneficiary(addr types.Address) { s.beneficiary = addr }
 
-// Commit builds a block from the given explicit transactions, inserts it into
-// the chain and returns the result. An empty argument list produces an empty
-// block (still running system contracts).
+// Commit builds and validates a block from the explicit transaction candidates.
+// With no candidates it builds an empty block. Use CommitFromPool for pending txs.
 func (s *Sim) Commit(txs ...*types.Transaction) *BlockResult {
-	s.t.Helper()
-	return s.commit(txs)
-}
-
-// CommitFromPool builds a block from the wired pool's pending transactions.
-func (s *Sim) CommitFromPool() *BlockResult {
-	s.t.Helper()
-	if s.pool == nil {
-		s.t.Fatal("eiptest: CommitFromPool requires WirePool()")
-	}
-	return s.commit(nil)
-}
-
-func (s *Sim) commit(explicit []*types.Transaction) *BlockResult {
-	s.t.Helper()
-	parent := s.bc.CurrentBlock()
-	ts := s.nextTime()
-	s.now = ts
-
-	attrs := &block.BuildBlockAttributes{
-		Timestamp:    ts,
-		FeeRecipient: s.beneficiary,
-		BeaconRoot:   new(types.Hash),
-		GasLimit:     parent.GasLimit(), // keep constant; avoids elasticity-boundary jitter
-	}
-
-	if s.pool != nil && len(explicit) == 0 {
-		// Pool-driven build: builder pulls pending txs itself.
-	} else {
-		// Explicit tx list overrides the pool for this block.
-		s.builder = block.NewBlockBuilder(s.cfg, s.bc, &slicePool{txs: explicit})
-	}
-
-	blk, receipts, err := s.builder.BuildBlock(parent.Header(), attrs)
+	s.helper()
+	r, err := s.TryCommit(txs...)
 	if err != nil {
-		s.t.Fatalf("eiptest: BuildBlock: %v", err)
+		s.fail(err)
 	}
-	if err := s.bc.InsertBlock(blk); err != nil {
-		s.t.Fatalf("eiptest: InsertBlock(block %d): %v", blk.NumberU64(), err)
+	return r
+}
+
+// TryCommit is the error-returning form of Commit, also usable with NewSim.
+func (s *Sim) TryCommit(txs ...*types.Transaction) (*BlockResult, error) {
+	return s.commit(&slicePool{txs: txs}, s.attributes(), nil)
+}
+
+// CommitFromPool builds a block from executable pool transactions.
+func (s *Sim) CommitFromPool() *BlockResult {
+	s.helper()
+	if s.pool == nil {
+		s.fail(errors.New("eiptest: CommitFromPool requires WirePool"))
 	}
+	r, err := s.commit(&poolReaderAdapter{pool: s.pool}, s.attributes(), nil)
+	if err != nil {
+		s.fail(err)
+	}
+	return r
+}
+
+func (s *Sim) helper() {
+	if s.t != nil {
+		s.t.Helper()
+	}
+}
+
+func (s *Sim) fail(err error) {
+	if s.t != nil {
+		s.t.Helper()
+		s.t.Fatal(err)
+	}
+	panic(err)
+}
+
+func (s *Sim) attributes() block.BuildBlockAttributes {
+	return block.BuildBlockAttributes{
+		Timestamp: s.nextTime(), FeeRecipient: s.beneficiary,
+		BeaconRoot: new(types.Hash), GasLimit: s.CurrentBlock().GasLimit(),
+	}
+}
+
+func (s *Sim) commit(pool block.TxPoolReader, attrs block.BuildBlockAttributes, mutate func(*types.Header, *types.Body)) (*BlockResult, error) {
+	builder := block.NewBlockBuilder(s.cfg, s.bc, pool)
+	blk, _, err := builder.BuildBlock(s.CurrentBlock().Header(), &attrs)
+	if err != nil {
+		return nil, fmt.Errorf("eiptest: BuildBlock: %w", err)
+	}
+	if mutate != nil {
+		h, body := blk.Header(), blk.Body()
+		mutate(h, body)
+		blk = types.NewBlock(h, body)
+	}
+	result, err := s.bc.InsertBlockWithResult(blk)
+	if err != nil {
+		if mutate != nil {
+			return nil, err
+		}
+		encoded, _ := blk.EncodeRLP()
+		return nil, fmt.Errorf("eiptest: InsertBlock %d (%s): %w\nblock RLP (%d bytes, first 4096): %x", blk.NumberU64(), blk.Hash().Hex(), err, len(encoded), encoded[:min(len(encoded), 4096)])
+	}
+	if result == nil {
+		return nil, fmt.Errorf("eiptest: block %s already known", blk.Hash().Hex())
+	}
+	s.now = blk.Time()
+	s.syncPool(blk)
+	return blockResult(s, blk, result), nil
+}
+
+func blockResult(s *Sim, blk *types.Block, result *execution.ProcessResult) *BlockResult {
+	r := &BlockResult{Sim: s, Block: blk, Receipts: result.Receipts, BAL: result.BlockAccessList, Requests: result.Requests}
+	for _, receipt := range r.Receipts {
+		r.Logs = append(r.Logs, receipt.Logs...)
+	}
+	return r
+}
+
+func (s *Sim) resetPool() {
+	if s.pool == nil {
+		return
+	}
+	head := s.CurrentBlock()
+	s.pool.SetForkRules(s.cfg, head.Time())
+	s.pool.Reset(&poolStateReader{sim: s})
+	s.pool.SetBaseFee(head.Header().BaseFee)
+}
+
+func (s *Sim) syncPool(blk *types.Block) {
 	if s.pool != nil {
-		// Mirror node wiring: reset pool state from the post-block state and
-		// feed fee data back to the price suggestor.
-		s.pool.Reset(&poolStateReader{sim: s})
+		s.resetPool()
 		s.pool.RecordBlock(blk.Header(), blk.Transactions())
 	}
-	// Restore a pool-driven builder for the next block.
-	if s.pool != nil {
-		s.builder = block.NewBlockBuilder(s.cfg, s.bc, &poolReaderAdapter{pool: s.pool})
-	}
-	return &BlockResult{Sim: s, Block: blk, Receipts: receipts}
 }
 
-// slicePool adapts an explicit tx list to the builder's TxPoolReader.
+// BuildSideBlock inserts a branch block at or below the current head height.
+func (s *Sim) BuildSideBlock(parent *types.Block, timestamp uint64, txs ...*types.Transaction) (*types.Block, error) {
+	if parent == nil || parent.NumberU64() >= s.CurrentBlock().NumberU64() || s.bc.GetBlock(parent.Hash()) == nil {
+		return nil, fmt.Errorf("eiptest: side block needs a known parent below the head")
+	}
+	attrs := s.attributes()
+	attrs.Timestamp, attrs.GasLimit = timestamp, parent.GasLimit()
+	builder := block.NewBlockBuilder(s.cfg, s.bc, &slicePool{txs: txs})
+	blk, _, err := builder.BuildBlock(parent.Header(), &attrs)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.bc.InsertBlock(blk); err != nil {
+		return nil, err
+	}
+	return blk, nil
+}
+
+// Finalize marks a canonical block final and refreshes pool admission state.
+func (s *Sim) Finalize(blk *types.Block) error {
+	if blk == nil {
+		return fmt.Errorf("eiptest: cannot finalize a nil block")
+	}
+	canonical := s.bc.GetBlockByNumber(blk.NumberU64())
+	if canonical == nil || canonical.Hash() != blk.Hash() {
+		return fmt.Errorf("eiptest: cannot finalize a non-canonical block")
+	}
+	if final := s.bc.CurrentFinalBlock(); final != nil && final.NumberU64() > blk.NumberU64() {
+		return fmt.Errorf("eiptest: finalization cannot move backward")
+	}
+	s.bc.SetFinalized(blk)
+	s.resetPool()
+	return nil
+}
+
+// Reorg switches the canonical chain and resubmits transactions orphaned by
+// the old branch that still meet the new head's pool admission rules.
+func (s *Sim) Reorg(head *types.Block) error {
+	if head == nil || s.bc.GetBlock(head.Hash()) == nil {
+		return chain.ErrHeadBlockUnknown
+	}
+	old := s.CurrentBlock()
+	if old.Hash() == head.Hash() {
+		return nil
+	}
+	common := chain.FindCommonAncestor(s.bc, old, head)
+	if common == nil {
+		return chain.ErrCommonAncestorNotFound
+	}
+	if final := s.bc.CurrentFinalBlock(); final != nil && final.NumberU64() > common.NumberU64() {
+		return chain.ErrReorgPastFinalized
+	}
+	var removed []*types.Block
+	for blk := old; blk.Hash() != common.Hash(); blk = s.bc.GetBlock(blk.ParentHash()) {
+		removed = append(removed, blk)
+	}
+	if err := s.bc.Reorg(head); err != nil {
+		return err
+	}
+	s.now = head.Time()
+	s.resetPool()
+	if s.pool != nil {
+		for i := len(removed) - 1; i >= 0; i-- {
+			for _, tx := range removed[i].Transactions() {
+				_ = s.pool.AddRemote(tx)
+			}
+		}
+	}
+	return nil
+}
+
 type slicePool struct{ txs []*types.Transaction }
 
 func (p *slicePool) Pending() []*types.Transaction { return p.txs }
 
-// CommitInvalid builds and inserts a block that is expected to fail. It
-// returns the insertion error instead of failing the test, for negative
-// header/BAL validation tests.
+// CommitInvalid inserts the supplied transactions directly so the builder cannot
+// drop an invalid transaction before validation. A nil error indicates acceptance.
 func (s *Sim) CommitInvalid(txs ...*types.Transaction) error {
-	s.t.Helper()
-	parent := s.bc.CurrentBlock()
-	ts := s.nextTime()
-	s.now = ts
-	attrs := &block.BuildBlockAttributes{Timestamp: ts, BeaconRoot: new(types.Hash)}
-	builder := block.NewBlockBuilder(s.cfg, s.bc, &slicePool{txs: txs})
-	blk, _, err := builder.BuildBlock(parent.Header(), attrs)
-	if err != nil {
-		return fmt.Errorf("build: %w", err)
-	}
-	if err := s.bc.InsertBlock(blk); err != nil {
-		return err
-	}
-	return errors.New("eiptest: expected invalid block to be rejected, but insert succeeded")
+	return s.TryBlock(func(h *types.Header, body *types.Body) {
+		body.Transactions = txs
+		h.TxHash = block.DeriveTxsRoot(txs)
+	})
+}
+
+// TryBlock builds an empty candidate, applies mutate, and returns its validation error.
+func (s *Sim) TryBlock(mutate func(*types.Header, *types.Body)) error {
+	_, err := s.commit(nil, s.attributes(), mutate)
+	return err
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +427,7 @@ func (s *Sim) CommitInvalid(txs ...*types.Transaction) error {
 func (s *Sim) State() state.StateDB {
 	st, err := s.bc.StateAtBlock(s.bc.CurrentBlock())
 	if err != nil {
-		s.t.Fatalf("eiptest: state at head: %v", err)
+		s.fail(fmt.Errorf("eiptest: state at head: %w", err))
 	}
 	return st
 }
@@ -331,7 +450,7 @@ func (s *Sim) StorageAt(addr types.Address, slot types.Hash) types.Hash {
 func (s *Sim) Block(n uint64) *types.Block {
 	blk := s.bc.GetBlockByNumber(n)
 	if blk == nil {
-		s.t.Fatalf("eiptest: no canonical block at %d", n)
+		s.fail(fmt.Errorf("eiptest: no canonical block at %d", n))
 	}
 	return blk
 }
@@ -339,25 +458,26 @@ func (s *Sim) Block(n uint64) *types.Block {
 // CommitWithWithdrawals builds an empty block carrying beacon withdrawals
 // (EIP-4895) and inserts it.
 func (s *Sim) CommitWithWithdrawals(wds ...*types.Withdrawal) *BlockResult {
-	s.t.Helper()
-	parent := s.bc.CurrentBlock()
-	ts := s.nextTime()
-	s.now = ts
-	attrs := &block.BuildBlockAttributes{
-		Timestamp:    ts,
-		FeeRecipient: s.beneficiary,
-		BeaconRoot:   new(types.Hash),
-		GasLimit:     parent.GasLimit(),
-		Withdrawals:  wds,
-	}
-	blk, receipts, err := s.builder.BuildBlock(parent.Header(), attrs)
+	s.helper()
+	attrs := s.attributes()
+	attrs.Withdrawals = wds
+	r, err := s.commit(nil, attrs, nil)
 	if err != nil {
-		s.t.Fatalf("eiptest: BuildBlock(withdrawals): %v", err)
+		s.fail(err)
 	}
-	if err := s.bc.InsertBlock(blk); err != nil {
-		s.t.Fatalf("eiptest: InsertBlock(withdrawals block %d): %v", blk.NumberU64(), err)
+	return r
+}
+
+// CommitWithBeaconRoot builds and inserts a block with the supplied beacon root.
+func (s *Sim) CommitWithBeaconRoot(root types.Hash, txs ...*types.Transaction) *BlockResult {
+	s.helper()
+	attrs := s.attributes()
+	attrs.BeaconRoot = &root
+	r, err := s.commit(&slicePool{txs: txs}, attrs, nil)
+	if err != nil {
+		s.fail(err)
 	}
-	return &BlockResult{Sim: s, Block: blk, Receipts: receipts}
+	return r
 }
 
 // Contracts exposes the solc-compiled scenario contracts (pkg/eiptest/contracts).

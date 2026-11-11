@@ -29,6 +29,7 @@ type ChainConfig struct {
 	ShanghaiTime    *uint64
 	CancunTime      *uint64
 	PragueTime      *uint64
+	OsakaTime       *uint64
 	AmsterdamTime   *uint64
 	GlamsterdanTime *uint64
 	HogotaTime      *uint64
@@ -137,6 +138,11 @@ func (c *ChainConfig) IsCancun(time uint64) bool {
 // IsPrague returns whether the given block time is at or past Prague.
 func (c *ChainConfig) IsPrague(time uint64) bool {
 	return isTimestampForked(c.PragueTime, time)
+}
+
+// IsOsaka reports whether the configured Osaka timestamp has been reached.
+func (c *ChainConfig) IsOsaka(t uint64) bool {
+	return isTimestampForked(c.OsakaTime, t)
 }
 
 // IsAmsterdam returns whether the given block time is at or past Amsterdam.
@@ -366,6 +372,7 @@ var MainnetConfig = &ChainConfig{
 	ShanghaiTime:            newUint64(1681338455),
 	CancunTime:              newUint64(1710338135),
 	PragueTime:              newUint64(1746612311),
+	OsakaTime:               newUint64(1764798551),
 	AmsterdamTime:           nil, // not yet scheduled
 	GlamsterdanTime:         nil, // not yet scheduled
 	HogotaTime:              nil, // not yet scheduled
@@ -392,6 +399,7 @@ var SepoliaConfig = &ChainConfig{
 	ShanghaiTime:            newUint64(1677557088),
 	CancunTime:              newUint64(1706655072),
 	PragueTime:              newUint64(1741159776),
+	OsakaTime:               newUint64(1760427360),
 	AmsterdamTime:           nil,
 	GlamsterdanTime:         nil,
 	HogotaTime:              nil,
@@ -417,6 +425,7 @@ var HoleskyConfig = &ChainConfig{
 	ShanghaiTime:            newUint64(1696000704),
 	CancunTime:              newUint64(1707305664),
 	PragueTime:              newUint64(1740434112),
+	OsakaTime:               newUint64(1759308480),
 	AmsterdamTime:           nil,
 	GlamsterdanTime:         nil,
 	HogotaTime:              nil,

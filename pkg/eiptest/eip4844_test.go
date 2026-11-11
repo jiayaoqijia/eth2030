@@ -1,12 +1,14 @@
 package eiptest_test
 
 import (
+	"crypto/sha256"
 	"math/big"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/eiptest"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 )
 
 // TestEIP4844_BlobTxHeaderFields verifies EIP-4844 at the chain level: a blob
@@ -46,9 +48,21 @@ func TestEIP4844_BlobTxHeaderFields(t *testing.T) {
 			*h2.ExcessBlobGas, gas.CalcExcessBlobGas(*h1.ExcessBlobGas, *h1.BlobGasUsed))
 	}
 
-	// Sidecar surface: attaching a sidecar marks the tx for BlobsBundle V1.
-	blobTx.SetBlobSidecar(&types.BlobSidecarData{})
-	if r3 := s.Commit(blobTx); r3.TxCount() != 0 {
-		t.Log("sidecar-carrying blob tx inclusion depends on KZG backend wiring (documented)")
+	// A real sidecar must produce blob gas and a nonzero fee on inclusion.
+	// The all-zero polynomial has the point at infinity as both its
+	// commitment and proof, using the standard compressed G1 encoding.
+	var blob kzg4844.Blob
+	commitment := kzg4844.Commitment{0xc0}
+	proof := kzg4844.Proof{0xc0}
+	hash := types.Hash(kzg4844.CalcBlobHashV1(sha256.New(), &commitment))
+	signed := eiptest.Blob(s.Config().ChainID, alice, s.Nonce(alice.Address), s.Bob().Address,
+		big.NewInt(1), 100_000, bigFeeCap, bigTipCap, bigFeeCap, []types.Hash{hash},
+		&types.BlobSidecarData{Blobs: [][]byte{blob[:]}, Commitments: [][]byte{commitment[:]}, Proofs: [][]byte{proof[:]}})
+	receipt := eiptest.ExpectSuccess(t, s.Commit(signed), 0).Receipt
+	if receipt.BlobGasUsed != 131_072 || receipt.BlobGasPrice == nil || receipt.BlobGasPrice.Sign() <= 0 {
+		t.Fatalf("blob receipt has invalid gas or fee: %d, %v", receipt.BlobGasUsed, receipt.BlobGasPrice)
+	}
+	if got := *s.CurrentBlock().Header().BlobGasUsed; got != receipt.BlobGasUsed {
+		t.Fatalf("header blob gas %d, receipt %d", got, receipt.BlobGasUsed)
 	}
 }

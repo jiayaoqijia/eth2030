@@ -1,6 +1,7 @@
 package eiptest
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -40,30 +41,41 @@ func (e *Encoding) RLPRoundTrip(t *testing.T, tx *types.Transaction) *types.Tran
 	if dec.Type() != tx.Type() {
 		t.Fatalf("rlp roundtrip: type mismatch: got %d want %d", dec.Type(), tx.Type())
 	}
-	if tx.Sender() != nil && dec.Sender() != nil && *dec.Sender() != *tx.Sender() {
-		t.Fatalf("rlp roundtrip: sender mismatch: got %s want %s", dec.Sender().Hex(), tx.Sender().Hex())
+	_, sigR, sigS := tx.RawSignatureValues()
+	if sigR != nil && sigS != nil && sigR.Sign() != 0 && sigS.Sign() != 0 {
+		signer := types.MakeSigner(e.s.cfg.ChainID.Uint64(), tx.Type())
+		want, err := signer.Sender(tx)
+		if err != nil {
+			t.Fatalf("rlp: recover original sender: %v", err)
+		}
+		got, err := signer.Sender(dec)
+		if err != nil || got != want {
+			t.Fatalf("rlp: decoded sender %s, want %s: %v", got.Hex(), want.Hex(), err)
+		}
+		if cached := tx.Sender(); cached != nil && *cached != got {
+			t.Fatalf("rlp: recovered sender %s, want %s", got.Hex(), cached.Hex())
+		}
 	}
 	return dec
 }
 
-// SSZRoundTrip encodes tx to SSZ (EIP-6404) twice and asserts determinism
-// plus non-empty output. (The types package currently exposes SSZ encoding;
-// decode round-trips are covered by its own unit tests.)
+// SSZRoundTrip verifies the decoded transaction and its canonical re-encoding.
 func (e *Encoding) SSZRoundTrip(t *testing.T, tx *types.Transaction) {
 	t.Helper()
-	enc1, err := types.TransactionToSSZ(tx)
+	enc, err := types.TransactionToSSZ(tx)
 	if err != nil {
 		t.Fatalf("ssz encode: %v", err)
 	}
-	enc2, err := types.TransactionToSSZ(tx)
+	dec, err := types.SSZToTransaction(enc)
 	if err != nil {
-		t.Fatalf("ssz encode (2nd): %v", err)
+		t.Fatalf("ssz decode: %v", err)
 	}
-	if len(enc1) == 0 {
-		t.Fatalf("ssz encode produced empty output for tx type %d", tx.Type())
+	if dec.Type() != tx.Type() || dec.Hash() != tx.Hash() {
+		t.Fatalf("ssz roundtrip: type/hash %d/%s, want %d/%s", dec.Type(), dec.Hash().Hex(), tx.Type(), tx.Hash().Hex())
 	}
-	if string(enc1) != string(enc2) {
-		t.Fatalf("ssz encode not deterministic for tx type %d", tx.Type())
+	reencoded, err := types.TransactionToSSZ(dec)
+	if err != nil || !bytes.Equal(reencoded, enc) {
+		t.Fatalf("ssz re-encode: bytes changed: %v", err)
 	}
 }
 
@@ -71,6 +83,7 @@ func (e *Encoding) SSZRoundTrip(t *testing.T, tx *types.Transaction) {
 // the raw decoded JSON object.
 type Vector struct {
 	Name   string
+	Path   string
 	Values map[string]json.RawMessage
 }
 
@@ -79,38 +92,38 @@ type Vector struct {
 // file must contain either a single object or an array of objects.
 func LoadVectors(t *testing.T, dir string) []Vector {
 	t.Helper()
-	abs := filepath.Join("testdata", dir)
-	entries, err := os.ReadDir(abs)
+	abs := dir
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join("testdata", dir)
+	}
+	entries, err := vectorFiles(abs)
 	if err != nil {
 		t.Fatalf("vectors: read dir %s: %v", abs, err)
 	}
 	var out []Vector
 	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(abs, ent.Name()))
+		data, err := os.ReadFile(ent)
 		if err != nil {
-			t.Fatalf("vectors: read %s: %v", ent.Name(), err)
+			t.Fatalf("vectors: read %s: %v", ent, err)
 		}
 		var arr []map[string]json.RawMessage
 		if err := json.Unmarshal(data, &arr); err != nil {
 			// Single object fallback.
 			var one map[string]json.RawMessage
 			if err2 := json.Unmarshal(data, &one); err2 != nil {
-				t.Fatalf("vectors: parse %s: %v", ent.Name(), err)
+				t.Fatalf("vectors: parse %s: %v", ent, err)
 			}
 			arr = []map[string]json.RawMessage{one}
 		}
 		for i, obj := range arr {
-			name := fmt.Sprintf("%s#%d", ent.Name(), i)
+			name := fmt.Sprintf("%s#%d", ent, i)
 			if n, ok := obj["name"]; ok {
 				var s string
 				if json.Unmarshal(n, &s) == nil {
 					name = s
 				}
 			}
-			out = append(out, Vector{Name: name, Values: obj})
+			out = append(out, Vector{Name: name, Path: ent, Values: obj})
 		}
 	}
 	if len(out) == 0 {
@@ -118,6 +131,23 @@ func LoadVectors(t *testing.T, dir string) []Vector {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+func vectorFiles(dir string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".") && path != dir {
+			return filepath.SkipDir
+		}
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	return paths, err
 }
 
 // VectorString decodes a required string field from the vector.

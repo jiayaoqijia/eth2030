@@ -1,5 +1,7 @@
 package eiptest
 
+import "fmt"
+
 // Registry maps every EIP in the implementation status list (IFLOW.md
 // "EIP Implementation Status") to its integration test surface.
 //
@@ -49,8 +51,17 @@ type EIPEntry struct {
 	Exempt   string    // documented exemption reason (must be non-empty iff TestFile empty)
 }
 
+// SpecPath returns the repository-relative path to the pinned EIP source.
+func (e EIPEntry) SpecPath() string {
+	if e.Number == 0 {
+		return ""
+	}
+	return fmt.Sprintf("refs/EIPs/EIPS/eip-%d.md", e.Number)
+}
+
 // Registry is the authoritative coverage table. Keep sorted by Number.
 var Registry = []EIPEntry{
+	{0, "PQC (Dilithium/ML-DSA/Falcon/SPHINCS+)", TierC, nil, "", "crypto vector coverage in crypto/pqc; tx codec in core/types/pq_transaction tests"},
 	{150, "call gas all-but-one-64th", TierA, []Surface{SurfaceSTF}, "eip150_test.go", ""},
 	{152, "BLAKE2F precompile", TierA, []Surface{SurfaceSTF, SurfaceEncoding}, "eip152_test.go", ""},
 	{196, "BN254 add/mul precompiles", TierA, []Surface{SurfaceSTF}, "eip196_test.go", ""},
@@ -68,7 +79,7 @@ var Registry = []EIPEntry{
 	{4444, "history expiry", TierD, nil, "", "multi-node storage ops; covered by core/rawdb/history tests and devnet blob/history features"},
 	{4762, "statelessness gas (witness mode)", TierB, nil, "", "requires witness-mode state; covered by core/vm eip4762_gas tests and pkg/witness suite"},
 	{4788, "beacon root system contract", TierA, []Surface{SurfaceSTF}, "eip4788_test.go", ""},
-	{4844, "blob transactions + KZG", TierB, []Surface{SurfaceSTF, SurfaceEngine}, "eip4844_test.go", ""},
+	{4844, "blob transactions + KZG", TierB, []Surface{SurfaceSTF}, "eip4844_test.go", ""},
 	{4895, "beacon withdrawals", TierA, []Surface{SurfaceSTF}, "eip4895_test.go", ""},
 	{5656, "MCOPY", TierA, []Surface{SurfaceSTF}, "eip5656_test.go", ""},
 	{6110, "deposits via logs", TierB, []Surface{SurfaceSTF}, "eip6110_test.go", ""},
@@ -88,26 +99,26 @@ var Registry = []EIPEntry{
 	{7701, "native account abstraction", TierB, []Surface{SurfaceSTF, SurfacePool}, "eip7701_test.go", ""},
 	{7702, "set code transactions", TierA, []Surface{SurfaceSTF, SurfacePool, SurfaceEncoding, SurfaceFork}, "eip7702_test.go", ""},
 	{7706, "calldata gas header fields", TierA, []Surface{SurfaceSTF, SurfaceFork}, "eip7706_test.go", ""},
+	{7732, "ePBS", TierB, []Surface{SurfaceEngine}, "eip7732_test.go", ""},
 	{7742, "uncoupled blob target/max", TierA, []Surface{SurfaceFork}, "eip7742_test.go", ""},
 	{7745, "log index root", TierC, []Surface{SurfaceSTF, SurfaceEncoding}, "eip7745_test.go", ""},
 	{7805, "FOCIL inclusion lists", TierB, []Surface{SurfaceSTF, SurfaceEngine}, "eip7805_test.go", ""},
 	{7807, "SSZ blocks", TierC, []Surface{SurfaceEncoding}, "eip7807_test.go", ""},
-	{7825, "transaction gas cap", TierA, []Surface{SurfacePool, SurfaceSTF}, "eip7825_test.go", ""},
+	{7825, "transaction gas cap", TierA, []Surface{SurfacePool, SurfaceSTF, SurfaceFork}, "eip7825_test.go", ""},
 	{7864, "binary tree state", TierC, nil, "", "state commitment format; covered by trie/bintrie suite (17 files) and trie migration tests"},
 	{7898, "uncoupled execution payload", TierB, nil, "", "covered by engine/api uncoupled payload tests"},
 	{7904, "Glamsterdam repricing", TierA, []Surface{SurfaceSTF}, "eip7904_test.go", ""},
 	{7916, "SSZ progressive lists", TierC, []Surface{SurfaceEncoding}, "eip7916_test.go", ""},
 	{7918, "blob base fee floor", TierA, []Surface{SurfaceSTF}, "eip7918_test.go", ""},
 	{7928, "block access lists", TierB, []Surface{SurfaceSTF, SurfaceEngine}, "eip7928_test.go", ""},
+	{7934, "RLP execution block size limit", TierA, []Surface{SurfaceSTF, SurfaceFork}, "eip7934_test.go", ""},
 	{7939, "count leading zeros", TierA, []Surface{SurfaceSTF, SurfaceEncoding}, "eip7939_test.go", ""},
 	{8024, "DUPN/SWAPN/EXCHANGE", TierA, []Surface{SurfaceSTF}, "eip8024_test.go", ""},
 	{8025, "execution witness", TierB, []Surface{SurfaceSTF}, "eip8025_test.go", ""},
 	{8070, "sparse blobpool", TierB, []Surface{SurfacePool}, "eip8070_test.go", ""},
 	{8077, "announce nonce (ETH/72)", TierD, nil, "", "p2p protocol message; covered by eth/announce_nonce tests and devnet"},
-	{8079, "native rollups EXECUTE", TierA, []Surface{SurfaceSTF}, "eip8079_test.go", ""},
+	{8079, "native rollups EXECUTE", TierA, nil, "", "draft leaves the EVM address and ABI TBD; eip8079_test.go verifies the rollup component"},
 	{8141, "frame transactions", TierB, []Surface{SurfaceSTF, SurfacePool}, "eip8141_test.go", ""},
-	{7732, "ePBS", TierB, []Surface{SurfaceEngine}, "eip7732_test.go", ""},
-	{0, "PQC (Dilithium/ML-DSA/Falcon/SPHINCS+)", TierC, nil, "", "crypto vector coverage in crypto/pqc; tx codec in core/types/pq_transaction tests"},
 }
 
 // Lookup returns the registry entry for an EIP number.

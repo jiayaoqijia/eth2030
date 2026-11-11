@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -321,8 +323,8 @@ func (api *EngineAPI) handleNewPayloadV4(params []json.RawMessage) (any, *jsonrp
 		}
 	}
 
-	var executionRequests [][]byte
-	if err := json.Unmarshal(params[3], &executionRequests); err != nil {
+	executionRequests, err := parseExecutionRequests(params[3])
+	if err != nil {
 		return nil, &jsonrpcError{
 			Code:    InvalidParamsCode,
 			Message: fmt.Sprintf("invalid executionRequests: %v", err),
@@ -369,8 +371,8 @@ func (api *EngineAPI) handleNewPayloadV5(params []json.RawMessage) (any, *jsonrp
 		}
 	}
 
-	var executionRequests [][]byte
-	if err := json.Unmarshal(params[3], &executionRequests); err != nil {
+	executionRequests, err := parseExecutionRequests(params[3])
+	if err != nil {
 		return nil, &jsonrpcError{
 			Code:    InvalidParamsCode,
 			Message: fmt.Sprintf("invalid executionRequests: %v", err),
@@ -382,6 +384,28 @@ func (api *EngineAPI) handleNewPayloadV5(params []json.RawMessage) (any, *jsonrp
 		return nil, engineErrorToRPC(err)
 	}
 	return result, nil
+}
+
+func parseExecutionRequests(raw json.RawMessage) ([][]byte, error) {
+	var data []string
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
+	requests := make([][]byte, len(data))
+	for i, item := range data {
+		if !strings.HasPrefix(item, "0x") {
+			return nil, fmt.Errorf("execution request %d must be hex DATA", i)
+		}
+		request, err := hex.DecodeString(item[2:])
+		if err != nil {
+			return nil, err
+		}
+		requests[i] = request
+	}
+	return requests, nil
 }
 
 // handleGetPayloadV4 processes an engine_getPayloadV4 request (Prague).

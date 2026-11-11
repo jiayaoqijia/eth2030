@@ -51,13 +51,12 @@ func TestEIP7702_SetCodeLifecycle(t *testing.T) {
 	}
 
 	// The used auth nonce is invalidated: reusing it must be a silent no-op.
-	auth2 := eiptest.Auth(chainID, alice, delegate, auth.Nonce-1) // already consumed
+	auth2 := eiptest.Auth(chainID, alice, s.Charlie().Address, auth.Nonce) // already consumed
 	tx2 := eiptest.SetCode(chainID, alice, s.Nonce(alice.Address), s.Bob().Address, 500_000,
 		big.NewInt(2_000_000_000), big.NewInt(1_000_000_000), []types.Authorization{auth2})
 	r3 := s.Commit(tx2)
-	if r3.TxCount() > 0 {
-		eiptest.ExpectSuccess(t, r3, 0) // tx succeeds; the stale auth is a no-op
-	}
+	eiptest.ExpectSuccess(t, r3, 0) // the stale authorization is a no-op
+
 	eiptest.ExpectDelegateAt(t, s, alice.Address, delegate)
 
 	// Encoding surface: RLP roundtrip preserves the authorization list.

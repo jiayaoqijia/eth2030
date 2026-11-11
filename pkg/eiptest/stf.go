@@ -1,6 +1,7 @@
 package eiptest
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -23,14 +24,7 @@ func (s *Sim) STF() *STF { return &STF{s: s} }
 // RETURN) so callers pass plain runtime code. Commits one block.
 func (p *STF) Deploy(from *Account, runtime []byte) types.Address {
 	p.s.t.Helper()
-	nonce := p.s.Nonce(from.Address)
-	tx := UnsignedDynamicFee(
-		from.Address, p.s.cfg.ChainID, nonce,
-		nil, big.NewInt(0), wrapInitcode(runtime),
-		1_000_000, big.NewInt(2_000_000_000), big.NewInt(1_000_000_000),
-	)
-	r := p.s.Commit(tx)
-	txr := ExpectSuccess(p.s.t, r, 0)
+	txr := p.execute(from, nil, nil, wrapInitcode(runtime), 1_000_000).ExpectStatus(p.s.t, types.ReceiptStatusSuccessful)
 	addr := txr.ContractAddress()
 	if addr == (types.Address{}) {
 		p.s.t.Fatalf("deployment produced empty contract address (code %x)", runtime)
@@ -59,52 +53,69 @@ func wrapInitcode(runtime []byte) []byte {
 	return append(ic, runtime...)
 }
 
-// Tx sends a transaction to `to` with call data and commits one block.
+// Tx sends a call transaction and requires successful execution.
 func (p *STF) Tx(from *Account, to types.Address, data []byte) *TxResult {
 	p.s.t.Helper()
-	nonce := p.s.Nonce(from.Address)
-	tx := UnsignedDynamicFee(
-		from.Address, p.s.cfg.ChainID, nonce,
-		ToPtr(to), big.NewInt(0), data,
-		1_000_000, big.NewInt(2_000_000_000), big.NewInt(1_000_000_000),
-	)
-	r := p.s.Commit(tx)
-	return ExpectSuccess(p.s.t, r, 0)
+	return p.Execute(from, to, data).ExpectStatus(p.s.t, types.ReceiptStatusSuccessful)
 }
 
-// Transfer sends value and commits one block.
+// Execute sends a call transaction and exposes its receipt, including reverts.
+func (p *STF) Execute(from *Account, to types.Address, data []byte) *TxResult {
+	p.s.t.Helper()
+	return p.execute(from, &to, nil, data, 1_000_000)
+}
+
+// Transfer sends value and requires successful execution.
 func (p *STF) Transfer(from *Account, to types.Address, wei *big.Int) *TxResult {
 	p.s.t.Helper()
-	nonce := p.s.Nonce(from.Address)
-	tx := UnsignedDynamicFee(
-		from.Address, p.s.cfg.ChainID, nonce,
-		ToPtr(to), wei, nil,
-		100_000, big.NewInt(2_000_000_000), big.NewInt(1_000_000_000),
-	)
-	r := p.s.Commit(tx)
-	return ExpectSuccess(p.s.t, r, 0)
+	return p.execute(from, &to, wei, nil, 100_000).ExpectStatus(p.s.t, types.ReceiptStatusSuccessful)
 }
 
-// Call performs a read-only EVM call (eth_call semantics) against the head
-// state. It does not produce a block.
+func (p *STF) execute(from *Account, to *types.Address, value *big.Int, data []byte, gas uint64) *TxResult {
+	p.s.t.Helper()
+	tip := GweiWei(1)
+	fee := new(big.Int).Add(p.s.CurrentBlock().Header().BaseFee, tip)
+	tx := UnsignedDynamicFee(from.Address, p.s.cfg.ChainID, p.s.Nonce(from.Address), to, value, data, gas, fee, tip)
+	return p.s.Commit(tx).Tx(0)
+}
+
+// Call simulates an eth_call at the head and discards any state changes.
 func (p *STF) Call(from types.Address, to types.Address, data []byte) ([]byte, error) {
-	p.s.t.Helper()
-	return p.CallAt(from, to, data, p.s.bc.CurrentBlock().Header().Root)
+	return p.callAtBlock(from, to, data, p.s.CurrentBlock())
 }
 
-// CallAt performs the read-only call against the state at the given root.
+// CallAt simulates an eth_call at the latest canonical block with root.
+// Use CallAtBlock to disambiguate equal roots at different block heights.
 func (p *STF) CallAt(from types.Address, to types.Address, data []byte, root types.Hash) ([]byte, error) {
-	p.s.t.Helper()
-	statedb, err := p.s.bc.StateAtRoot(root)
+	for n := p.s.CurrentBlock().NumberU64(); ; n-- {
+		blk := p.s.bc.GetBlockByNumber(n)
+		if blk != nil && blk.Header().Root == root {
+			return p.callAtBlock(from, to, data, blk)
+		}
+		if n == 0 {
+			return nil, fmt.Errorf("eiptest: no canonical block with root %s", root.Hex())
+		}
+	}
+}
+
+// CallAtBlock simulates an eth_call at a canonical block number.
+func (p *STF) CallAtBlock(from, to types.Address, data []byte, n uint64) ([]byte, error) {
+	blk := p.s.bc.GetBlockByNumber(n)
+	if blk == nil {
+		return nil, fmt.Errorf("eiptest: no canonical block %d", n)
+	}
+	return p.callAtBlock(from, to, data, blk)
+}
+
+func (p *STF) callAtBlock(from, to types.Address, data []byte, blk *types.Block) ([]byte, error) {
+	statedb, err := p.s.bc.StateAtBlock(blk)
 	if err != nil {
 		return nil, err
 	}
-	return p.evmCall(statedb, from, to, data)
+	return p.evmCall(statedb.Dup(), from, to, data, blk.Header())
 }
 
-func (p *STF) evmCall(statedb state.StateDB, from types.Address, to types.Address, data []byte) ([]byte, error) {
-	p.s.t.Helper()
-	header := p.s.bc.CurrentBlock().Header()
+func (p *STF) evmCall(statedb state.StateDB, from, to types.Address, data []byte, header *types.Header) ([]byte, error) {
 	blockCtx := vm.BlockContext{
 		GetHash:     p.s.bc.GetHashFn(),
 		BlockNumber: header.Number,
@@ -121,8 +132,7 @@ func (p *STF) evmCall(statedb state.StateDB, from types.Address, to types.Addres
 	evm := vm.NewEVMWithState(blockCtx, txCtx, vm.Config{}, statedb)
 	// Mirror the state processor: select jump table + precompiles from the
 	// head header's fork rules.
-	head := p.s.bc.CurrentBlock().Header()
-	rules := p.s.cfg.Rules(head.Number, p.s.cfg.IsMerge(), head.Time)
+	rules := p.s.cfg.Rules(header.Number, p.s.cfg.IsMerge(), header.Time)
 	forkRules := vm.ForkRules{
 		IsGlamsterdan:    rules.IsGlamsterdan,
 		IsPrague:         rules.IsPrague,
@@ -144,7 +154,7 @@ func (p *STF) evmCall(statedb state.StateDB, from types.Address, to types.Addres
 	evm.SetJumpTable(vm.SelectJumpTable(forkRules))
 	evm.SetPrecompiles(vm.SelectPrecompiles(forkRules))
 	evm.SetForkRules(forkRules)
-	ret, _, err := evm.StaticCall(from, to, data, 30_000_000)
+	ret, _, err := evm.Call(from, to, data, header.GasLimit, new(big.Int))
 	if err != nil {
 		return nil, err
 	}

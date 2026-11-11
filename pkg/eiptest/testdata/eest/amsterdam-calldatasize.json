@@ -1,0 +1,126 @@
+{
+    "::test_amsterdam_calldatasize[fork_Amsterdam-state_test]": {
+        "env": {
+            "currentCoinbase": "0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba",
+            "currentGasLimit": "0x07270e00",
+            "currentNumber": "0x01",
+            "currentTimestamp": "0x03e8",
+            "currentRandom": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "currentDifficulty": "0x00",
+            "currentBaseFee": "0x00",
+            "currentExcessBlobGas": "0x00"
+        },
+        "pre": {
+            "0x1ad9bc24818784172ff393bb6f89f094d4d2ca29": {
+                "nonce": "0x00",
+                "balance": "0x3635c9adc5dea00000",
+                "code": "0x",
+                "storage": {}
+            },
+            "0x5a0e04fea8a895cec4187fcbc85a1049aa35471d": {
+                "nonce": "0x01",
+                "balance": "0x00",
+                "code": "0x3660005500",
+                "storage": {}
+            }
+        },
+        "transaction": {
+            "nonce": "0x00",
+            "gasPrice": "0x00",
+            "gasLimit": [
+                "0x0186a0"
+            ],
+            "to": "0x5a0e04fea8a895cec4187fcbc85a1049aa35471d",
+            "value": [
+                "0x00"
+            ],
+            "data": [
+                "0x0102"
+            ],
+            "sender": "0x1ad9bc24818784172ff393bb6f89f094d4d2ca29",
+            "secretKey": "0xd5373e4857dd9acbbcda42f603592bd9d3ef6e184948677074018970f7c292e3"
+        },
+        "post": {
+            "Amsterdam": [
+                {
+                    "hash": "0x88c7a7f7d67e7de49822a6390c4548c7c8e008d08dbd912e4c6b993ce1c5b929",
+                    "logs": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+                    "receipt": {
+                        "transactionHash": "0x285ec7e9340562aae4f2593b00d58b20c38baad9bd8b9c7a8cfd97818839336c",
+                        "type": "0x00",
+                        "cumulativeGasUsed": "0xa881",
+                        "bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                        "logs": [],
+                        "status": true,
+                        "rlp": "0xf901080182a881b9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0"
+                    },
+                    "txbytes": "0xf8628080830186a0945a0e04fea8a895cec4187fcbc85a1049aa35471d8082010225a0de936b8eda0f7cacd6f428c3028bdfa492211274ac5503744b5df978603ab28fa03b63b62d9674a8b3e5f9440626481c54e9c8e8242ccf8dcbdad302f84c61561d",
+                    "indexes": {
+                        "data": 0,
+                        "gas": 0,
+                        "value": 0
+                    },
+                    "state": {
+                        "0x1ad9bc24818784172ff393bb6f89f094d4d2ca29": {
+                            "nonce": "0x01",
+                            "balance": "0x3635c9adc5dea00000",
+                            "code": "0x",
+                            "storage": {}
+                        },
+                        "0x5a0e04fea8a895cec4187fcbc85a1049aa35471d": {
+                            "nonce": "0x01",
+                            "balance": "0x00",
+                            "code": "0x3660005500",
+                            "storage": {
+                                "0x00": "0x02"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "config": {
+            "blobSchedule": {
+                "Cancun": {
+                    "target": "0x03",
+                    "max": "0x06",
+                    "baseFeeUpdateFraction": "0x32f0ed"
+                },
+                "Prague": {
+                    "target": "0x06",
+                    "max": "0x09",
+                    "baseFeeUpdateFraction": "0x4c6964"
+                },
+                "Osaka": {
+                    "target": "0x06",
+                    "max": "0x09",
+                    "baseFeeUpdateFraction": "0x4c6964"
+                },
+                "BPO1": {
+                    "target": "0x0a",
+                    "max": "0x0f",
+                    "baseFeeUpdateFraction": "0x7f5a51"
+                },
+                "BPO2": {
+                    "target": "0x0e",
+                    "max": "0x15",
+                    "baseFeeUpdateFraction": "0xb24b3f"
+                },
+                "Amsterdam": {
+                    "target": "0x0e",
+                    "max": "0x15",
+                    "baseFeeUpdateFraction": "0xb24b3f"
+                }
+            },
+            "chainid": "0x01"
+        },
+        "_info": {
+            "hash": "0x47ca8f7324a3f7c0a2fbccbaa42faf7771425d931ac9cae87757e968420b2df7",
+            "comment": "`execution-specs` generated test",
+            "filling-transition-tool": "2.19.0",
+            "description": "Read calldata size, persist it, and assert the post-state.",
+            "url": "https://github.com/ethereum/execution-specs/blob/c708ab6075973b6b928d17ec073dd43a7fe161b6/../../pkg/eiptest/testdata/eest-fill/test_amsterdam_state.py#L7",
+            "fixture-format": "state_test"
+        }
+    }
+}

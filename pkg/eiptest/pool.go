@@ -1,6 +1,7 @@
 package eiptest
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -45,22 +46,9 @@ func (p *PoolProbe) ExpectRejected(t *testing.T, tx *types.Transaction, substr s
 	if err == nil {
 		t.Fatalf("pool accepted tx (type %d, nonce %d), want rejection containing %q", tx.Type(), tx.Nonce(), substr)
 	}
-	if substr != "" && !contains(err.Error(), substr) {
+	if substr != "" && !strings.Contains(err.Error(), substr) {
 		t.Fatalf("pool rejection = %q, want containing %q", err.Error(), substr)
 	}
-}
-
-func contains(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }
 
 // Pending returns the pool's current pending (executable) transactions.
@@ -79,12 +67,21 @@ func (p *PoolProbe) ExpectPendingCount(t *testing.T, n int) {
 func (p *PoolProbe) CommitPending() *BlockResult {
 	t := p.s.t
 	t.Helper()
-	before := len(p.Pending())
 	r := p.s.CommitFromPool()
-	if got := len(r.Receipts); got != before {
-		t.Fatalf("block built %d txs but pool had %d pending", got, before)
+	for _, tx := range r.Block.Transactions() {
+		if p.pool.Get(tx.Hash()) != nil {
+			t.Fatalf("included transaction %s remains in the pool", tx.Hash().Hex())
+		}
 	}
 	return r
+}
+
+// ExpectPresent checks pool membership, including queued transactions.
+func (p *PoolProbe) ExpectPresent(t *testing.T, tx *types.Transaction, want bool) {
+	t.Helper()
+	if got := p.pool.Get(tx.Hash()) != nil; got != want {
+		t.Fatalf("pool membership for %s = %t, want %t", tx.Hash().Hex(), got, want)
+	}
 }
 
 // ExpectNonceGapFree asserts every sender's pending txs form a contiguous

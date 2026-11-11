@@ -630,6 +630,10 @@ func (evm *EVM) CallCode(caller types.Address, addr types.Address, input []byte,
 // DelegateCall executes a DELEGATECALL operation.
 // Like CALLCODE but preserves the original caller and value.
 func (evm *EVM) DelegateCall(caller types.Address, addr types.Address, input []byte, gas uint64) ([]byte, uint64, error) {
+	return evm.delegateCall(caller, caller, nil, addr, input, gas)
+}
+
+func (evm *EVM) delegateCall(caller, executionAddr types.Address, value *big.Int, addr types.Address, input []byte, gas uint64) ([]byte, uint64, error) {
 	if evm.depth > evm.Config.MaxCallDepth {
 		return nil, gas, ErrMaxCallDepthExceeded
 	}
@@ -651,8 +655,8 @@ func (evm *EVM) DelegateCall(caller types.Address, addr types.Address, input []b
 	}
 
 	// DELEGATECALL preserves the caller (msg.sender) and value from the current context.
-	// Storage operations happen on the caller's storage, not the callee's.
-	contract := NewContract(caller, caller, nil, gas)
+	// Storage operations happen in the parent contract's execution context.
+	contract := NewContract(caller, executionAddr, value, gas)
 	contract.Code = code
 	contract.CodeHash = evm.StateDB.GetCodeHash(addr)
 

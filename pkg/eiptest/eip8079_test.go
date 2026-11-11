@@ -1,35 +1,30 @@
 package eiptest_test
 
 import (
+	"encoding/binary"
+	"errors"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/eiptest"
 	"github.com/eth2030/eth2030/rollup"
 )
 
-// TestEIP8079_ExecutePrecompile verifies the native-rollup EXECUTE precompile
-// surface: it exists, rejects malformed input, and is wired through the EVM
-// precompile registry (chain-level eth_call).
-func TestEIP8079_ExecutePrecompile(t *testing.T) {
-	s := eiptest.New(t)
-	stf := s.STF()
-
-	executeAddr := rollup.ExecutePrecompileAddress
-	if executeAddr == (types.Address{}) {
-		t.Skip("EXECUTE precompile address not exported")
+// The draft leaves the address and ABI open. Exercise the repository's
+// rollup execution component until the EVM precompile contract is specified.
+func TestEIP8079_ExecuteComponent(t *testing.T) {
+	execute := new(rollup.ExecutePrecompile)
+	if _, err := execute.Run(nil); !errors.Is(err, rollup.ErrInputTooShort) {
+		t.Fatalf("empty input: %v", err)
 	}
-
-	// Malformed (empty) input must be rejected cleanly.
-	if _, err := stf.Call(s.Alice().Address, executeAddr, nil); err == nil {
-		t.Log("EXECUTE accepted empty input (permissive mode)")
+	input := make([]byte, 53)
+	binary.BigEndian.PutUint32(input[40:44], 1)
+	input[52] = 0xc0 // empty rollup transaction list
+	result, err := execute.Run(input)
+	if err != nil || len(result) != 81 || result[80] != 0 {
+		t.Fatalf("zero chain ID produced %x: %v", result, err)
 	}
-
-	// Structured input for a trivial state transition must either succeed or
-	// fail with a domain error — but never crash the EVM.
-	input := make([]byte, 64)
-	input[0] = 0x01
-	if _, err := stf.Call(s.Alice().Address, executeAddr, input); err != nil {
-		t.Logf("EXECUTE structured input rejected (expected without anchor state): %v", err)
+	binary.BigEndian.PutUint64(input[0:8], 1)
+	result, err = execute.Run(input)
+	if err != nil || len(result) != 81 || result[80] != 1 {
+		t.Fatalf("valid empty rollup block produced %x: %v", result, err)
 	}
 }

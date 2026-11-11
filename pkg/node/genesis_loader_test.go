@@ -392,3 +392,46 @@ func TestNodeWithGenesisFile(t *testing.T) {
 		t.Errorf("NetworkID = %d, want 1337 (from genesis chainId)", n.Config().NetworkID)
 	}
 }
+
+func TestLoadGenesisFile_ScheduledForksRoundTrip(t *testing.T) {
+	const genesisTime = uint64(100)
+	var input map[string]any
+	if err := json.Unmarshal(minimalGenesisJSON(1337), &input); err != nil {
+		t.Fatal(err)
+	}
+	input["timestamp"] = "0x64"
+	cfgFields := input["config"].(map[string]any)
+	cfgFields["amsterdamTime"] = genesisTime + 18
+	cfgFields["glamsterdanTime"] = genesisTime + 31
+	cfgFields["hogotaTime"] = genesisTime + 43
+	cfgFields["bpo2Time"] = genesisTime + 61
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.GenesisPath = filepath.Join(t.TempDir(), "genesis.json")
+	if err := os.WriteFile(cfg.GenesisPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	genesis, err := loadGenesisFile(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesis.Timestamp != genesisTime || genesis.ToBlock().Time() != genesisTime {
+		t.Fatalf("genesis time %d", genesis.Timestamp)
+	}
+	for _, fork := range []struct {
+		at     uint64
+		active func(uint64) bool
+	}{
+		{118, genesis.Config.IsAmsterdam},
+		{131, genesis.Config.IsGlamsterdan},
+		{143, genesis.Config.IsHogota},
+		{161, genesis.Config.IsBPO2},
+	} {
+		if fork.active(fork.at-1) || !fork.active(fork.at) {
+			t.Fatalf("fork did not switch at %d", fork.at)
+		}
+	}
+}
