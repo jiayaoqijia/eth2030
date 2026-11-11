@@ -21,11 +21,11 @@ func TestDilithium3SizeConstants(t *testing.T) {
 	if Dilithium3PubKeySize != 1952 {
 		t.Errorf("Dilithium3PubKeySize = %d, want 1952", Dilithium3PubKeySize)
 	}
-	if Dilithium3SecKeySize != 4000 {
-		t.Errorf("Dilithium3SecKeySize = %d, want 4000", Dilithium3SecKeySize)
+	if Dilithium3SecKeySize != 4032 {
+		t.Errorf("Dilithium3SecKeySize = %d, want 4032", Dilithium3SecKeySize)
 	}
-	if Dilithium3SigSize != 3293 {
-		t.Errorf("Dilithium3SigSize = %d, want 3293", Dilithium3SigSize)
+	if Dilithium3SigSize != 3309 {
+		t.Errorf("Dilithium3SigSize = %d, want 3309", Dilithium3SigSize)
 	}
 }
 
@@ -33,11 +33,11 @@ func TestFalcon512SizeConstants(t *testing.T) {
 	if Falcon512PubKeySize != 897 {
 		t.Errorf("Falcon512PubKeySize = %d, want 897", Falcon512PubKeySize)
 	}
-	if Falcon512SecKeySize != 1281 {
-		t.Errorf("Falcon512SecKeySize = %d, want 1281", Falcon512SecKeySize)
+	if Falcon512SecKeySize != 1345 {
+		t.Errorf("Falcon512SecKeySize = %d, want 1345", Falcon512SecKeySize)
 	}
-	if Falcon512SigSize != 690 {
-		t.Errorf("Falcon512SigSize = %d, want 690", Falcon512SigSize)
+	if Falcon512SigSize != 666 {
+		t.Errorf("Falcon512SigSize = %d, want 666", Falcon512SigSize)
 	}
 }
 
@@ -48,8 +48,8 @@ func TestSPHINCSsha256SizeConstants(t *testing.T) {
 	if SPHINCSSha256SecKeySize != 64 {
 		t.Errorf("SPHINCSSha256SecKeySize = %d, want 64", SPHINCSSha256SecKeySize)
 	}
-	if SPHINCSSha256SigSize != 49216 {
-		t.Errorf("SPHINCSSha256SigSize = %d, want 49216", SPHINCSSha256SigSize)
+	if SPHINCSSha256SigSize != 17088 {
+		t.Errorf("SPHINCSSha256SigSize = %d, want 17088", SPHINCSSha256SigSize)
 	}
 }
 
@@ -84,7 +84,7 @@ func TestSecKeySizeAllAlgorithms(t *testing.T) {
 		want int
 	}{
 		{DILITHIUM3, DSign3SecKeyBytes},
-		{FALCON512, 1281},
+		{FALCON512, 1345},
 		{SPHINCSSHA256, 64},
 	}
 	for _, tt := range tests {
@@ -109,8 +109,8 @@ func TestSigSizeAllAlgorithms(t *testing.T) {
 		want int
 	}{
 		{DILITHIUM3, DSign3SigBytes},
-		{FALCON512, 690},
-		{SPHINCSSHA256, 49216},
+		{FALCON512, 666},
+		{SPHINCSSHA256, 17088},
 	}
 	for _, tt := range tests {
 		got := SigSize(tt.alg)

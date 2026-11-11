@@ -12,6 +12,9 @@ package types
 import (
 	"errors"
 	"fmt"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/slhdsa"
+	"github.com/pornin/go-fn-dsa/fndsa"
 	"sync"
 
 	"golang.org/x/crypto/sha3"
@@ -33,16 +36,16 @@ const (
 
 // Expected public key sizes per PQ algorithm for the real validator.
 var pqRealPubKeySizes = map[uint8]int{
-	PQSigTypeMLDSA:   DilithiumPubKeySize,   // 1568
+	PQSigTypeMLDSA:   DilithiumPubKeySize,
 	PQSigTypeFalcon:  FalconPubKeySize,      // 897
 	PQSigTypeSPHINCS: SPHINCSPlusPubKeySize, // 32
 }
 
 // Expected signature sizes per PQ algorithm for the real validator.
 var pqRealSigSizes = map[uint8]int{
-	PQSigTypeMLDSA:   DilithiumSigSize,   // 1376
-	PQSigTypeFalcon:  FalconSigSize,      // 690
-	PQSigTypeSPHINCS: SPHINCSPlusSigSize, // 49216
+	PQSigTypeMLDSA:   DilithiumSigSize,
+	PQSigTypeFalcon:  FalconSigSize,
+	PQSigTypeSPHINCS: SPHINCSPlusSigSize,
 }
 
 // PQRealVerifyFunc verifies a PQ signature: (pubkey, message, signature) -> valid.
@@ -79,20 +82,18 @@ type PQTxValidatorReal struct {
 	signers map[uint8]*PQRealSignerEntry
 }
 
-// NewPQTxValidatorReal creates a new real PQ validator with default stub
-// verifiers. Callers should register real verifiers via RegisterSigner.
+// NewPQTxValidatorReal creates a validator with the standard PQ providers.
 func NewPQTxValidatorReal() *PQTxValidatorReal {
 	v := &PQTxValidatorReal{
 		signers: make(map[uint8]*PQRealSignerEntry),
 	}
-	// Register default entries with nil verifiers. Callers must wire
-	// real verifiers before using ValidatePQSignatureReal.
 	v.signers[PQSigTypeMLDSA] = &PQRealSignerEntry{
 		Name:       "ML-DSA-65",
 		SigType:    PQSigTypeMLDSA,
 		PubKeySize: pqRealPubKeySizes[PQSigTypeMLDSA],
 		SigSize:    pqRealSigSizes[PQSigTypeMLDSA],
 		GasCost:    PQGasCostMLDSA,
+		Verify:     pqDefaultVerifyMLDSA,
 	}
 	v.signers[PQSigTypeFalcon] = &PQRealSignerEntry{
 		Name:       "Falcon-512",
@@ -100,6 +101,7 @@ func NewPQTxValidatorReal() *PQTxValidatorReal {
 		PubKeySize: pqRealPubKeySizes[PQSigTypeFalcon],
 		SigSize:    pqRealSigSizes[PQSigTypeFalcon],
 		GasCost:    PQGasCostFalcon,
+		Verify:     pqDefaultVerifyFalcon,
 	}
 	v.signers[PQSigTypeSPHINCS] = &PQRealSignerEntry{
 		Name:       "SPHINCS+-SHA256",
@@ -107,12 +109,12 @@ func NewPQTxValidatorReal() *PQTxValidatorReal {
 		PubKeySize: pqRealPubKeySizes[PQSigTypeSPHINCS],
 		SigSize:    pqRealSigSizes[PQSigTypeSPHINCS],
 		GasCost:    PQGasCostSPHINCS,
+		Verify:     pqDefaultVerifySPHINCS,
 	}
 	return v
 }
 
 // DefaultPQValidator is the package-level shared PQ transaction validator.
-// Real PQ signers are wired by the node at startup via RegisterSigner.
 var DefaultPQValidator = NewPQTxValidatorReal()
 
 // RegisterSigner registers a real PQ verifier function for the given algorithm.
@@ -162,9 +164,9 @@ func (v *PQTxValidatorReal) ValidatePQSignatureReal(tx *PQTransaction) error {
 	}
 
 	// Compute signing message: hash of the unsigned transaction fields.
-	msg := pqRealSigningHash(tx)
+	msg := tx.SigningHash()
 
-	if !entry.Verify(tx.PQPublicKey, msg, tx.PQSignature) {
+	if !entry.Verify(tx.PQPublicKey, msg[:], tx.PQSignature) {
 		return ErrPQRealVerifyFailed
 	}
 	return nil
@@ -278,41 +280,45 @@ func (v *PQTxValidatorReal) GetSignerEntry(sigType uint8) (*PQRealSignerEntry, b
 	return entry, ok
 }
 
-// pqRealSigningHash computes the hash of the unsigned transaction fields.
-// This is the message that gets signed by the PQ algorithm.
-func pqRealSigningHash(tx *PQTransaction) []byte {
-	d := sha3.NewLegacyKeccak256()
-	if tx.ChainID != nil {
-		d.Write(tx.ChainID.Bytes())
+func pqDefaultVerifyMLDSA(pk, msg, sig []byte) bool {
+	var key mldsa65.PublicKey
+	return len(pk) == DilithiumPubKeySize && len(sig) == DilithiumSigSize &&
+		key.UnmarshalBinary(pk) == nil && mldsa65.Verify(&key, msg, nil, sig)
+}
+
+func pqDefaultVerifyFalcon(pk, msg, sig []byte) bool {
+	return len(pk) == FalconPubKeySize && len(sig) == FalconSigSize &&
+		fndsa.Verify(pk, nil, 0, msg, sig)
+}
+
+func pqDefaultVerifySPHINCS(pk, msg, sig []byte) bool {
+	key := slhdsa.PublicKey{ID: slhdsa.SHA2_128f}
+	return len(pk) == SPHINCSPlusPubKeySize && len(sig) == SPHINCSPlusSigSize &&
+		key.UnmarshalBinary(pk) == nil && slhdsa.Verify(&key, slhdsa.NewMessage(msg), sig, nil)
+}
+
+// ValidatePQTransactionSignature uses the fixed providers for consensus and admission.
+func ValidatePQTransactionSignature(tx *PQTransaction) error {
+	if tx == nil {
+		return ErrPQRealNilTx
 	}
-	var buf [8]byte
-	buf[0] = byte(tx.Nonce >> 56)
-	buf[1] = byte(tx.Nonce >> 48)
-	buf[2] = byte(tx.Nonce >> 40)
-	buf[3] = byte(tx.Nonce >> 32)
-	buf[4] = byte(tx.Nonce >> 24)
-	buf[5] = byte(tx.Nonce >> 16)
-	buf[6] = byte(tx.Nonce >> 8)
-	buf[7] = byte(tx.Nonce)
-	d.Write(buf[:])
-	if tx.To != nil {
-		d.Write(tx.To[:])
+	hash := tx.SigningHash()
+	if hash == (Hash{}) {
+		return ErrPQRealVerifyFailed
 	}
-	if tx.Value != nil {
-		d.Write(tx.Value.Bytes())
+	var valid bool
+	switch tx.PQSignatureType {
+	case PQSigDilithium:
+		valid = pqDefaultVerifyMLDSA(tx.PQPublicKey, hash[:], tx.PQSignature)
+	case PQSigFalcon:
+		valid = pqDefaultVerifyFalcon(tx.PQPublicKey, hash[:], tx.PQSignature)
+	case PQSigSPHINCS:
+		valid = pqDefaultVerifySPHINCS(tx.PQPublicKey, hash[:], tx.PQSignature)
+	default:
+		return ErrPQRealUnknownAlg
 	}
-	buf[0] = byte(tx.Gas >> 56)
-	buf[1] = byte(tx.Gas >> 48)
-	buf[2] = byte(tx.Gas >> 40)
-	buf[3] = byte(tx.Gas >> 32)
-	buf[4] = byte(tx.Gas >> 24)
-	buf[5] = byte(tx.Gas >> 16)
-	buf[6] = byte(tx.Gas >> 8)
-	buf[7] = byte(tx.Gas)
-	d.Write(buf[:])
-	if tx.GasPrice != nil {
-		d.Write(tx.GasPrice.Bytes())
+	if !valid {
+		return ErrPQRealVerifyFailed
 	}
-	d.Write(tx.Data)
-	return d.Sum(nil)
+	return nil
 }

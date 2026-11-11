@@ -1,5 +1,69 @@
 # Lean4 Verification Check-list
 
+## PR #47 Merge Resolution
+
+- [x] Confirm the pull request head and fetch the current upstream base.
+- [x] Create an isolated worktree for the merge.
+- [x] Reconcile the status entries and preserve the roadmap and tracker navigation.
+- [x] Build the site and Go module, and verify the static export and selected Go packages.
+- [x] Scope all merge and staging operations to the isolated worktree.
+
+## Cryptography Regression Fixes
+
+- [x] Wire PQ signature verification through transaction admission and native execution.
+- [x] Activate canonical BLS precompiles at Prague and preserve historical native execution rules.
+- [x] Correct RLPx identity, PeerDAS cell validation, and ECIES empty messages.
+- [x] Repair proof batch deadlines and STARK gossip round-tripping.
+- [x] Verify the regression probes, upstream vectors, and the full Go suite.
+
+## Public Cryptography Library Migration (2026-11-10)
+
+- [x] Replace secp256k1 signing and recovery, BN254 precompile arithmetic, and BLAKE2b compression.
+- [x] Replace BLS12-381 precompile arithmetic, mappings and compression, and consolidate KZG providers.
+- [x] Replace ECIES, keystore, RLPx, and Engine JWT implementations and document protocol migration boundaries.
+- [x] Integrate public PQ signature and KEM providers with explicit encoding compatibility.
+- [x] Move Groth16 verification, AA circuit startup, Banderwagon group arithmetic, and EVM transforms to gnark.
+- [x] Remove superseded implementations and standalone placeholder backends after checking callers.
+- [x] Verify a clean snapshot with Go builds, vet, fixture-backed tests, and the tagged suites.
+- [ ] Complete experimental proof protocols in the follow-up below.
+
+## Ethereum Client Cryptography Follow-Up (2026-11-10)
+
+- [x] Trace the libraries used by the pinned Geth and consensus references to their actual callers.
+- [x] Migrate experimental IPA openings, Poseidon, VDF and VRF to public providers.
+- [x] Migrate encrypted-mempool share reconstruction and retire unused standalone schemes.
+- [x] Verify actual IPA and KZG openings in batch and require configured SNARK and STARK providers.
+- [x] Carry complete ML-DSA keys and signatures through the gossip codec.
+- [x] Verify the full source snapshot with pinned EF fixtures, build, vet, tagged, Go-only, and targeted race checks.
+- [ ] Migrate the remaining application-specific STARK, lattice commitment and aggregation protocols.
+
+## Unused Package Cleanup (2026-11-10)
+
+- [x] Remove the six packages selected in the first cleanup batch and update package indexes.
+- [x] Verify builds, tests, and the executable dependency graphs from a clean snapshot.
+
+## Codebase Audit Follow-Up (2026-11-10)
+
+- [x] Verify native EIP-4844 point evaluation with the Ethereum ceremony setup and align binary build tags.
+- [x] Provision pinned EF fixtures in CI and enforce the geth-backed vector results.
+- [x] Upgrade gnark and exercise BN254 circuit compilation, setup, proving, and verification.
+- [x] Resolve permanent skips, placeholders, weak checks, tagged suites, and race coverage.
+- [x] Verify dead-code candidates and clean ignored local audit artifacts.
+- [x] Run the supported build and test matrix and record each outcome.
+
+## Codebase Audit Evidence Review (2026-11-10)
+
+- [x] Reconcile reachability findings with production, test, and tagged builds.
+- [x] Record the fixture, test coverage, and dependency scan results with their limits.
+- [x] Revise the proposed follow-up and verify the documentation and local builds.
+
+## English Documentation Review (2026-11-10)
+
+- [x] Scan project-owned documentation for Chinese text.
+- [x] Manually translate `docs/CODEBASE_AUDIT.md` and any other Chinese documentation.
+- [x] Record the English documentation requirement in `AGENTS.md`.
+- [x] Verify the translation, repeat the language scan, and run local builds.
+
 ## Inclusion List JSON Refactor (2026-03-21)
 - [x] Extract small inclusion-list JSON parsing helpers in `pkg/engine/inclusion_list.go`.
 - [x] Reuse the helpers from the custom marshal/unmarshal code.

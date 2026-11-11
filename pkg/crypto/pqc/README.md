@@ -4,9 +4,7 @@
 
 ## Overview
 
-This package implements post-quantum cryptographic primitives for the Post-Quantum L1 North Star. It covers four signature schemes: Dilithium3 (real lattice operations, CRYSTALS-Dilithium NIST level 3), Falcon512 (NTRU-lattice, NIST level 1), SPHINCS+-SHA256 (stateless hash-based, NIST level 1), and ML-DSA-65 (FIPS 204 compliant, backed by `github.com/cloudflare/circl`). A unified `PQSigner` interface allows algorithm-agnostic code, while a hybrid signer combines classical ECDSA with a PQ algorithm for migration.
-
-Additional sub-systems include: a PQ algorithm registry for on-chain algorithm selection, a PQ transaction signer for signing Ethereum transactions, lattice-based blob commitments (MLWE), hash-based multi-signatures (XMSS/WOTS+ unified hash signer), a threshold PQ scheme, and a custody replacer for upgrading existing custody proofs to PQ-safe equivalents.
+The `PQSigner` API wraps CIRCL ML-DSA and SLH-DSA, and go-fn-dsa FN-DSA-512. CIRCL also supplies ML-KEM-768. The registry exposes the selected algorithms, and hybrid signing combines ECDSA with a PQ signer.
 
 ## Functionality
 
@@ -21,7 +19,6 @@ Additional sub-systems include: a PQ algorithm registry for on-chain algorithm s
 - `MLDSASigner` — FIPS 204 ML-DSA-65 via cloudflare/circl
 - `SPHINCSSigner` — stateless hash-based signatures
 - `HybridSigner` — ECDSA + PQ combined signature
-- `UnifiedHashSigner` — XMSS/WOTS+ hash-based scheme
 
 **Supporting infrastructure**
 - `PQAlgorithmRegistry` — on-chain algorithm capability registry
@@ -33,10 +30,7 @@ Additional sub-systems include: a PQ algorithm registry for on-chain algorithm s
 - `SignaturePipeline` — end-to-end PQ signing pipeline
 - `PubKeyRegistry` — maps lean-sig public keys to PQ counterparts
 
-**Size constants**
-- Dilithium3: pubkey 1952 B, seckey 4000 B, sig 3293 B
-- Falcon512: pubkey 897 B, seckey 1281 B, sig 690 B
-- SPHINCS+-SHA256: pubkey 32 B, seckey 64 B, sig 49216 B
+The size constants derive from the public providers. Existing historical algorithm identifiers select the current library encodings.
 
 ## Usage
 

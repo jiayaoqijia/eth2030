@@ -1,4 +1,4 @@
-// recursive_aggregator.go implements real proof aggregation with multiple
+// recursive_aggregator.go commits to batches of proofs with multiple
 // strategies (sequential, parallel, recursive) and type-specific verifiers
 // (SNARK, STARK, IPA). Aggregated proofs are bound by a Merkle root over
 // individual proof roots, supporting batch splitting and recursive composition.
@@ -11,8 +11,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"sync"
-
-	"github.com/eth2030/eth2030/crypto"
 )
 
 // Recursive aggregation errors.
@@ -345,64 +343,6 @@ func (pa *ProofAggregatorV2) SplitAndAggregate(proofs []Proof, batchSize int) ([
 	return results, nil
 }
 
-// --- Type-specific verifiers ---
-
-// SNARKVerifier verifies SNARK-type proofs. For 192-byte proofs, attempts
-// BLS12-381 Groth16 deserialization and structural validation. For other
-// sizes, verifies a cryptographic binding commitment using Keccak256 over
-// a domain separator and the proof data + prover identity.
-type SNARKVerifier struct{}
-
-func (v *SNARKVerifier) ProofType() string { return "SNARK" }
-
-func (v *SNARKVerifier) Verify(proof *Proof) (bool, error) {
-	if proof == nil || len(proof.Data) == 0 {
-		return false, ErrRecAggEmptyData
-	}
-	// Try BLS12-381 Groth16 deserialization for 192-byte proofs.
-	if len(proof.Data) == 192 {
-		g16proof, err := DeserializeBLSGroth16Proof(proof.Data)
-		if err == nil && g16proof != nil {
-			if err := ValidateGroth16Proof(g16proof); err == nil {
-				return true, nil
-			}
-		}
-	}
-	// Binding commitment: Keccak256(domain || data || proverID) must be non-zero.
-	h := crypto.Keccak256([]byte("snark-agg-verify"), proof.Data, []byte(proof.ProverID))
-	return h != nil && len(h) == 32, nil
-}
-
-// STARKVerifier verifies STARK-type proofs using a cryptographic binding
-// commitment: Keccak256(domain || data || proverID) must produce a valid hash.
-type STARKVerifier struct{}
-
-func (v *STARKVerifier) ProofType() string { return "STARK" }
-
-func (v *STARKVerifier) Verify(proof *Proof) (bool, error) {
-	if proof == nil || len(proof.Data) == 0 {
-		return false, ErrRecAggEmptyData
-	}
-	// Binding commitment verification with STARK domain separator.
-	h := crypto.Keccak256([]byte("stark-agg-verify"), proof.Data, []byte(proof.ProverID))
-	return h != nil && len(h) == 32, nil
-}
-
-// IPAVerifier verifies IPA (Inner Product Argument) proofs using a
-// cryptographic binding commitment: Keccak256(domain || data || proverID).
-type IPAVerifier struct{}
-
-func (v *IPAVerifier) ProofType() string { return "IPA" }
-
-func (v *IPAVerifier) Verify(proof *Proof) (bool, error) {
-	if proof == nil || len(proof.Data) == 0 {
-		return false, ErrRecAggEmptyData
-	}
-	// Binding commitment verification with IPA domain separator.
-	h := crypto.Keccak256([]byte("ipa-agg-verify"), proof.Data, []byte(proof.ProverID))
-	return h != nil && len(h) == 32, nil
-}
-
 // --- Internal helpers ---
 
 // hashPair hashes two 32-byte values together using SHA-256.
@@ -465,32 +405,5 @@ func serializeAggregation(roots [][32]byte, aggRoot [32]byte) []byte {
 	for i, r := range roots {
 		copy(data[36+32*i:36+32*(i+1)], r[:])
 	}
-	return data
-}
-
-// MakeValidSNARKProof creates proof data that will pass SNARKVerifier.
-// Any non-empty data passes the binding commitment verifier.
-func MakeValidSNARKProof() []byte {
-	data := make([]byte, 36)
-	copy(data, []byte("snark-proof"))
-	binary.BigEndian.PutUint32(data[32:], 0)
-	return data
-}
-
-// MakeValidSTARKProof creates proof data that will pass STARKVerifier.
-// Any non-empty data passes the binding commitment verifier.
-func MakeValidSTARKProof() []byte {
-	data := make([]byte, 36)
-	copy(data, []byte("stark-proof"))
-	binary.BigEndian.PutUint32(data[32:], 0)
-	return data
-}
-
-// MakeValidIPAProof creates proof data that will pass IPAVerifier.
-// Any non-empty data passes the binding commitment verifier.
-func MakeValidIPAProof() []byte {
-	data := make([]byte, 34)
-	copy(data, []byte("ipa-proof"))
-	binary.BigEndian.PutUint32(data[30:], 0)
 	return data
 }

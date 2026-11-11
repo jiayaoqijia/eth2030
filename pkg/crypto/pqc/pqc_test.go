@@ -32,7 +32,7 @@ func TestSecKeySize(t *testing.T) {
 		want int
 	}{
 		{DILITHIUM3, DSign3SecKeyBytes},
-		{FALCON512, 1281},
+		{FALCON512, 1345},
 		{SPHINCSSHA256, 64},
 	}
 	for _, tt := range tests {
@@ -48,8 +48,8 @@ func TestSigSize(t *testing.T) {
 		want int
 	}{
 		{DILITHIUM3, DSign3SigBytes},
-		{FALCON512, 690},
-		{SPHINCSSHA256, 49216},
+		{FALCON512, 666},
+		{SPHINCSSHA256, 17088},
 	}
 	for _, tt := range tests {
 		if got := SigSize(tt.alg); got != tt.want {
@@ -67,8 +67,8 @@ func TestGetSigner(t *testing.T) {
 	if s := GetSigner(FALCON512); s == nil {
 		t.Fatal("GetSigner(FALCON512) returned nil")
 	}
-	if s := GetSigner(SPHINCSSHA256); s != nil {
-		t.Fatal("GetSigner(SPHINCSSHA256) should return nil (no signer yet)")
+	if s := GetSigner(SPHINCSSHA256); s == nil {
+		t.Fatal("GetSigner(SPHINCSSHA256) returned nil")
 	}
 	if s := GetSigner(PQAlgorithm(99)); s != nil {
 		t.Fatal("GetSigner(99) should return nil")

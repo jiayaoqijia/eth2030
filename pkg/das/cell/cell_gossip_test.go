@@ -90,7 +90,7 @@ func TestAssignSubnetsDifferentNodes(t *testing.T) {
 		}
 	}
 	if allSame {
-		t.Log("warning: different nodes produced identical subnets (unlikely but possible)")
+		t.Error("fixed nodes produced identical subnets")
 	}
 }
 

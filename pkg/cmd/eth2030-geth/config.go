@@ -125,8 +125,12 @@ func parseBootnodes(network string) []*enode.Node {
 	switch network {
 	case "sepolia":
 		urls = params.SepoliaBootnodes
+	case "hoodi":
+		urls = params.HoodiBootnodes
 	case "holesky":
-		urls = params.HoleskyBootnodes
+		// Holesky was removed upstream in go-ethereum v1.17.x (superseded by
+		// Hoodi); fall back to Hoodi discovery nodes.
+		urls = params.HoodiBootnodes
 	default:
 		urls = params.MainnetBootnodes
 	}
@@ -200,9 +204,16 @@ func mapEthConfig(p ethConfigParams) ethconfig.Config {
 		case "sepolia":
 			cfg.Genesis = core.DefaultSepoliaGenesisBlock()
 			cfg.NetworkId = 11155111
+		case "hoodi":
+			cfg.Genesis = core.DefaultHoodiGenesisBlock()
+			cfg.NetworkId = 560048
 		case "holesky":
-			cfg.Genesis = core.DefaultHoleskyGenesisBlock()
-			cfg.NetworkId = 17000
+			// Holesky's built-in genesis was removed upstream in go-ethereum
+			// v1.17.x (superseded by Hoodi). Map to Hoodi so existing
+			// --network holesky invocations keep booting against a live
+			// testnet instead of failing.
+			cfg.Genesis = core.DefaultHoodiGenesisBlock()
+			cfg.NetworkId = 560048
 		default:
 			cfg.Genesis = core.DefaultGenesisBlock()
 			cfg.NetworkId = 1

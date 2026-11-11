@@ -98,13 +98,8 @@ func TestStarkTickBroadcastSizeLimit(t *testing.T) {
 		t.Fatalf("GenerateTick: %v", err)
 	}
 
-	// Verify the serialized size exceeds MaxTickSize.
-	data, err := tick.MarshalBinary()
-	if err != nil {
-		t.Fatalf("MarshalBinary: %v", err)
-	}
-	if len(data) <= MaxTickSize {
-		t.Skipf("tick size %d does not exceed MaxTickSize %d, skipping", len(data), MaxTickSize)
+	if _, err := tick.MarshalBinary(); err != ErrAggTickTooLarge {
+		t.Fatalf("oversized encoding: %v", err)
 	}
 
 	agg.BroadcastTick(tick)

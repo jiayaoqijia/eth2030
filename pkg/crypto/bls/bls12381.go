@@ -61,6 +61,10 @@ func encodeFp(v *big.Int) []byte {
 // decodeG1 reads a 128-byte encoded G1 point.
 // All zeros = point at infinity. Otherwise validates on-curve and subgroup.
 func decodeG1(data []byte) (*BlsG1Point, error) {
+	return decodeG1Point(data, true)
+}
+
+func decodeG1Point(data []byte, checkSubgroup bool) (*BlsG1Point, error) {
 	if len(data) != blsG1EncSize {
 		return nil, errBLS12InvalidPoint
 	}
@@ -87,7 +91,7 @@ func decodeG1(data []byte) (*BlsG1Point, error) {
 	p := blsG1FromAffine(x, y)
 
 	// Subgroup check.
-	if !blsG1InSubgroup(p) {
+	if checkSubgroup && !blsG1InSubgroup(p) {
 		return nil, errBLS12NotInSubgroup
 	}
 
@@ -111,7 +115,8 @@ func decodeFp2(data []byte) (*blsFp2, error) {
 	if len(data) != 2*blsFpEncSize {
 		return nil, errBLS12InvalidField
 	}
-	// EIP-2537: Fp2 encoding is im || re (imaginary part first).
+	// The historical native ABI uses im || re. Standard EIP-2537 calls
+	// use the Geth precompile and its re || im encoding.
 	im, err := decodeFp(data[:blsFpEncSize])
 	if err != nil {
 		return nil, err
@@ -133,6 +138,10 @@ func encodeFp2(e *blsFp2) []byte {
 
 // decodeG2 reads a 256-byte encoded G2 point.
 func decodeG2(data []byte) (*BlsG2Point, error) {
+	return decodeG2Point(data, true)
+}
+
+func decodeG2Point(data []byte, checkSubgroup bool) (*BlsG2Point, error) {
 	if len(data) != blsG2EncSize {
 		return nil, errBLS12InvalidG2
 	}
@@ -159,7 +168,7 @@ func decodeG2(data []byte) (*BlsG2Point, error) {
 	p := blsG2FromAffine(x, y)
 
 	// Subgroup check.
-	if !blsG2InSubgroup(p) {
+	if checkSubgroup && !blsG2InSubgroup(p) {
 		return nil, errBLS12NotInSubgroup
 	}
 
@@ -182,15 +191,24 @@ func encodeG2(p *BlsG2Point) []byte {
 
 // BLS12G1Add performs G1 point addition (precompile 0x0b).
 func BLS12G1Add(input []byte) ([]byte, error) {
+	return addG1(input, false)
+}
+
+// LegacyBLS12G1Add applies the historical native subgroup check.
+func LegacyBLS12G1Add(input []byte) ([]byte, error) {
+	return addG1(input, true)
+}
+
+func addG1(input []byte, subgroup bool) ([]byte, error) {
 	if len(input) != 2*blsG1EncSize {
 		return nil, errBLS12InvalidPoint
 	}
 
-	p1, err := decodeG1(input[:blsG1EncSize])
+	p1, err := decodeG1Point(input[:blsG1EncSize], subgroup)
 	if err != nil {
 		return nil, err
 	}
-	p2, err := decodeG1(input[blsG1EncSize:])
+	p2, err := decodeG1Point(input[blsG1EncSize:], subgroup)
 	if err != nil {
 		return nil, err
 	}
@@ -272,15 +290,24 @@ func BLS12G1MSM(input []byte) ([]byte, error) {
 
 // BLS12G2Add performs G2 point addition (precompile 0x0e).
 func BLS12G2Add(input []byte) ([]byte, error) {
+	return addG2(input, false)
+}
+
+// LegacyBLS12G2Add applies the historical native subgroup check.
+func LegacyBLS12G2Add(input []byte) ([]byte, error) {
+	return addG2(input, true)
+}
+
+func addG2(input []byte, subgroup bool) ([]byte, error) {
 	if len(input) != 2*blsG2EncSize {
 		return nil, errBLS12InvalidG2
 	}
 
-	p1, err := decodeG2(input[:blsG2EncSize])
+	p1, err := decodeG2Point(input[:blsG2EncSize], subgroup)
 	if err != nil {
 		return nil, err
 	}
-	p2, err := decodeG2(input[blsG2EncSize:])
+	p2, err := decodeG2Point(input[blsG2EncSize:], subgroup)
 	if err != nil {
 		return nil, err
 	}
@@ -329,22 +356,7 @@ func BLS12G2MSM(input []byte) ([]byte, error) {
 	return encodeG2(r), nil
 }
 
-// BLS12Pairing performs the pairing check (precompile 0x11).
-// Input: k * 384 bytes (k pairs of G1 + G2 points).
-// Output: 32 bytes, 1 if product of pairings is identity, 0 otherwise.
-//
-// For BLS12-381, the pairing check verifies:
-//
-//	product(e(G1_i, G2_i)) == 1 in GT
-//
-// Note: A full pairing implementation requires Fp12 tower arithmetic and the
-// optimal ate pairing algorithm. For correctness without the full pairing,
-// we implement a simplified check that handles the common cases:
-// - All infinity points -> true
-// - Single pair -> compute and check
-// The full pairing requires Fp6, Fp12, and Miller loop which is beyond the
-// scope of this initial implementation. For production use, a dedicated
-// pairing library would be integrated.
+// BLS12Pairing checks the pairing product for EVM-encoded G1/G2 pairs.
 func BLS12Pairing(input []byte) ([]byte, error) {
 	pairSize := blsG1EncSize + blsG2EncSize
 	if len(input) == 0 || len(input)%pairSize != 0 {
@@ -384,22 +396,7 @@ func BLS12Pairing(input []byte) ([]byte, error) {
 		return blsPairingResult(true), nil
 	}
 
-	// For pairs where one side is infinity, that pair contributes 1 to the product.
-	// Check if all non-trivial pairs cancel out.
-	// The pairing check e(P1,Q1) * e(P2,Q2) * ... = 1 in GT.
-	// This is equivalent to checking if the sum of the discrete logs is zero,
-	// which for the simplest case of e(a*G1, G2) * e(-a*G1, G2) = 1.
-
-	// Use the simplified pairing check based on the bilinearity property:
-	// For pairs (a_i * G1, b_i * G2), the check becomes:
-	// sum(a_i * b_i) == 0 mod r
-	//
-	// However, this only works if we know the discrete logs. For general points,
-	// we need the full Miller loop + final exponentiation.
-	//
-	// Implement the full pairing via the optimal ate approach.
-	result := blsMultiPairing(g1Points, g2Points)
-	return blsPairingResult(result), nil
+	return blsPairingResult(blsMultiPairing(g1Points, g2Points)), nil
 }
 
 // BLS12MapFpToG1 maps a field element to G1 (precompile 0x12).
@@ -413,15 +410,7 @@ func BLS12MapFpToG1(input []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	p := blsMapFpToG1(u)
-
-	// Clear cofactor to ensure the result is in the prime-order subgroup.
-	// For G1, the cofactor is h = (x-1)^2 / 3 where x is the BLS parameter.
-	// h = 0x396c8c005555e1568c00aaab0000aaab
-	cofactor, _ := new(big.Int).SetString("396c8c005555e1568c00aaab0000aaab", 16)
-	p = blsG1ScalarMul(p, cofactor)
-
-	return encodeG1(p), nil
+	return encodeG1(blsMapFpToG1(u)), nil
 }
 
 // BLS12MapFp2ToG2 maps an Fp2 element to G2 (precompile 0x13).
@@ -435,15 +424,7 @@ func BLS12MapFp2ToG2(input []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	p := blsMapFp2ToG2(u)
-
-	// Clear cofactor for G2.
-	// h2 = 0x5d543a95414e7f1091d50792876a202cd91de4547085abaa68a205b2e5a7ddfa628f1cb4d9e82ef21537e293a6691ae1616ec6e786f0c70cf1c38e31c7238e5
-	cofactor, _ := new(big.Int).SetString(
-		"5d543a95414e7f1091d50792876a202cd91de4547085abaa68a205b2e5a7ddfa628f1cb4d9e82ef21537e293a6691ae1616ec6e786f0c70cf1c38e31c7238e5", 16)
-	p = blsG2ScalarMul(p, cofactor)
-
-	return encodeG2(p), nil
+	return encodeG2(blsMapFp2ToG2(u)), nil
 }
 
 // blsPairingResult encodes a pairing result as 32 bytes.

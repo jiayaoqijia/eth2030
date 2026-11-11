@@ -34,6 +34,10 @@ type ChainConfig struct {
 	HogotaTime      *uint64
 	IPlusTime       *uint64
 
+	// LegacyNativeBLSUntil preserves the experimental native precompile
+	// layout before the given timestamp. Nil selects the Ethereum layout.
+	LegacyNativeBLSUntil *uint64 `json:",omitempty"`
+
 	// BPO (Blob Parameter Optimization) fork timestamps for blob schedule upgrades.
 	BPO1Time *uint64
 	BPO2Time *uint64
@@ -311,6 +315,7 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64) Rules 
 		IsHogota:         isMerge && c.IsHogota(timestamp),
 		IsEIP7999:        isMerge && c.IsHogota(timestamp),
 		IsIPlus:          isMerge && c.IsIPlus(timestamp),
+		LegacyNativeBLS:  isMerge && c.LegacyNativeBLSUntil != nil && timestamp < *c.LegacyNativeBLSUntil,
 		IsEIP7885:        isMerge && c.IsIPlus(timestamp),
 	}
 }
@@ -333,6 +338,7 @@ type Rules struct {
 	IsEIP8037, IsEIP8038                                    bool
 	IsHogota, IsEIP7999                                     bool
 	IsIPlus, IsEIP7885                                      bool
+	LegacyNativeBLS                                         bool
 }
 
 func newUint64(v uint64) *uint64 { return &v }
@@ -359,7 +365,7 @@ var MainnetConfig = &ChainConfig{
 	TerminalTotalDifficulty: MainnetTerminalTotalDifficulty,
 	ShanghaiTime:            newUint64(1681338455),
 	CancunTime:              newUint64(1710338135),
-	PragueTime:              nil, // not yet scheduled
+	PragueTime:              newUint64(1746612311),
 	AmsterdamTime:           nil, // not yet scheduled
 	GlamsterdanTime:         nil, // not yet scheduled
 	HogotaTime:              nil, // not yet scheduled

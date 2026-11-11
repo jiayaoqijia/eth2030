@@ -71,7 +71,7 @@ func (p *GethBlockProcessor) ProcessBlock(
 	header := block.Header()
 	blockCtx := MakeBlockContext(header, getHash)
 
-	gasPool := new(gethcore.GasPool).AddGas(header.GasLimit)
+	gasPool := gethcore.NewGasPool(header.GasLimit)
 
 	var (
 		receipts          []*types.Receipt
@@ -79,7 +79,7 @@ func (p *GethBlockProcessor) ProcessBlock(
 	)
 
 	for i, tx := range block.Transactions() {
-		statedb.SetTxContext(ToGethHash(tx.Hash()), i)
+		statedb.SetTxContext(ToGethHash(tx.Hash()), i, uint32(i+1))
 
 		receipt, gasUsed, err := p.applyTransaction(statedb, header, tx, &blockCtx, gasPool)
 		if err != nil {
@@ -120,10 +120,10 @@ func (p *GethBlockProcessor) ProcessBlock(
 	// Touch coinbase to ensure it exists in state.
 	TouchCoinbase(statedb, blockCtx.Coinbase)
 
-	// Commit state and compute root.
-	isEIP158 := p.config.IsEIP158(header.Number)
-	isCancun := p.config.IsCancun(header.Number, header.Time)
-	root, err := statedb.Commit(header.Number.Uint64(), isEIP158, isCancun)
+	// Commit state and compute root. Rules carry the EIP-158/161 emptiness
+	// semantics that the old Commit(bool, bool) flags used to control.
+	rules := p.config.Rules(header.Number, true, header.Time)
+	root, err := statedb.Commit(rules, header.Number.Uint64())
 	if err != nil {
 		return nil, types.Hash{}, fmt.Errorf("commit state: %w", err)
 	}
@@ -165,7 +165,7 @@ func (p *GethBlockProcessor) applyTransaction(
 	receipt.Type = tx.Type()
 
 	// Effective gas price.
-	receipt.EffectiveGasPrice = effectiveGasPriceBig(msg, header.BaseFee)
+	receipt.EffectiveGasPrice = effectiveGasPrice(msg, header.BaseFee).ToBig()
 
 	// Contract creation address.
 	if tx.To() == nil {
@@ -224,29 +224,30 @@ func txToGethMessage(tx *types.Transaction, baseFee *big.Int) *gethcore.Message 
 		From:                  from,
 		To:                    to,
 		Nonce:                 tx.Nonce(),
-		Value:                 value,
+		Value:                 u256FromBig(value),
 		GasLimit:              tx.Gas(),
 		Data:                  tx.Data(),
 		AccessList:            accessList,
 		BlobHashes:            blobHashes,
-		BlobGasFeeCap:         tx.BlobGasFeeCap(),
+		BlobGasFeeCap:         u256FromBig(tx.BlobGasFeeCap()),
 		SetCodeAuthorizations: authList,
 	}
 
 	// Set gas price fields based on tx type.
 	switch tx.Type() {
 	case types.LegacyTxType, types.AccessListTxType:
-		msg.GasPrice = tx.GasPrice()
-		msg.GasFeeCap = tx.GasPrice()
-		msg.GasTipCap = tx.GasPrice()
+		gasPrice := u256FromBig(tx.GasPrice())
+		msg.GasPrice = gasPrice
+		msg.GasFeeCap = gasPrice
+		msg.GasTipCap = gasPrice
 	default:
 		// EIP-1559+ transactions.
-		msg.GasFeeCap = tx.GasFeeCap()
-		msg.GasTipCap = tx.GasTipCap()
+		msg.GasFeeCap = u256FromBig(tx.GasFeeCap())
+		msg.GasTipCap = u256FromBig(tx.GasTipCap())
 		if baseFee != nil {
-			msg.GasPrice = effectiveGasPriceBig(msg, baseFee)
+			msg.GasPrice = effectiveGasPrice(msg, baseFee)
 		} else {
-			msg.GasPrice = tx.GasFeeCap()
+			msg.GasPrice = new(uint256.Int).Set(msg.GasFeeCap)
 		}
 	}
 
@@ -299,23 +300,33 @@ func toGethAuthList(auths []types.Authorization) []gethtypes.SetCodeAuthorizatio
 	return result
 }
 
-// effectiveGasPriceBig computes EIP-1559 effective gas price as *big.Int.
-func effectiveGasPriceBig(msg *gethcore.Message, baseFee *big.Int) *big.Int {
+// u256FromBig converts a *big.Int to *uint256.Int, preserving nil.
+func u256FromBig(x *big.Int) *uint256.Int {
+	if x == nil {
+		return nil
+	}
+	var z uint256.Int
+	z.SetFromBig(x)
+	return &z
+}
+
+// effectiveGasPrice computes the EIP-1559 effective gas price
+// (min(baseFee + tipCap, feeCap)) as *uint256.Int.
+func effectiveGasPrice(msg *gethcore.Message, baseFee *big.Int) *uint256.Int {
 	if baseFee == nil || msg.GasFeeCap == nil {
 		if msg.GasPrice != nil {
-			return new(big.Int).Set(msg.GasPrice)
+			return new(uint256.Int).Set(msg.GasPrice)
 		}
-		return new(big.Int)
+		return uint256.NewInt(0)
 	}
-	tip := new(big.Int)
+	price := u256FromBig(baseFee)
 	if msg.GasTipCap != nil {
-		tip.Set(msg.GasTipCap)
+		price.Add(price, msg.GasTipCap)
 	}
-	effectivePrice := new(big.Int).Add(baseFee, tip)
-	if effectivePrice.Cmp(msg.GasFeeCap) > 0 {
-		return new(big.Int).Set(msg.GasFeeCap)
+	if price.Gt(msg.GasFeeCap) {
+		return new(uint256.Int).Set(msg.GasFeeCap)
 	}
-	return effectivePrice
+	return price
 }
 
 // calcBlobFee computes blob base fee from excess blob gas (EIP-4844).

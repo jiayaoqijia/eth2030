@@ -122,42 +122,18 @@ func TestPeerTickCache_Size(t *testing.T) {
 }
 
 func TestMergeTickAtSlot(t *testing.T) {
-	agg := NewSTARKAggregator("node-1")
-
-	// Add some local txs first so verification works.
-	var h1, h2, h3 types.Hash
-	h1[0] = 0x01
-	h2[0] = 0x02
-	h3[0] = 0x03
-	agg.AddValidatedTx(h1, []byte("proof1"), 21000)
-
-	// Generate a local tick to get a valid aggregate proof.
-	localTick, err := agg.GenerateTick()
+	local := NewSTARKAggregator("local")
+	remote := NewSTARKAggregator("remote")
+	hash := types.Hash{1}
+	remote.AddValidatedTx(hash, []byte("proof"), 21_000)
+	tick, err := remote.GenerateTick()
 	if err != nil {
-		t.Fatalf("GenerateTick: %v", err)
+		t.Fatal(err)
 	}
-
-	// Build a remote tick reusing the valid proof.
-	remote := &MempoolAggregationTick{
-		Timestamp:      localTick.Timestamp,
-		ValidTxHashes:  []types.Hash{h1, h2, h3},
-		AggregateProof: localTick.AggregateProof,
-		PeerID:         "peer-2",
-		TickNumber:     1,
-		ValidBitfield:  []byte{0x07},
-		TxMerkleRoot:   computeTxMerkleRoot([]types.Hash{h1, h2, h3}),
+	if err := local.MergeTickAtSlot(tick, 100); err != nil {
+		t.Fatal(err)
 	}
-
-	err = agg.MergeTickAtSlot(remote, 100)
-	if err != nil {
-		t.Fatalf("MergeTickAtSlot: %v", err)
-	}
-
-	// All 3 hashes should be in the peer cache.
-	cache := agg.PeerCache()
-	for _, h := range []types.Hash{h1, h2, h3} {
-		if !cache.IsPeerValidated(h) {
-			t.Errorf("hash %x should be peer-validated after merge", h[0])
-		}
+	if local.PeerCache().IsPeerValidated(hash) {
+		t.Fatal("peer hint entered the validation cache")
 	}
 }

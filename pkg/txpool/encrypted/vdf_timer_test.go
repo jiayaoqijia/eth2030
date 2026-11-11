@@ -182,8 +182,8 @@ func TestSolveVDFPuzzle(t *testing.T) {
 	if solution == nil {
 		t.Fatal("SolveVDFPuzzle should find a solution with low difficulty")
 	}
-	if !verifySolution(puzzle, solution) {
-		t.Error("solution should verify")
+	if ok, err := timer.SubmitSolution(puzzle.Slot, solution); err != nil || !ok {
+		t.Errorf("solution verification = %t, %v", ok, err)
 	}
 }
 

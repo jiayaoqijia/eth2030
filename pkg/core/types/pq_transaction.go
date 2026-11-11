@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 	"github.com/eth2030/eth2030/rlp"
 	"golang.org/x/crypto/sha3"
 )
@@ -19,15 +20,14 @@ const (
 	PQSigSPHINCS   uint8 = 2 // SPHINCS+
 )
 
-// Expected PQ key and signature sizes per algorithm.
-// Dilithium sizes use the schoolbook ML-DSA implementation (N=64, k=6).
+// Packed public key and signature sizes for the selected PQ providers.
 const (
-	DilithiumPubKeySize   = 1568  // MLDSAPublicKeySize: rho(32) + k*N*4 = 32 + 6*64*4
-	DilithiumSigSize      = 1376  // MLDSASignatureSize: cTilde(32) + z + hint
-	FalconPubKeySize      = 897   // Falcon512PubKeySize
-	FalconSigSize         = 690   // Falcon512SigSize
-	SPHINCSPlusPubKeySize = 32    // SPHINCSSha256PubKeySize
-	SPHINCSPlusSigSize    = 49216 // SPHINCSSha256SigSize
+	DilithiumPubKeySize   = mldsa65.PublicKeySize
+	DilithiumSigSize      = mldsa65.SignatureSize
+	FalconPubKeySize      = 897
+	FalconSigSize         = 666
+	SPHINCSPlusPubKeySize = 32
+	SPHINCSPlusSigSize    = 17088
 )
 
 // PQ transaction errors.
@@ -101,6 +101,33 @@ func (tx *PQTransaction) SignWithPQ(sigType uint8, pubKey, signature []byte) {
 	copy(tx.PQPublicKey, pubKey)
 	tx.PQSignature = make([]byte, len(signature))
 	copy(tx.PQSignature, signature)
+}
+
+// SigningHash hashes the typed unsigned envelope with a length-delimited
+// RLP payload. Signatures are excluded and the algorithm is authenticated.
+func (tx *PQTransaction) SigningHash() Hash {
+	payload, err := rlp.EncodeToBytes(struct {
+		ChainID         *big.Int
+		Nonce           uint64
+		To              []byte
+		Value           *big.Int
+		Gas             uint64
+		GasPrice        *big.Int
+		Data            []byte
+		PQSignatureType uint8
+	}{
+		bigOrZero(tx.ChainID), tx.Nonce, addressPtrToBytes(tx.To), bigOrZero(tx.Value),
+		tx.Gas, bigOrZero(tx.GasPrice), tx.Data, tx.PQSignatureType,
+	})
+	if err != nil {
+		return Hash{}
+	}
+	h := sha3.NewLegacyKeccak256()
+	h.Write([]byte{PQTransactionType})
+	h.Write(payload)
+	var digest Hash
+	copy(digest[:], h.Sum(nil))
+	return digest
 }
 
 // Hash computes the Keccak-256 hash of the transaction.

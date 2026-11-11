@@ -147,7 +147,14 @@ func (s *PQTxSigner) SignTransaction(tx *types.Transaction, key *PQPrivateKey) (
 		return nil, ErrSchemeMismatch
 	}
 
-	// Hash-then-sign: Keccak256(RLP(tx)) -> sign the hash.
+	// The PQ envelope authenticates the algorithm. Set it on the signing
+	// copy so callers can still attach the signature after signing.
+	if pq, ok := tx.Inner().(*types.PQTransaction); ok {
+		unsigned := *pq
+		unsigned.PQSignatureType = uint8(scheme)
+		digest := unsigned.SigningHash()
+		return signHash(scheme, key.Raw, digest[:])
+	}
 	txHash := hashTransaction(tx)
 	return signHash(scheme, key.Raw, txHash[:])
 }
@@ -165,7 +172,7 @@ func (s *PQTxSigner) VerifyTransaction(tx *types.Transaction, sig []byte, pubkey
 	scheme := s.scheme
 	s.mu.RUnlock()
 
-	if pubkey.Scheme != scheme {
+	if pubkey.Scheme != scheme || tx.Type() == types.PQTransactionType && tx.PQSigType() != uint8(scheme) {
 		return false, ErrSchemeMismatch
 	}
 
@@ -214,6 +221,9 @@ func (s *PQTxSigner) VerifyBatch(
 
 // hashTransaction computes Keccak256(RLP(tx)) for the hash-then-sign pattern.
 func hashTransaction(tx *types.Transaction) types.Hash {
+	if tx.Type() == types.PQTransactionType {
+		return tx.SigningHash()
+	}
 	encoded, err := tx.EncodeRLP()
 	if err != nil {
 		return types.Hash{}

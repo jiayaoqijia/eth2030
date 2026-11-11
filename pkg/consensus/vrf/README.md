@@ -4,15 +4,7 @@ VRF-based secret proposer election with anti-equivocation protection (L+ roadmap
 
 ## Overview
 
-Package `vrf` provides a full VRF (Verifiable Random Function) election
-framework for secret proposer selection. The construction uses an Ed25519-like
-hash chain:
-
-```
-Gamma   = H(sk || input)          // deterministic curve point
-Challenge = H(Gamma || input)     // Fiat-Shamir binding
-Output  = H(Gamma)                // final VRF output
-```
+The experimental proposer election uses RFC 9381 ECVRF-EDWARDS25519-SHA512-ELL2 through curve25519-voi. The proposer score input is the SHA-256 digest of the provider's 64-byte VRF output. This format replaces the former hash-chain proof. Ethereum beacon randomness uses BLS-verified RANDAO reveals.
 
 `ElectProposer` applies sortition: the validator with the **lowest** VRF score
 (derived from the output bytes as a big-endian integer) wins. Proposers reveal
@@ -29,7 +21,7 @@ block hash, preventing post-election payload switching.
 |------|-------------|
 | `SecretElection` | Thread-safe reveal manager with equivocation detection |
 | `VRFKeyPair` | 32-byte secret key and public key |
-| `VRFProof` | 32-byte Gamma + 32-byte Fiat-Shamir challenge |
+| `VRFProof` | 80-byte canonical ECVRF proof |
 | `VRFOutput` | 32-byte VRF output hash |
 | `VRFElectionEntry` | Validator index, epoch, slot, output, proof, sortition score |
 | `VRFReveal` | Validator index, slot, block hash, output, proof |

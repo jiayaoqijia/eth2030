@@ -146,14 +146,14 @@ func TestTxToGethMessage(t *testing.T) {
 	if msg.Nonce != 5 {
 		t.Errorf("nonce: got %d, want 5", msg.Nonce)
 	}
-	if msg.Value.Int64() != 1000 {
-		t.Errorf("value: got %d, want 1000", msg.Value.Int64())
+	if msg.Value.Uint64() != 1000 {
+		t.Errorf("value: got %d, want 1000", msg.Value.Uint64())
 	}
 	if msg.GasLimit != 21000 {
 		t.Errorf("gas: got %d, want 21000", msg.GasLimit)
 	}
-	if msg.GasPrice.Int64() != 20_000_000_000 {
-		t.Errorf("gasPrice: got %d, want 20000000000", msg.GasPrice.Int64())
+	if msg.GasPrice.Uint64() != 20_000_000_000 {
+		t.Errorf("gasPrice: got %d, want 20000000000", msg.GasPrice.Uint64())
 	}
 }
 

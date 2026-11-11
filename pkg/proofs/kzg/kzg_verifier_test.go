@@ -158,96 +158,6 @@ func TestKZGVerifierBatchVerifyClosed(t *testing.T) {
 	}
 }
 
-func TestKZGVerifierAggregateProofs(t *testing.T) {
-	verifier := NewKZGVerifier(DefaultKZGVerifierConfig())
-
-	pairs := make([]BlobCommitmentPair, 4)
-	for i := 0; i < 4; i++ {
-		p := MakeTestBlobCommitmentPair(uint64(i))
-		pairs[i] = *p
-	}
-
-	agg, err := verifier.AggregateProofs(pairs)
-	if err != nil {
-		t.Fatalf("AggregateProofs failed: %v", err)
-	}
-
-	if agg.Count != 4 {
-		t.Errorf("count = %d, want 4", agg.Count)
-	}
-	if len(agg.Commitments) != 4 {
-		t.Errorf("commitments = %d, want 4", len(agg.Commitments))
-	}
-	if agg.AggRoot.IsZero() {
-		t.Error("aggregate root should not be zero")
-	}
-}
-
-func TestKZGVerifierAggregateProofsEmpty(t *testing.T) {
-	verifier := NewKZGVerifier(DefaultKZGVerifierConfig())
-	_, err := verifier.AggregateProofs(nil)
-	if err != ErrKZGBatchEmpty {
-		t.Errorf("expected ErrKZGBatchEmpty, got %v", err)
-	}
-}
-
-func TestKZGVerifierVerifyAggregatedProof(t *testing.T) {
-	verifier := NewKZGVerifier(DefaultKZGVerifierConfig())
-
-	pairs := make([]BlobCommitmentPair, 3)
-	for i := 0; i < 3; i++ {
-		p := MakeTestBlobCommitmentPair(uint64(i))
-		pairs[i] = *p
-	}
-
-	agg, err := verifier.AggregateProofs(pairs)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	valid, err := verifier.VerifyAggregatedProof(agg)
-	if err != nil {
-		t.Fatalf("VerifyAggregatedProof failed: %v", err)
-	}
-	if !valid {
-		t.Error("expected valid aggregated proof")
-	}
-}
-
-func TestKZGVerifierVerifyAggregatedProofTampered(t *testing.T) {
-	verifier := NewKZGVerifier(DefaultKZGVerifierConfig())
-
-	pairs := make([]BlobCommitmentPair, 3)
-	for i := 0; i < 3; i++ {
-		p := MakeTestBlobCommitmentPair(uint64(i))
-		pairs[i] = *p
-	}
-
-	agg, err := verifier.AggregateProofs(pairs)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Tamper with root.
-	agg.AggRoot = types.HexToHash("0xdeadbeef")
-
-	valid, err := verifier.VerifyAggregatedProof(agg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if valid {
-		t.Error("expected invalid for tampered aggregated proof")
-	}
-}
-
-func TestKZGVerifierVerifyAggregatedProofNil(t *testing.T) {
-	verifier := NewKZGVerifier(DefaultKZGVerifierConfig())
-	_, err := verifier.VerifyAggregatedProof(nil)
-	if err != ErrKZGBatchEmpty {
-		t.Errorf("expected ErrKZGBatchEmpty, got %v", err)
-	}
-}
-
 func TestKZGVerifierStats(t *testing.T) {
 	verifier := NewKZGVerifier(DefaultKZGVerifierConfig())
 
@@ -404,38 +314,17 @@ func TestKZGBatchResultFields(t *testing.T) {
 	}
 }
 
-func TestKZGVerifierAggregateRoundtrip(t *testing.T) {
-	verifier := NewKZGVerifier(DefaultKZGVerifierConfig())
+// The zero polynomial uses the point at infinity for both commitment and proof.
+func MakeTestPointEvaluation(index uint64) *PointEvaluation {
+	eval := &PointEvaluation{Commitment: KZGCommitment{0xc0}, Proof: KZGProofPoint{0xc0}}
+	binary.BigEndian.PutUint64(eval.Point[24:], index)
+	return eval
+}
 
-	// Create pairs, aggregate, verify.
-	var pairs []BlobCommitmentPair
-	for i := uint64(0); i < 6; i++ {
-		var commitment KZGCommitment
-		binary.BigEndian.PutUint64(commitment[:8], i+100)
-		commitment[10] = byte(i)
-
-		var proof KZGProofPoint
-		binary.BigEndian.PutUint64(proof[:8], i+200)
-
-		blobHash := computeVersionedHash(commitment)
-		pairs = append(pairs, BlobCommitmentPair{
-			BlobHash:   blobHash,
-			Commitment: commitment,
-			Proof:      proof,
-			BlobIndex:  i,
-		})
-	}
-
-	agg, err := verifier.AggregateProofs(pairs)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	valid, err := verifier.VerifyAggregatedProof(agg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !valid {
-		t.Error("aggregate roundtrip should be valid")
+func MakeTestBlobCommitmentPair(index uint64) *BlobCommitmentPair {
+	commitment := KZGCommitment{0xc0}
+	return &BlobCommitmentPair{
+		BlobHash:   computeVersionedHash(commitment),
+		Commitment: commitment, Proof: KZGProofPoint{0xc0}, BlobIndex: index,
 	}
 }

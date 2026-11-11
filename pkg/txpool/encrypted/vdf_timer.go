@@ -3,10 +3,10 @@ package encrypted
 import (
 	"encoding/binary"
 	"errors"
-	"math/big"
 	"sync"
 
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/vdf"
 )
 
 // VDF timer errors.
@@ -88,13 +88,13 @@ func (t *VDFDecryptionTimer) SubmitSolution(slot uint64, solution []byte) (bool,
 	}
 
 	// Verify the solution against the puzzle difficulty.
-	if !verifySolution(puzzle, solution) {
+	output, valid := vdf.VerifySolution(puzzle.Input, puzzle.Difficulty, solution)
+	if !valid {
 		return false, ErrVDFTimerInvalidSolution
 	}
 
 	puzzle.Solved = true
-	puzzle.Solution = make([]byte, len(solution))
-	copy(puzzle.Solution, solution)
+	puzzle.Solution = output
 	return true, nil
 }
 
@@ -188,46 +188,14 @@ func (vtd *VDFTimedDecryptor) Slot() uint64 {
 	return vtd.slot
 }
 
-// --- Internal helpers ---
-
-// verifySolution checks that the VDF solution is valid for the puzzle.
-// The solution must produce a hash below a target derived from difficulty.
-func verifySolution(puzzle *VDFPuzzle, solution []byte) bool {
-	if len(solution) == 0 {
-		return false
-	}
-
-	// Compute verification hash.
-	var diffBuf [8]byte
-	binary.BigEndian.PutUint64(diffBuf[:], puzzle.Difficulty)
-	verifyHash := crypto.Keccak256(
-		[]byte("vdf-verify"),
-		puzzle.Input,
-		solution,
-		diffBuf[:],
-	)
-
-	// Check that the hash meets difficulty: interpret as big.Int < target.
-	hashInt := new(big.Int).SetBytes(verifyHash)
-	// Target: 2^256 / difficulty.
-	maxVal := new(big.Int).Lsh(big.NewInt(1), 256)
-	target := new(big.Int).Div(maxVal, new(big.Int).SetUint64(puzzle.Difficulty))
-	return hashInt.Cmp(target) < 0
-}
-
-// SolveVDFPuzzle is a helper that brute-forces a VDF puzzle solution (for testing).
+// SolveVDFPuzzle evaluates the puzzle and returns the encoded output and proof.
 func SolveVDFPuzzle(puzzle *VDFPuzzle) []byte {
-	for nonce := uint64(0); nonce < 1<<32; nonce++ {
-		var nonceBuf [8]byte
-		binary.BigEndian.PutUint64(nonceBuf[:], nonce)
-		candidate := crypto.Keccak256(
-			[]byte("vdf-solution-candidate"),
-			puzzle.Input,
-			nonceBuf[:],
-		)
-		if verifySolution(puzzle, candidate) {
-			return candidate
-		}
+	if puzzle == nil {
+		return nil
 	}
-	return nil
+	result, err := vdf.Evaluate(puzzle.Input, puzzle.Difficulty)
+	if err != nil {
+		return nil
+	}
+	return result.EncodeSolution()
 }

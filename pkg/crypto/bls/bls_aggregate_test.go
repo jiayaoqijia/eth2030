@@ -96,7 +96,6 @@ func TestSerializeDeserializeG2Infinity(t *testing.T) {
 }
 
 func TestBLSSignAndVerify(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	secret := big.NewInt(12345)
 	pk := BLSPubkeyFromSecret(secret)
 	msg := []byte("hello world")
@@ -181,7 +180,6 @@ func TestAggregateSignatures(t *testing.T) {
 }
 
 func TestFastAggregateVerify(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	secret1 := big.NewInt(100)
 	secret2 := big.NewInt(200)
 	pk1 := BLSPubkeyFromSecret(secret1)
@@ -221,7 +219,6 @@ func TestFastAggregateVerifyEmptyPubkeys(t *testing.T) {
 }
 
 func TestVerifyAggregate(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	secret1 := big.NewInt(300)
 	secret2 := big.NewInt(400)
 	pk1 := BLSPubkeyFromSecret(secret1)
@@ -279,7 +276,6 @@ func TestHashToG2DifferentMessages(t *testing.T) {
 }
 
 func TestSingleSignerFastAggregateVerify(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	// Fast aggregate verify with a single signer should behave like normal verify.
 	secret := big.NewInt(7777)
 	pk := BLSPubkeyFromSecret(secret)

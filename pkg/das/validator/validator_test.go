@@ -322,7 +322,7 @@ func TestSampleColumnsDifferentSlots(t *testing.T) {
 		}
 	}
 	if allSame {
-		t.Log("warning: different slots produced same samples (unlikely but possible)")
+		t.Error("fixed slots produced identical samples")
 	}
 }
 
@@ -342,7 +342,7 @@ func TestSampleColumnsDifferentNodes(t *testing.T) {
 		}
 	}
 	if allSame {
-		t.Log("warning: different nodes produced same samples (unlikely but possible)")
+		t.Error("fixed nodes produced identical samples")
 	}
 }
 

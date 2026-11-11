@@ -109,12 +109,8 @@ The `stark` subpackage provides `STARKAggregator` for mempool commitment aggrega
 | [`sharding/`](./sharding/) | Sharded mempool with consistent hashing for parallel access |
 | [`stark/`](./stark/) | STARK-based mempool commitment aggregation |
 | [`frametx/`](./frametx/) | EIP-8141 frame transaction paymaster and VERIFY simulation |
-| [`fees/`](./fees/) | EIP-1559 and blob fee computation helpers |
 | [`pricing/`](./pricing/) | Replace-by-fee price bump logic |
-| [`queue/`](./queue/) | Future transaction queue management |
-| [`replacement/`](./replacement/) | Replace-by-fee policy enforcement |
 | [`tracking/`](./tracking/) | Sender nonce and balance tracking |
-| [`validation/`](./validation/) | Transaction validation utilities |
 | [`journal/`](./journal/) | Persistent transaction journal for crash recovery |
 | [`shared/`](./shared/) | Shared types used across subpackages |
 | [`peertick/`](./peertick/) | Per-peer transaction tick cache |

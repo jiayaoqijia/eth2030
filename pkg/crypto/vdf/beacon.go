@@ -53,7 +53,7 @@ type VDFChain struct {
 	mu             sync.RWMutex
 	vdf            *VDFv2
 	itersPerStep   uint64
-	verifiedChains map[string]bool // cache key = keccak256(seed || chainLength)
+	verifiedChains map[string]bool // keys bind the complete ordered link proofs
 }
 
 // NewVDFChain creates a chain evaluator using the given VDFv2 and per-step
@@ -124,25 +124,9 @@ func (c *VDFChain) VerifyChain(proof *ChainedVDFProof) bool {
 		return false
 	}
 
-	// Check if already verified (cache hit).
-	cacheKey := c.chainCacheKey(proof.Seed, proof.ChainLength)
-	c.mu.RLock()
-	if c.verifiedChains[cacheKey] {
-		c.mu.RUnlock()
-		return true
-	}
-	c.mu.RUnlock()
-
 	// Verify first link's input matches the seed.
 	if !bytesEqual(proof.Proofs[0].Input, proof.Seed) {
 		return false
-	}
-
-	// Verify each link individually.
-	for i := uint64(0); i < proof.ChainLength; i++ {
-		if !c.vdf.Verify(&proof.Proofs[i]) {
-			return false
-		}
 	}
 
 	// Verify chaining: output[i] == input[i+1].
@@ -156,6 +140,27 @@ func (c *VDFChain) VerifyChain(proof *ChainedVDFProof) bool {
 	lastIdx := proof.ChainLength - 1
 	if !bytesEqual(proof.Proofs[lastIdx].Output, proof.FinalOutput) {
 		return false
+	}
+
+	links := make([]*VDFv2Result, len(proof.Proofs))
+	for i := range proof.Proofs {
+		link := &proof.Proofs[i]
+		if link.Iterations != c.itersPerStep || len(link.Output) != formSize || len(link.Proof) != formSize {
+			return false
+		}
+		links[i] = link
+	}
+	cacheKey := string(aggregateDigest(links))
+	c.mu.RLock()
+	cached := c.verifiedChains[cacheKey]
+	c.mu.RUnlock()
+	if cached {
+		return true
+	}
+	for _, link := range links {
+		if !c.vdf.Verify(link) {
+			return false
+		}
 	}
 
 	// Cache the successful verification.
@@ -178,14 +183,6 @@ func (c *VDFChain) CacheSize() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.verifiedChains)
-}
-
-// chainCacheKey computes a deterministic cache key from seed and chain length.
-func (c *VDFChain) chainCacheKey(seed []byte, chainLength uint64) string {
-	var lenBuf [8]byte
-	binary.BigEndian.PutUint64(lenBuf[:], chainLength)
-	h := keccak256(seed, lenBuf[:])
-	return string(h)
 }
 
 // VDFBeacon uses a VDFChain to produce epoch-level unbiasable randomness.
@@ -315,13 +312,13 @@ func beaconDomainSeed(epoch uint64, seed []byte) []byte {
 	return keccak256(epochBuf[:], seed)
 }
 
-// beaconCompactProof builds a compact proof by hashing all link proofs together.
+// beaconCompactProof commits to the complete sequence of VDF results.
 func beaconCompactProof(chain *ChainedVDFProof) []byte {
-	combined := make([]byte, 0, len(chain.Proofs)*32)
+	links := make([]*VDFv2Result, len(chain.Proofs))
 	for i := range chain.Proofs {
-		combined = append(combined, chain.Proofs[i].Proof...)
+		links[i] = &chain.Proofs[i]
 	}
-	return keccak256(combined)
+	return aggregateDigest(links)
 }
 
 // suppress unused error variable

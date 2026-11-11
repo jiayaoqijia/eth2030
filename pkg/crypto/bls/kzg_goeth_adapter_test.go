@@ -10,13 +10,13 @@ import (
 
 // testBackend is a package-level backend initialized once to avoid the ~2-5s
 // startup cost of NewContext4096Secure() per test function.
-var testBackend *GoEthKZGRealBackend
+var testBackend *GoEthKZGBackend
 
 func init() {
 	var err error
-	testBackend, err = NewGoEthKZGRealBackend()
+	testBackend, err = NewGoEthKZGBackend()
 	if err != nil {
-		panic("failed to initialize GoEthKZGRealBackend for tests: " + err.Error())
+		panic("failed to initialize GoEthKZGBackend for tests: " + err.Error())
 	}
 }
 
@@ -38,14 +38,14 @@ func makeZeroBlob() []byte {
 	return make([]byte, KZGBytesPerBlob)
 }
 
-func TestGoEthKZGRealBackendName(t *testing.T) {
+func TestGoEthKZGBackendName(t *testing.T) {
 	name := testBackend.Name()
-	if name != "go-eth-kzg-real" {
-		t.Fatalf("expected name 'go-eth-kzg-real', got %q", name)
+	if name != "go-eth-kzg" {
+		t.Fatalf("expected name 'go-eth-kzg', got %q", name)
 	}
 }
 
-func TestGoEthKZGRealBackendInit(t *testing.T) {
+func TestGoEthKZGBackendInit(t *testing.T) {
 	// Verify the backend was initialized successfully.
 	if testBackend == nil {
 		t.Fatal("testBackend is nil")
@@ -403,7 +403,7 @@ func TestGoEthKZGBatchVerify(t *testing.T) {
 }
 
 func TestGoEthKZGInterface(t *testing.T) {
-	// Verify that GoEthKZGRealBackend satisfies KZGCeremonyBackend.
+	// Verify that GoEthKZGBackend satisfies KZGCeremonyBackend.
 	var _ KZGCeremonyBackend = testBackend
 }
 

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 // --- bigIntJSON ---
@@ -129,8 +130,10 @@ func TestAddressJSON_WithoutPrefix(t *testing.T) {
 	var a addressJSON
 	// Some tooling emits addresses without 0x prefix.
 	if err := json.Unmarshal([]byte(`"f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"`), &a); err != nil {
-		// Not all formats may support no prefix — just ensure no panic.
-		_ = err
+		t.Fatalf("unmarshal unprefixed address: %v", err)
+	}
+	if want := types.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"); a.Address != want {
+		t.Fatalf("decoded address = %s, want %s", a.Address, want)
 	}
 }
 

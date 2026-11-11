@@ -22,6 +22,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/../configs/features"
 RESULTS_DIR="$SCRIPT_DIR/../results"
 PKG_DIR="$SCRIPT_DIR/../../../"
+# Pinned local ethereum-package (refs/, read-only submodule) for reproducible devnets;
+# override with KURTOSIS_PACKAGE=github.com/ethpandaops/ethereum-package to follow upstream.
+ROOT_DIR="$SCRIPT_DIR/../../../../"
+KURTOSIS_PACKAGE="${KURTOSIS_PACKAGE:-$ROOT_DIR/refs/ethereum-package}"
 
 FEATURES=(
   epbs
@@ -175,7 +179,7 @@ for feature in "${SELECTED[@]}"; do
 
   # Start devnet
   echo "Starting devnet..."
-  if ! kurtosis run github.com/ethpandaops/ethereum-package \
+  if ! kurtosis run "$KURTOSIS_PACKAGE" \
       --args-file "$CONFIG_FILE" \
       --enclave "$ENCLAVE" 2>&1 | tee "$LOG_FILE"; then
     echo "FAIL: Could not start devnet for $feature"

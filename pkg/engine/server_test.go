@@ -6,12 +6,45 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/golang-jwt/jwt/v4"
 )
+
+func TestEngineJWTAuthentication(t *testing.T) {
+	api := NewEngineAPI(nil)
+	secret := [32]byte{1}
+	api.SetJWTSecret(secret)
+	now := time.Now()
+	for _, tc := range []struct {
+		name   string
+		issued time.Time
+		method jwt.SigningMethod
+		want   int
+	}{
+		{"valid", now, jwt.SigningMethodHS256, http.StatusMethodNotAllowed},
+		{"stale", now.Add(-2 * time.Minute), jwt.SigningMethodHS256, http.StatusUnauthorized},
+		{"other algorithm", now, jwt.SigningMethodHS384, http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token, err := jwt.NewWithClaims(tc.method, jwt.RegisteredClaims{IssuedAt: jwt.NewNumericDate(tc.issued)}).SignedString(secret[:])
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			res := httptest.NewRecorder()
+			api.httpHandler(res, req)
+			if res.Code != tc.want {
+				t.Fatalf("HTTP %d, want %d", res.Code, tc.want)
+			}
+		})
+	}
+}
 
 // mockBackend is a test implementation of the Backend interface.
 type mockBackend struct {

@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"github.com/eth2030/eth2030/p2p/peermgr"
 	"github.com/eth2030/eth2030/p2p/scoring"
 	"github.com/eth2030/eth2030/p2p/wire"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 )
 
 // Config holds the configuration for a P2P Server.
@@ -31,7 +33,8 @@ type Config struct {
 	StaticNodes []string
 
 	// EnableRLPx enables the RLPx encrypted transport (default: plaintext framing).
-	EnableRLPx bool
+	EnableRLPx     bool
+	RLPxPrivateKey *ecdsa.PrivateKey
 
 	// Name is the client identity string sent in the hello handshake.
 	// Defaults to "ETH2030" if empty.
@@ -139,6 +142,29 @@ func (srv *Server) Start() error {
 		return errors.New("p2p: server already running")
 	}
 
+	if srv.config.EnableRLPx {
+		key := srv.config.RLPxPrivateKey
+		if key == nil {
+			var err error
+			key, err = gethcrypto.GenerateKey()
+			if err != nil {
+				return err
+			}
+		} else {
+			if key.D == nil || key.D.Sign() <= 0 || key.D.BitLen() > 256 {
+				return errors.New("p2p: invalid RLPx private key")
+			}
+			derived, err := gethcrypto.ToECDSA(key.D.FillBytes(make([]byte, 32)))
+			if err != nil || key.Curve != gethcrypto.S256() ||
+				key.X == nil || key.Y == nil || !key.PublicKey.Equal(&derived.PublicKey) {
+				return errors.New("p2p: invalid RLPx private key")
+			}
+			key = derived
+		}
+		srv.config.RLPxPrivateKey = key
+		srv.localID = hex.EncodeToString(gethcrypto.FromECDSAPub(&key.PublicKey)[1:])
+	}
+
 	// Set up the dialer.
 	if srv.dialer == nil {
 		srv.dialer = &wire.TCPDialer{}
@@ -210,14 +236,22 @@ func (srv *Server) dialStaticNodes() {
 		}
 		addr := node.Addr()
 		srv.wg.Add(1)
-		go func(addr string) {
+		go func(addr string, id NodeID) {
 			defer srv.wg.Done()
+			var remote *ecdsa.PublicKey
+			if srv.config.EnableRLPx {
+				var err error
+				remote, err = parseRLPxNodeKey(id)
+				if err != nil {
+					return
+				}
+			}
 			ct, err := srv.dialer.Dial(addr)
 			if err != nil {
 				return
 			}
-			srv.setupConn(ct, true)
-		}(addr)
+			srv.setupConn(ct, remote)
+		}(addr, node.ID)
 	}
 }
 
@@ -249,6 +283,20 @@ func (srv *Server) ListenAddr() net.Addr {
 
 // AddPeer dials the given address and adds the connection as a peer.
 func (srv *Server) AddPeer(addr string) error {
+	var remote *ecdsa.PublicKey
+	if strings.HasPrefix(addr, "enode://") || srv.config.EnableRLPx {
+		node, err := ParseEnode(addr)
+		if err != nil {
+			return err
+		}
+		addr = node.Addr()
+		if srv.config.EnableRLPx {
+			remote, err = parseRLPxNodeKey(node.ID)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	ct, err := srv.dialer.Dial(addr)
 	if err != nil {
 		return err
@@ -257,9 +305,17 @@ func (srv *Server) AddPeer(addr string) error {
 	srv.wg.Add(1)
 	go func() {
 		defer srv.wg.Done()
-		srv.setupConn(ct, true)
+		srv.setupConn(ct, remote)
 	}()
 	return nil
+}
+
+func parseRLPxNodeKey(id NodeID) (*ecdsa.PublicKey, error) {
+	key, err := hex.DecodeString(string(id))
+	if err != nil || len(key) != 64 {
+		return nil, fmt.Errorf("%w: RLPx requires a 64-byte enode public key", ErrInvalidEnode)
+	}
+	return gethcrypto.UnmarshalPubkey(append([]byte{4}, key...))
 }
 
 // PeerCount returns the number of connected peers.
@@ -296,6 +352,8 @@ func (srv *Server) Running() bool {
 
 // LocalID returns the local node identifier used in the devp2p handshake.
 func (srv *Server) LocalID() string {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
 	return srv.localID
 }
 
@@ -323,7 +381,7 @@ func (srv *Server) listenLoop() {
 		srv.wg.Add(1)
 		go func() {
 			defer srv.wg.Done()
-			srv.setupConn(ct, false)
+			srv.setupConn(ct, nil)
 		}()
 	}
 }
@@ -334,19 +392,25 @@ func (srv *Server) localHello() *wire.HelloPacket {
 	for i, p := range srv.config.Protocols {
 		caps[i] = wire.Cap{Name: p.Name, Version: p.Version}
 	}
+	id := srv.LocalID()
+	if srv.config.EnableRLPx {
+		id = string(gethcrypto.FromECDSAPub(&srv.config.RLPxPrivateKey.PublicKey)[1:])
+	}
 	return &wire.HelloPacket{
 		Version:    baseProtocolVersion,
 		Name:       srv.config.Name,
 		Caps:       caps,
 		ListenPort: srv.config.ListenPort,
-		ID:         srv.localID,
+		ID:         id,
 	}
 }
 
 // setupConn handles a new connection: performs handshake, creates a peer,
 // and runs all matching protocols via the multiplexer.
-func (srv *Server) setupConn(ct wire.ConnTransport, dialed bool) {
+func (srv *Server) setupConn(ct wire.ConnTransport, remote *ecdsa.PublicKey) {
 	var tr wire.Transport = ct
+	var encrypted *wire.RLPxTransport
+	var authenticatedID []byte
 
 	// Optionally wrap with RLPx encryption.
 	if srv.config.EnableRLPx {
@@ -358,12 +422,19 @@ func (srv *Server) setupConn(ct wire.ConnTransport, dialed bool) {
 		default:
 		}
 
-		rlpx := wire.NewRLPxTransport(ct.(*wire.FrameConnTransport).FrameTransport.Conn())
-		if err := rlpx.Handshake(dialed); err != nil {
+		raw, ok := ct.(interface{ Conn() net.Conn })
+		if !ok {
 			ct.Close()
 			return
 		}
-		tr = rlpx
+		encrypted = wire.NewRLPxTransport(raw.Conn())
+		peerKey, err := encrypted.Handshake(srv.config.RLPxPrivateKey, remote)
+		if err != nil {
+			ct.Close()
+			return
+		}
+		authenticatedID = gethcrypto.FromECDSAPub(peerKey)[1:]
+		tr = encrypted
 	}
 
 	// Perform devp2p hello handshake (unless disabled).
@@ -385,7 +456,17 @@ func (srv *Server) setupConn(ct wire.ConnTransport, dialed bool) {
 			return
 		}
 		peerID = remoteHello.ID
+		if encrypted != nil {
+			if remoteHello.ID != string(authenticatedID) {
+				tr.Close()
+				return
+			}
+			peerID = hex.EncodeToString(authenticatedID)
+			encrypted.SetSnappy(remoteHello.Version >= 5)
+		}
 		peerCaps = remoteHello.Caps
+	} else if encrypted != nil {
+		peerID = hex.EncodeToString(authenticatedID)
 	} else {
 		// Legacy mode: generate a random peer ID with no handshake.
 		peerID = randomID()

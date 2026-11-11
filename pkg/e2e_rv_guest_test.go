@@ -8,6 +8,7 @@ package e2e_test
 
 import (
 	gosha256 "crypto/sha256"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -155,25 +156,20 @@ func TestE2E_RV_ECRecoverCallRouting(t *testing.T) {
 // treated as plain EVM bytecode (0xFE = INVALID) before the I+ fork.
 func TestE2E_RV_PreIPlusForkBoundary(t *testing.T) {
 	sdb := state.NewMemoryStateDB()
-	contractAddr := types.HexToAddress("0xdeadfb01")
-
-	// Deploy RV-magic code in state.
-	code := append(append([]byte(nil), rvMagic...), zkvm.RVKeccak256Program...)
-	sdb.SetCode(contractAddr, code)
-	sdb.CreateAccount(contractAddr)
+	contractAddr := deployRVContract(sdb, zkvm.RVKeccak256Program)
 
 	// Call with Glamsterdan (pre-I+) EVM.
 	glamEVM := makeGlamEVM(sdb)
-	_, _, err := glamEVM.Call(
+	output, _, err := glamEVM.Call(
 		types.BytesToAddress([]byte{0xab}),
 		contractAddr,
 		[]byte("data"),
 		1_000_000,
 		big.NewInt(0),
 	)
-	// 0xFE = INVALID opcode in EVM → execution should not produce RISC-V output.
-	// We just verify no panic and don't get a Keccak hash back.
-	_ = err
+	if !errors.Is(err, vm.ErrInvalidOpCode) || len(output) != 0 {
+		t.Fatalf("pre-I+ call returned output %x and error %v, want invalid opcode", output, err)
+	}
 }
 
 // TestE2E_RV_IPlusForkEnablesRVRouting contrasts Glamsterdan and I+ behaviour

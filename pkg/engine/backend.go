@@ -49,6 +49,9 @@ type pendingPayload struct {
 	feeRecipient types.Address
 	prevRandao   types.Hash
 	withdrawals  []*Withdrawal
+	// slotNumber is the beacon slot from payload attributes (Gloas payloads
+	// expose it as a payload field for CL-side envelope bookkeeping).
+	slotNumber uint64
 }
 
 // EngineBackendConfig holds tunable memory limits for EngineBackend.
@@ -1344,6 +1347,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			feeRecipient: attrs.SuggestedFeeRecipient,
 			prevRandao:   attrs.PrevRandao,
 			withdrawals:  attrs.Withdrawals,
+			slotNumber:   attrs.SlotNumber,
 		})
 
 		// Dual-write to actors for migration.
@@ -1401,6 +1405,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 }
 
 // GetPayloadV5 retrieves a previously built payload for getPayloadV5 (Gloas/Heze).
+// Gloas payloads carry BAL + slotNumber fields (lighthouse >= 8.4 requires them).
 // Implements GlamsterdamBackend interface.
 func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error) {
 	asyncPending, result, _, err := b.waitAsyncPayload(id, false)
@@ -1409,9 +1414,9 @@ func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error
 	}
 	if asyncPending != nil && result != nil {
 		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-		ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+		ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL, asyncPending.SlotNumber)
 		return &GetPayloadV5Response{
-			ExecutionPayload:  &ep4.ExecutionPayloadV3,
+			ExecutionPayload:  ep5,
 			BlockValue:        result.BlockValue,
 			BlobsBundle:       collectBlobsBundleV2(result.Block.Transactions()),
 			Override:          false,
@@ -1424,10 +1429,10 @@ func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error
 		return nil, err
 	}
 
-	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+	ep5 := enginepayload.BlockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal, pending.slotNumber)
 
 	return &GetPayloadV5Response{
-		ExecutionPayload:  &ep4.ExecutionPayloadV3,
+		ExecutionPayload:  ep5,
 		BlockValue:        pending.blockValue,
 		BlobsBundle:       collectBlobsBundleV2(pending.block.Transactions()),
 		Override:          false,
@@ -1446,7 +1451,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 	}
 	if asyncPending != nil && result != nil {
 		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-		ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL)
+		ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL, asyncPending.SlotNumber)
 		return &GetPayloadV6Response{
 			ExecutionPayload:  ep5,
 			BlockValue:        result.BlockValue,
@@ -1460,7 +1465,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 		return nil, err
 	}
 
-	ep5 := enginepayload.BlockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)
+	ep5 := enginepayload.BlockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal, pending.slotNumber)
 
 	return &GetPayloadV6Response{
 		ExecutionPayload:  ep5,

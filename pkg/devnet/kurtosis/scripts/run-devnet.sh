@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/../configs"
 PKG_DIR="$SCRIPT_DIR/../../../"
+# Workspace root (eth2030/), for the pinned ethereum-package in refs/
+ROOT_DIR="$SCRIPT_DIR/../../../../"
 
 CONFIG="${1:-single-client}"
 CONFIG_FILE="$CONFIG_DIR/$CONFIG.yaml"
@@ -22,7 +24,10 @@ if ! command -v kurtosis &>/dev/null; then
 fi
 
 ENCLAVE="${2:-eth2030-devnet}"
-KURTOSIS_PACKAGE="${KURTOSIS_PACKAGE:-github.com/ethpandaops/ethereum-package}"
+# Default to the pinned local ethereum-package (refs/, read-only submodule) for
+# reproducible devnets. Override with KURTOSIS_PACKAGE=github.com/ethpandaops/ethereum-package
+# to follow upstream master, or point to any local package path.
+KURTOSIS_PACKAGE="${KURTOSIS_PACKAGE:-$ROOT_DIR/refs/ethereum-package}"
 
 if [ "${SKIP_EL_IMAGE_BUILD:-0}" = "1" ]; then
     echo "=== Reusing existing eth2030:local Docker image ==="

@@ -8,13 +8,16 @@
 package proofs
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/bls"
+	"github.com/eth2030/eth2030/crypto/ipa"
 )
 
 // Batch verifier errors.
@@ -24,6 +27,8 @@ var (
 	ErrBatchVerifyUnknownType = errors.New("batch_verify: unknown proof type")
 	ErrBatchVerifyClosed      = errors.New("batch_verify: verifier is closed")
 	ErrBatchVerifyNilProof    = errors.New("batch_verify: nil proof in batch")
+	ErrBatchVerifyNoProvider  = errors.New("batch_verify: a proof verifier must be registered")
+	ErrBatchVerifyEncoding    = errors.New("batch_verify: invalid proof or public input encoding")
 )
 
 // VerifiableProof wraps a proof with metadata for batch routing.
@@ -95,6 +100,7 @@ type TypeVerifier func(data, publicInputs []byte) (bool, error)
 type BatchVerifier struct {
 	config    BatchVerifierConfig
 	verifiers map[ProofType]TypeVerifier
+	workers   chan struct{}
 	mu        sync.RWMutex
 	closed    atomic.Bool
 
@@ -105,7 +111,7 @@ type BatchVerifier struct {
 }
 
 // NewBatchVerifier creates a new batch verifier with the given configuration.
-// Default type verifiers are registered for all four proof types.
+// IPA and KZG openings have default verifiers.
 func NewBatchVerifier(config BatchVerifierConfig) *BatchVerifier {
 	if config.Workers <= 0 {
 		config.Workers = 8
@@ -119,12 +125,10 @@ func NewBatchVerifier(config BatchVerifierConfig) *BatchVerifier {
 	bv := &BatchVerifier{
 		config:    config,
 		verifiers: make(map[ProofType]TypeVerifier),
+		workers:   make(chan struct{}, config.Workers),
 	}
-	// Register default stub verifiers.
-	bv.verifiers[ZKSNARK] = defaultSNARKVerify
-	bv.verifiers[ZKSTARK] = defaultSTARKVerify
-	bv.verifiers[IPA] = defaultIPAVerify
-	bv.verifiers[KZG] = defaultKZGVerify
+	bv.verifiers[IPA] = verifyIPAOpening
+	bv.verifiers[KZG] = verifyKZGOpening
 	return bv
 }
 
@@ -132,6 +136,10 @@ func NewBatchVerifier(config BatchVerifierConfig) *BatchVerifier {
 func (bv *BatchVerifier) RegisterVerifier(pt ProofType, fn TypeVerifier) {
 	bv.mu.Lock()
 	defer bv.mu.Unlock()
+	if fn == nil {
+		delete(bv.verifiers, pt)
+		return
+	}
 	bv.verifiers[pt] = fn
 }
 
@@ -152,137 +160,111 @@ func (bv *BatchVerifier) VerifyBatch(proofs []VerifiableProof) (*BatchVerificati
 		return nil, ErrBatchVerifyEmpty
 	}
 
-	batchStart := time.Now()
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), bv.config.Timeout)
+	defer cancel()
+
 	results := make([]VerificationResult, len(proofs))
-
-	// Bounded worker pool via semaphore channel.
-	sem := make(chan struct{}, bv.config.Workers)
+	jobs := make(chan int)
 	var wg sync.WaitGroup
-
-	// Batch-level timeout.
-	done := make(chan struct{})
-	timedOut := atomic.Bool{}
-
-	go func() {
-		select {
-		case <-done:
-		case <-time.After(bv.config.Timeout):
-			timedOut.Store(true)
-		}
-	}()
-
+	for range min(bv.config.Workers, len(proofs)) {
+		wg.Go(func() {
+			for i := range jobs {
+				results[i] = bv.verifySingle(ctx, &proofs[i])
+			}
+		})
+	}
 	for i := range proofs {
-		if timedOut.Load() {
-			break
-		}
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			p := &proofs[idx]
-			results[idx] = bv.verifySingle(p, &timedOut)
-		}(i)
-	}
-
-	wg.Wait()
-	close(done)
-
-	// Aggregate results.
-	br := &BatchVerificationResult{
-		Results:  results,
-		Duration: time.Since(batchStart),
-		AllValid: true,
-	}
-	for i := range results {
-		if results[i].Valid {
-			br.TotalValid++
-			bv.totalVerified.Add(1)
-		} else {
-			br.AllValid = false
-			if results[i].Err != nil {
-				br.TotalErrors++
-			} else {
-				br.TotalInvalid++
-			}
-			bv.totalFailed.Add(1)
-		}
-	}
-
-	// Check for unprocessed proofs due to timeout.
-	for i := range results {
-		if results[i].ProofID == "" && i < len(proofs) {
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
 			results[i] = VerificationResult{
-				ProofID: proofs[i].ID,
-				Type:    proofs[i].Type,
-				Valid:   false,
-				Err:     ErrBatchVerifyTimeout,
+				ProofID: proofs[i].ID, Type: proofs[i].Type, Err: ErrBatchVerifyTimeout,
 			}
-			br.AllValid = false
-			br.TotalErrors++
-			bv.totalTimeout.Add(1)
 		}
 	}
+	close(jobs)
+	wg.Wait()
 
+	br := &BatchVerificationResult{Results: results, Duration: time.Since(start), AllValid: true}
+	for _, result := range results {
+		switch {
+		case result.Valid:
+			br.TotalValid++
+		case result.Err != nil:
+			br.TotalErrors++
+			if errors.Is(result.Err, ErrBatchVerifyTimeout) {
+				bv.totalTimeout.Add(1)
+			}
+		default:
+			br.TotalInvalid++
+		}
+	}
+	bv.totalVerified.Add(uint64(br.TotalValid))
+	bv.totalFailed.Add(uint64(br.TotalErrors + br.TotalInvalid))
+	br.AllValid = br.TotalValid == len(results)
 	return br, nil
 }
 
-// verifySingle runs verification for a single proof with per-proof timeout.
-func (bv *BatchVerifier) verifySingle(p *VerifiableProof, batchTimeout *atomic.Bool) VerificationResult {
+func (bv *BatchVerifier) verifySingle(batch context.Context, p *VerifiableProof) (result VerificationResult) {
 	start := time.Now()
+	result = VerificationResult{ProofID: p.ID, Type: p.Type}
+	defer func() { result.Duration = time.Since(start) }()
 
-	if p == nil {
-		return VerificationResult{
-			Valid: false, Duration: time.Since(start),
-			Err: ErrBatchVerifyNilProof,
-		}
-	}
-
-	result := VerificationResult{
-		ProofID: p.ID,
-		Type:    p.Type,
-	}
-
-	if batchTimeout.Load() {
+	if batch.Err() != nil {
 		result.Err = ErrBatchVerifyTimeout
-		result.Duration = time.Since(start)
-		bv.totalTimeout.Add(1)
 		return result
 	}
-
 	bv.mu.RLock()
-	verifier, ok := bv.verifiers[p.Type]
+	verifier := bv.verifiers[p.Type]
 	bv.mu.RUnlock()
-
-	if !ok {
-		result.Err = ErrBatchVerifyUnknownType
-		result.Duration = time.Since(start)
+	if verifier == nil {
+		switch p.Type {
+		case ZKSNARK, ZKSTARK, IPA, KZG:
+			result.Err = ErrBatchVerifyNoProvider
+		default:
+			result.Err = ErrBatchVerifyUnknownType
+		}
 		return result
 	}
 
-	// Per-proof timeout.
+	select {
+	case bv.workers <- struct{}{}:
+	case <-batch.Done():
+		result.Err = ErrBatchVerifyTimeout
+		return result
+	}
+	ctx, cancel := context.WithTimeout(batch, bv.config.PerProofTimeout)
+	defer cancel()
+	if ctx.Err() != nil {
+		<-bv.workers
+		result.Err = ErrBatchVerifyTimeout
+		return result
+	}
+
 	type verifyOut struct {
 		valid bool
 		err   error
 	}
 	ch := make(chan verifyOut, 1)
+	data, publicInputs := bytes.Clone(p.Data), bytes.Clone(p.PublicIn)
 	go func() {
-		v, e := verifier(p.Data, p.PublicIn)
-		ch <- verifyOut{v, e}
+		// A legacy callback has no context. It retains its slot even if
+		// the caller's deadline expires before the callback returns.
+		defer func() { <-bv.workers }()
+		valid, err := verifier(data, publicInputs)
+		ch <- verifyOut{valid: valid, err: err}
 	}()
-
 	select {
 	case out := <-ch:
-		result.Valid = out.valid
-		result.Err = out.err
-	case <-time.After(bv.config.PerProofTimeout):
-		result.Valid = false
-		result.Err = ErrBatchVerifyTimeout
-		bv.totalTimeout.Add(1)
+		if deadline, _ := ctx.Deadline(); ctx.Err() == nil && time.Now().Before(deadline) {
+			result.Valid = out.valid && out.err == nil
+			result.Err = out.err
+			return result
+		}
+	case <-ctx.Done():
 	}
-
-	result.Duration = time.Since(start)
+	result.Err = ErrBatchVerifyTimeout
 	return result
 }
 
@@ -291,68 +273,28 @@ func (bv *BatchVerifier) Stats() (verified, failed, timedOut uint64) {
 	return bv.totalVerified.Load(), bv.totalFailed.Load(), bv.totalTimeout.Load()
 }
 
-// --- Type-specific verifiers ---
-// These use real cryptographic verification where possible:
-// - SNARK: attempts BLS12-381 Groth16 deserialization + pairing, falls back to
-//   binding commitment verification.
-// - STARK/IPA: verifies cryptographic binding commitment (Keccak256 over
-//   proof data, public inputs, and domain separator).
-// - KZG: verifies cryptographic binding commitment.
-
-func defaultSNARKVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
+// IPA public inputs are the compressed commitment and two little-endian
+// scalars (evaluation point and claimed value).
+func verifyIPAOpening(proof, inputs []byte) (bool, error) {
+	if len(inputs) != 96 || len(proof) != ipa.ProofSize {
+		return false, ErrBatchVerifyEncoding
 	}
-	// Try BLS12-381 Groth16 verification for 192-byte proofs.
-	if len(data) == 192 {
-		proof, err := DeserializeBLSGroth16Proof(data)
-		if err == nil && proof != nil {
-			if err := ValidateGroth16Proof(proof); err == nil {
-				return true, nil
-			}
-		}
-	}
-	// Binding commitment verification: Keccak256(domain || data || publicInputs)
-	// must produce a non-zero hash.
-	h := crypto.Keccak256([]byte("snark-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
+	return ipa.Verify([32]byte(inputs[:32]), [32]byte(inputs[32:64]), [32]byte(inputs[64:]), proof)
 }
 
-func defaultSTARKVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
+// KZG public inputs are the Ethereum ceremony commitment and two big-endian
+// scalars (evaluation point and claimed value).
+func verifyKZGOpening(proof, inputs []byte) (bool, error) {
+	const commitment = bls.KZGBytesPerCommitment
+	const scalar = bls.KZGBytesPerFieldElement
+	if len(inputs) != commitment+2*scalar || len(proof) != bls.KZGBytesPerProof {
+		return false, ErrBatchVerifyEncoding
 	}
-	// Binding commitment verification with STARK domain separator.
-	h := crypto.Keccak256([]byte("stark-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
-}
-
-func defaultIPAVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
-	}
-	// Binding commitment verification with IPA domain separator.
-	h := crypto.Keccak256([]byte("ipa-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
-}
-
-func defaultKZGVerify(data, publicInputs []byte) (bool, error) {
-	if len(data) == 0 {
-		return false, ErrBatchVerifyNilProof
-	}
-	// Binding commitment verification with KZG domain separator.
-	h := crypto.Keccak256([]byte("kzg-verify"), data, publicInputs)
-	if h == nil {
-		return false, nil
-	}
-	return true, nil
+	err := bls.VerifyKZGPointProof(
+		[commitment]byte(inputs[:commitment]),
+		[scalar]byte(inputs[commitment:commitment+scalar]),
+		[scalar]byte(inputs[commitment+scalar:]),
+		[bls.KZGBytesPerProof]byte(proof),
+	)
+	return err == nil, err
 }

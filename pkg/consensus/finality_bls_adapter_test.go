@@ -45,7 +45,6 @@ func TestFinalityBLSAdapterVoteDigestDeterministic(t *testing.T) {
 }
 
 func TestFinalityBLSAdapterSignAndVerifyVote(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	adapter := NewFinalityBLSAdapter()
 	secret := big.NewInt(12345)
 	pk := crypto.BLSPubkeyFromSecret(secret)
@@ -93,7 +92,6 @@ func TestFinalityBLSAdapterNilInputs(t *testing.T) {
 }
 
 func TestFinalityBLSAdapterAggregateVotes(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	adapter := NewFinalityBLSAdapter()
 
 	secrets := []*big.Int{
@@ -225,7 +223,6 @@ func TestFinalityBLSAdapterGenerateProofErrors(t *testing.T) {
 }
 
 func TestFinalityBLSAdapterVerifyFinalityProof(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	adapter := NewFinalityBLSAdapter()
 
 	secrets := []*big.Int{big.NewInt(10), big.NewInt(20)}
@@ -279,7 +276,6 @@ func TestFinalityBLSAdapterVerifyFinalityProof(t *testing.T) {
 }
 
 func TestFinalityBLSAdapterSignAndAttachVote(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	adapter := NewFinalityBLSAdapter()
 	secret := big.NewInt(777)
 	pk := crypto.BLSPubkeyFromSecret(secret)

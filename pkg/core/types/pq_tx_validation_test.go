@@ -1,8 +1,13 @@
 package types
 
 import (
+	"crypto/rand"
 	"math/big"
 	"testing"
+
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/slhdsa"
+	"github.com/pornin/go-fn-dsa/fndsa"
 )
 
 func TestPQTxValidatorCreation(t *testing.T) {
@@ -122,9 +127,8 @@ func TestPQTxValidatorValidSignature(t *testing.T) {
 
 	// Create a valid Dilithium transaction with correct sizes.
 	tx := makePQValidationTestTx(PQSigDilithium)
-	tx.PQSignature = makePQTestSig(PQMLDSASigSize)
-	tx.PQPublicKey = makePQTestPK(PQMLDSAPubKeySize)
 
+	signPQValidationTestTx(t, tx)
 	err := v.ValidatePQTransaction(tx)
 	if err != nil {
 		t.Fatalf("valid transaction rejected: %v", err)
@@ -135,9 +139,8 @@ func TestPQTxValidatorFalconValidation(t *testing.T) {
 	v := NewPQTxValidator()
 	tx := makePQValidationTestTx(PQSigFalcon)
 	tx.PQSignatureType = PQSigFalcon
-	tx.PQSignature = makePQTestSig(PQFalconSigSize)
-	tx.PQPublicKey = makePQTestPK(PQFalconPubKeySize)
 
+	signPQValidationTestTx(t, tx)
 	err := v.ValidatePQTransaction(tx)
 	if err != nil {
 		t.Fatalf("valid Falcon transaction rejected: %v", err)
@@ -148,9 +151,8 @@ func TestPQTxValidatorSPHINCSValidation(t *testing.T) {
 	v := NewPQTxValidator()
 	tx := makePQValidationTestTx(PQSigSPHINCS)
 	tx.PQSignatureType = PQSigSPHINCS
-	tx.PQSignature = makePQTestSig(PQSPHINCSPSigSize)
-	tx.PQPublicKey = makePQTestPK(PQSPHINCSPubKeySize)
 
+	signPQValidationTestTx(t, tx)
 	err := v.ValidatePQTransaction(tx)
 	if err != nil {
 		t.Fatalf("valid SPHINCS transaction rejected: %v", err)
@@ -208,10 +210,10 @@ func TestPQTxPool(t *testing.T) {
 
 	// Accept a valid transaction.
 	tx := makePQValidationTestTx(PQSigDilithium)
-	tx.PQSignature = makePQTestSig(PQMLDSASigSize)
-	tx.PQPublicKey = makePQTestPK(PQMLDSAPubKeySize)
+
 	tx.Gas = 100000
 
+	signPQValidationTestTx(t, tx)
 	err := pool.AcceptPQTx(tx)
 	if err != nil {
 		t.Fatalf("AcceptPQTx failed: %v", err)
@@ -242,10 +244,10 @@ func TestPQTxPoolCapacity(t *testing.T) {
 		tx := makePQValidationTestTx(PQSigFalcon)
 		tx.PQSignatureType = PQSigFalcon
 		tx.Nonce = uint64(i)
-		tx.PQSignature = makePQTestSig(PQFalconSigSize)
-		tx.PQPublicKey = makePQTestPK(PQFalconPubKeySize)
+
 		tx.Gas = 100000
 
+		signPQValidationTestTx(t, tx)
 		err := pool.AcceptPQTx(tx)
 		if err != nil {
 			t.Fatalf("AcceptPQTx(%d) failed: %v", i, err)
@@ -256,8 +258,7 @@ func TestPQTxPoolCapacity(t *testing.T) {
 	tx := makePQValidationTestTx(PQSigFalcon)
 	tx.PQSignatureType = PQSigFalcon
 	tx.Nonce = 99
-	tx.PQSignature = makePQTestSig(PQFalconSigSize)
-	tx.PQPublicKey = makePQTestPK(PQFalconPubKeySize)
+
 	tx.Gas = 100000
 
 	err := pool.AcceptPQTx(tx)
@@ -271,10 +272,10 @@ func TestPQTxPoolInsufficientGas(t *testing.T) {
 	pool := NewPQTxPool(v, 100)
 
 	tx := makePQValidationTestTx(PQSigDilithium)
-	tx.PQSignature = makePQTestSig(PQMLDSASigSize)
-	tx.PQPublicKey = makePQTestPK(PQMLDSAPubKeySize)
+
 	tx.Gas = 100 // too low
 
+	signPQValidationTestTx(t, tx)
 	err := pool.AcceptPQTx(tx)
 	if err == nil {
 		t.Fatal("expected error for insufficient gas")
@@ -307,7 +308,7 @@ func TestPQSupportedAlgorithms(t *testing.T) {
 
 func makePQValidationTestTx(sigType uint8) *PQTransaction {
 	to := Address{0x01, 0x02, 0x03}
-	return NewPQTransaction(
+	tx := NewPQTransaction(
 		big.NewInt(1),
 		0,
 		&to,
@@ -316,6 +317,8 @@ func makePQValidationTestTx(sigType uint8) *PQTransaction {
 		big.NewInt(1),
 		nil,
 	)
+	tx.PQSignatureType = sigType
+	return tx
 }
 
 func makePQTestSig(size int) []byte {
@@ -332,4 +335,47 @@ func makePQTestPK(size int) []byte {
 		pk[i] = byte(i%239 + 1)
 	}
 	return pk
+}
+
+func signPQValidationTestTx(t *testing.T, tx *PQTransaction) {
+	t.Helper()
+	h := tx.SigningHash()
+	switch tx.PQSignatureType {
+	case PQSigDilithium:
+		public, private, err := mldsa65.GenerateKey(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx.PQPublicKey, err = public.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx.PQSignature = make([]byte, DilithiumSigSize)
+		if err := mldsa65.SignTo(private, h[:], nil, false, tx.PQSignature); err != nil {
+			t.Fatal(err)
+		}
+	case PQSigFalcon:
+		private, public, err := fndsa.KeyGen(9, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx.PQPublicKey = public
+		tx.PQSignature, err = fndsa.Sign(nil, private, nil, 0, h[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+	case PQSigSPHINCS:
+		public, private, err := slhdsa.GenerateKey(rand.Reader, slhdsa.SHA2_128f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx.PQPublicKey, err = public.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx.PQSignature, err = slhdsa.SignDeterministic(&private, slhdsa.NewMessage(h[:]), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 }

@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto/pqc"
 )
 
 // newTransferTx creates a simple transfer transaction.
@@ -242,9 +244,9 @@ func TestChainConfig(t *testing.T) {
 		t.Fatal("config.MainnetConfig should have Cancun active at time 2B")
 	}
 
-	// config.MainnetConfig: Prague and Amsterdam not yet scheduled
-	if config.MainnetConfig.IsPrague(2_000_000_000) {
-		t.Fatal("config.MainnetConfig should NOT have Prague active")
+	const pragueTime = 1_746_612_311
+	if config.MainnetConfig.IsPrague(pragueTime-1) || !config.MainnetConfig.IsPrague(pragueTime) {
+		t.Fatal("Mainnet Prague activation does not match Geth")
 	}
 	if config.MainnetConfig.IsAmsterdam(2_000_000_000) {
 		t.Fatal("config.MainnetConfig should NOT have Amsterdam active")
@@ -671,5 +673,60 @@ func TestProcessBlockWithTransfer(t *testing.T) {
 	}
 	if receipt.CumulativeGasUsed != TxGas {
 		t.Fatalf("receipt cumulative gas: want %d, got %d", TxGas, receipt.CumulativeGasUsed)
+	}
+}
+
+func TestApplyTransactionAuthenticatesPQSender(t *testing.T) {
+	cfg := *config.MainnetConfig
+	fork := uint64(0)
+	cfg.IPlusTime = &fork
+	cfg.TerminalTotalDifficulty = big.NewInt(0)
+	header := &types.Header{
+		Number: big.NewInt(24_000_000), Time: 1_800_000_000,
+		GasLimit: 30_000_000, Difficulty: new(big.Int), BaseFee: big.NewInt(1),
+	}
+	for _, scheme := range []pqc.PQSignatureType{pqc.SigDilithium3, pqc.SigFalcon512, pqc.SigSPHINCS128} {
+		t.Run(fmt.Sprint(scheme), func(t *testing.T) {
+			signer, err := pqc.NewPQTxSigner(scheme)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sk, pk, err := signer.GenerateKey()
+			if err != nil {
+				t.Fatal(err)
+			}
+			to := types.Address{0x42}
+			pq := types.NewPQTransaction(cfg.ChainID, 0, &to, big.NewInt(100), 300_000, big.NewInt(10), nil)
+			from := types.PQPubKeyToAddress(pk.Raw)
+			db := state.NewMemoryStateDB()
+			db.AddBalance(from, big.NewInt(100_000_000))
+			gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+			unsigned := types.NewTransaction(pq)
+			unsigned.SetSender(from)
+			if _, _, err := ApplyTransaction(&cfg, db, header, unsigned, gp); err == nil {
+				t.Fatal("unsigned transaction accepted with cached sender")
+			}
+			sig, err := signer.SignTransaction(unsigned, sk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pq.SignWithPQ(uint8(scheme), pk.Raw, sig)
+			if err := types.NewPQTxPool(types.NewPQTxValidator(), 1).AcceptPQTx(pq); err != nil {
+				t.Fatalf("pool rejected valid signature: %v", err)
+			}
+			pq.Data = []byte{1}
+			if _, _, err := ApplyTransaction(&cfg, db, header, types.NewTransaction(pq), gp); err == nil {
+				t.Fatal("transaction with changed data accepted")
+			}
+			pq.Data = nil
+			signed := types.NewTransaction(pq)
+			signed.SetSender(types.Address{0xff})
+			if _, _, err := ApplyTransaction(&cfg, db, header, signed, gp); err != nil {
+				t.Fatalf("valid transaction failed: %v", err)
+			}
+			if db.GetBalance(to).Cmp(big.NewInt(100)) != 0 || signed.Sender() == nil || *signed.Sender() != from {
+				t.Fatal("transfer did not use the verified sender")
+			}
+		})
 	}
 }

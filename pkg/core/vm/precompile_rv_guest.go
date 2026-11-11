@@ -49,16 +49,18 @@ func init() {
 	ecrecoverAddr := types.BytesToAddress([]byte{1})
 	sha256Addr := types.BytesToAddress([]byte{2})
 
-	if native, ok := PrecompiledContractsIPlus[ecrecoverAddr]; ok {
-		PrecompiledContractsIPlus[ecrecoverAddr] = &rvPrecompile{
-			ecallCode: zkvm.RVEcallECRecover,
-			native:    native,
+	for _, table := range []map[types.Address]PrecompiledContract{PrecompiledContractsIPlus, precompiledContractsIPlusStandardBLS} {
+		if native, ok := table[ecrecoverAddr]; ok {
+			table[ecrecoverAddr] = &rvPrecompile{
+				ecallCode: zkvm.RVEcallECRecover,
+				native:    native,
+			}
 		}
-	}
-	if native, ok := PrecompiledContractsIPlus[sha256Addr]; ok {
-		PrecompiledContractsIPlus[sha256Addr] = &rvPrecompile{
-			ecallCode: zkvm.RVEcallSHA256,
-			native:    native,
+		if native, ok := table[sha256Addr]; ok {
+			table[sha256Addr] = &rvPrecompile{
+				ecallCode: zkvm.RVEcallSHA256,
+				native:    native,
+			}
 		}
 	}
 }

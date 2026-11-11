@@ -210,69 +210,6 @@ func TestDilithiumBatchVerifyMismatchedLengths(t *testing.T) {
 	}
 }
 
-func TestDilithiumConstants(t *testing.T) {
-	// Verify Dilithium-3 parameter constants.
-	if DSign3N != 256 {
-		t.Fatalf("N = %d, want 256", DSign3N)
-	}
-	if DSign3Q != 8380417 {
-		t.Fatalf("Q = %d, want 8380417", DSign3Q)
-	}
-	if DSign3K != 6 {
-		t.Fatalf("K = %d, want 6", DSign3K)
-	}
-	if DSign3L != 5 {
-		t.Fatalf("L = %d, want 5", DSign3L)
-	}
-	if DSign3Beta != DSign3Tau*DSign3Eta {
-		t.Fatalf("Beta = %d, want tau*eta = %d", DSign3Beta, DSign3Tau*DSign3Eta)
-	}
-}
-
-func TestDs3PolyArithmetic(t *testing.T) {
-	q := int64(DSign3Q)
-
-	// Test addition.
-	a := []int64{1, 2, 3, 4}
-	b := []int64{5, 6, 7, 8}
-	sum := ds3PolyAdd(a, b, q)
-	if sum[0] != 6 || sum[1] != 8 || sum[2] != 10 || sum[3] != 12 {
-		t.Fatalf("polyAdd: %v", sum)
-	}
-
-	// Test subtraction.
-	diff := ds3PolySub(sum, b, q)
-	for i := range a {
-		if diff[i] != a[i] {
-			t.Fatalf("polySub[%d] = %d, want %d", i, diff[i], a[i])
-		}
-	}
-
-	// Test multiplication: (1+x)^2 = 1 + 2x + x^2 mod (x^4+1).
-	c := []int64{1, 1, 0, 0}
-	prod := ds3PolyMul(c, c, 4, q)
-	if prod[0] != 1 || prod[1] != 2 || prod[2] != 1 || prod[3] != 0 {
-		t.Fatalf("polyMul: %v", prod)
-	}
-}
-
-func TestDs3ModArithmetic(t *testing.T) {
-	q := int64(DSign3Q)
-
-	if ds3Mod(0, q) != 0 {
-		t.Fatal("mod(0) != 0")
-	}
-	if ds3Mod(q, q) != 0 {
-		t.Fatal("mod(Q) != 0")
-	}
-	if ds3Mod(-1, q) != q-1 {
-		t.Fatalf("mod(-1) = %d, want %d", ds3Mod(-1, q), q-1)
-	}
-	if ds3Center(q-1, q) != -1 {
-		t.Fatalf("center(Q-1) = %d, want -1", ds3Center(q-1, q))
-	}
-}
-
 // dsTestBytesEqual checks if two byte slices are equal.
 func dsTestBytesEqual(a, b []byte) bool {
 	if len(a) != len(b) {

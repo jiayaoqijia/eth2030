@@ -104,7 +104,6 @@ The `groth16` and `kzg` subpackages provide BLS12-381 Groth16 deserialization an
 
 | Subpackage | Description |
 |------------|-------------|
-| [`groth16/`](./groth16/) | BLS12-381 Groth16 proof serialization and gnark-based verification |
 | [`kzg/`](./kzg/) | KZG polynomial commitment verifier |
 | [`prover/`](./prover/) | Prover backend compatibility shims |
 | [`queue/`](./queue/) | Proof submission queue compatibility shims |

@@ -438,6 +438,6 @@ func TestDifferentNodeIDsGetDifferentGroups(t *testing.T) {
 		}
 	}
 	if allSame {
-		t.Log("warning: different node IDs produced identical groups (unlikely but possible)")
+		t.Error("fixed node IDs produced identical custody groups")
 	}
 }

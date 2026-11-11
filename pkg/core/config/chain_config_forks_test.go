@@ -148,7 +148,7 @@ func TestUnscheduledForks(t *testing.T) {
 
 	unscheduled := cfg.UnscheduledForks()
 
-	// Mainnet has some forks not yet scheduled (Prague, Amsterdam, Glamsterdan, Hogota).
+	// The native roadmap configuration still leaves later forks unscheduled.
 	hasHogota := false
 	for _, f := range unscheduled {
 		if f.Name == "Hogota" {
@@ -304,5 +304,17 @@ func TestNextForkAfter(t *testing.T) {
 	next = cfg.NextForkAfter(big.NewInt(0), 5000)
 	if next.Name != "" {
 		t.Fatalf("expected empty fork after all forks, got %s", next.Name)
+	}
+}
+
+func TestLegacyNativeBLSActivationBoundary(t *testing.T) {
+	cfg := *MainnetConfig
+	cutover := uint64(1_800_000_000)
+	cfg.LegacyNativeBLSUntil = &cutover
+	block := big.NewInt(24_000_000)
+	before := cfg.Rules(block, true, cutover-1)
+	at := cfg.Rules(block, true, cutover)
+	if !before.LegacyNativeBLS || at.LegacyNativeBLS || !at.IsPrague {
+		t.Fatalf("legacy BLS before=%t at=%t Prague=%t", before.LegacyNativeBLS, at.LegacyNativeBLS, at.IsPrague)
 	}
 }

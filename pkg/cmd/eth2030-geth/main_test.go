@@ -39,12 +39,14 @@ func TestMapEthConfigSepolia(t *testing.T) {
 }
 
 func TestMapEthConfigHolesky(t *testing.T) {
+	// go-ethereum v1.17.x removed the Holesky built-in genesis (superseded by
+	// Hoodi); the holesky network alias now maps to Hoodi.
 	cfg := mapEthConfig(ethConfigParams{network: "holesky", syncMode: "snap"})
 	if cfg.Genesis == nil {
-		t.Fatal("expected holesky genesis to be non-nil")
+		t.Fatal("expected holesky (mapped to hoodi) genesis to be non-nil")
 	}
-	if cfg.NetworkId != 17000 {
-		t.Fatalf("expected network id 17000, got %d", cfg.NetworkId)
+	if cfg.NetworkId != 560048 {
+		t.Fatalf("expected network id 560048, got %d", cfg.NetworkId)
 	}
 }
 

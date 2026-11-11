@@ -91,6 +91,7 @@ func TestRegisterProver_Duplicate(t *testing.T) {
 func setupSystemWithProvers(t *testing.T, n int) *MandatoryProofSystem {
 	t.Helper()
 	sys := NewMandatoryProofSystem(DefaultMandatoryProofConfig())
+	sys.RegisterVerifier("ZK-SNARK", func(*ProofSubmission) bool { return true })
 	for i := 1; i <= n; i++ {
 		err := sys.RegisterProver(proverHash(byte(i)), []string{"ZK-SNARK"})
 		if err != nil {
@@ -295,6 +296,18 @@ func TestVerifyProof_Valid(t *testing.T) {
 	}
 	sys.SubmitProof(sub)
 
+	sys.RegisterVerifier("ZK-SNARK", nil)
+	if sys.VerifyProof(sub) {
+		t.Fatal("proof accepted without a verifier")
+	}
+	sys.RegisterVerifier("ZK-SNARK", func(candidate *ProofSubmission) bool {
+		return candidate.BlockHash == bh && candidate.ProofData[0] == 1
+	})
+	changed := *sub
+	changed.ProofData = []byte{1, 2, 4}
+	if sys.VerifyProof(&changed) {
+		t.Fatal("proof accepted without a matching submission")
+	}
 	if !sys.VerifyProof(sub) {
 		t.Error("expected proof to verify successfully")
 	}
@@ -583,6 +596,7 @@ func TestConcurrentSubmitAndVerify(t *testing.T) {
 		ProofDeadlineSlots: 32,
 		PenaltyAmount:      1000,
 	})
+	sys2.RegisterVerifier("ZK-SNARK", func(*ProofSubmission) bool { return true })
 	for i := 1; i <= 10; i++ {
 		sys2.RegisterProver(proverHash(byte(i)), []string{"ZK-SNARK"})
 	}

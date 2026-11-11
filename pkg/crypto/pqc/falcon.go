@@ -1,40 +1,28 @@
 package pqc
 
-// FalconSigner implements PQSigner for Falcon-512.
-// Uses real NTRU-lattice-based signing via the NTT polynomial arithmetic
-// in falcon_signer.go. Sign produces deterministic signatures using the
-// hash-then-sign paradigm over Z_q[X]/(X^512+1) with q=12289.
+import "github.com/pornin/go-fn-dsa/fndsa"
+
+// FalconSigner uses the public FN-DSA-512 provider for the historical FALCON512 ID.
 type FalconSigner struct{}
 
-func (f *FalconSigner) Algorithm() PQAlgorithm { return FALCON512 }
+func (*FalconSigner) Algorithm() PQAlgorithm { return FALCON512 }
 
-// GenerateKey generates a real Falcon-512 key pair using SHAKE-256 expansion.
-// Uses a deterministic seed so repeated calls produce the same key pair.
-func (f *FalconSigner) GenerateKey() (*PQKeyPair, error) {
-	return f.GenerateKeyReal()
+func (*FalconSigner) GenerateKey() (*PQKeyPair, error) {
+	secret, public, err := fndsa.KeyGen(9, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &PQKeyPair{Algorithm: FALCON512, PublicKey: public, SecretKey: secret}, nil
 }
 
-// Sign produces a real Falcon-512 signature using lattice-based signing.
-// The signature is deterministic for the same key+message pair.
-func (f *FalconSigner) Sign(sk, msg []byte) ([]byte, error) {
+func (*FalconSigner) Sign(sk, msg []byte) ([]byte, error) {
 	if len(sk) != Falcon512SecKeySize {
 		return nil, ErrInvalidKeySize
 	}
-	// Empty/nil messages are allowed by the stub interface (unlike SignReal
-	// which rejects them). Provide a canonical empty-message placeholder.
-	if len(msg) == 0 {
-		msg = []byte{0x00}
-	}
-	return f.SignReal(sk, msg)
+	return fndsa.Sign(nil, sk, nil, 0, msg)
 }
 
-// Verify performs real Falcon-512 verification with norm checking.
-func (f *FalconSigner) Verify(pk, msg, sig []byte) bool {
-	if len(pk) != Falcon512PubKeySize || len(sig) != Falcon512SigSize {
-		return false
-	}
-	if len(msg) == 0 {
-		return false
-	}
-	return f.VerifyReal(pk, msg, sig)
+func (*FalconSigner) Verify(pk, msg, sig []byte) bool {
+	return len(msg) != 0 && len(pk) == Falcon512PubKeySize && len(sig) == Falcon512SigSize &&
+		fndsa.Verify(pk, nil, 0, msg, sig)
 }

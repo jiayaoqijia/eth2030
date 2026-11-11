@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"math/big"
 	"testing"
 
@@ -90,11 +91,11 @@ func testGenSecp256k1Key(t *testing.T) *ecdsa.PrivateKey {
 func testSecp256k1Curve() elliptic.Curve {
 	return &testSecp256k1{
 		params: &elliptic.CurveParams{
-			P:       secp256k1P,
+			P:       gethcrypto.S256().Params().P,
 			N:       secp256k1NCopy,
-			B:       secp256k1B,
-			Gx:      secp256k1Gx,
-			Gy:      secp256k1Gy,
+			B:       gethcrypto.S256().Params().B,
+			Gx:      gethcrypto.S256().Params().Gx,
+			Gy:      gethcrypto.S256().Params().Gy,
 			BitSize: 256,
 			Name:    "secp256k1",
 		},

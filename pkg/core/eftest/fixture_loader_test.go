@@ -1,10 +1,8 @@
 package eftest
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -365,88 +363,6 @@ func TestEF_SpecFixtures(t *testing.T) {
 	}
 }
 
-// --- Full suite integration test ---
-
-func TestEF_FullSuiteReport(t *testing.T) {
-	t.Skip("use TestGethCategorySummary for authoritative EF test results via go-ethereum backend")
-	if testing.Short() {
-		t.Skip("skipping full suite in short mode")
-	}
-
-	baseDir := efGeneralStateTests()
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-		t.Skipf("EF GeneralStateTests not found: %s", baseDir)
-	}
-
-	entries, err := os.ReadDir(baseDir)
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
-
-	type catResult struct {
-		name   string
-		total  int
-		passed int
-	}
-
-	var cats []catResult
-	var grandTotal, grandPassed int
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		dir := filepath.Join(baseDir, entry.Name())
-		files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
-
-		cr := catResult{name: entry.Name()}
-		for _, path := range files {
-			tests, err := LoadStateTests(path)
-			if err != nil {
-				continue
-			}
-			for _, test := range tests {
-				for _, sub := range test.Subtests() {
-					if !ForkSupported(sub.Fork) {
-						continue
-					}
-					cr.total++
-					if result := test.Run(sub); result.Passed {
-						cr.passed++
-					}
-				}
-			}
-		}
-		cats = append(cats, cr)
-		grandTotal += cr.total
-		grandPassed += cr.passed
-	}
-
-	sort.Slice(cats, func(i, j int) bool {
-		ri := float64(cats[i].passed) / float64(maxInt(cats[i].total, 1))
-		rj := float64(cats[j].passed) / float64(maxInt(cats[j].total, 1))
-		return ri > rj
-	})
-
-	t.Logf("\n%-45s %6s %6s %6s", "Category", "Total", "Pass", "Rate")
-	t.Logf("%s", strings.Repeat("-", 70))
-	for _, cr := range cats {
-		if cr.total == 0 {
-			continue
-		}
-		rate := float64(cr.passed) / float64(cr.total) * 100
-		t.Logf("%-45s %6d %6d %5.1f%%", cr.name, cr.total, cr.passed, rate)
-	}
-	t.Logf("%s", strings.Repeat("-", 70))
-	rate := float64(grandPassed) / float64(maxInt(grandTotal, 1)) * 100
-	t.Logf("%-45s %6d %6d %5.1f%%", "TOTAL", grandTotal, grandPassed, rate)
-
-	// Assert we pass at least some minimum number of real EF tests.
-	if grandPassed < 5000 {
-		t.Errorf("expected at least 5000 passing tests, got %d", grandPassed)
-	}
-}
-
 // --- EF example directory: known-passing simple tests ---
 
 func TestEF_Example_Add11(t *testing.T) {
@@ -535,13 +451,6 @@ func TestEF_DiscoverGeneralStateTests(t *testing.T) {
 			t.Logf("  %s: %d files", cat, count)
 		}
 	}
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func TestEFRunGoEthereumStateTest(t *testing.T) {
@@ -689,79 +598,4 @@ func TestEF_RegressionGates(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestEF_CategorySummary prints a compact summary of pass rates by category
-// using the native ETH2030 EVM. For the authoritative 100% pass rate results
-// via go-ethereum's EVM, use TestGethCategorySummary in geth_runner_test.go.
-func TestEF_CategorySummary(t *testing.T) {
-	t.Skip("use TestGethCategorySummary for authoritative EF test results via go-ethereum backend")
-	if testing.Short() {
-		t.Skip("skipping in short mode")
-	}
-
-	baseDir := efGeneralStateTests()
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-		t.Skipf("EF tests not found: %s", baseDir)
-	}
-
-	entries, _ := os.ReadDir(baseDir)
-
-	type result struct {
-		cat    string
-		total  int
-		passed int
-	}
-	var results []result
-	var gTotal, gPassed int
-
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(baseDir, e.Name())
-		files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
-
-		r := result{cat: e.Name()}
-		for _, path := range files {
-			tests, err := LoadStateTests(path)
-			if err != nil {
-				continue
-			}
-			for _, test := range tests {
-				for _, sub := range test.Subtests() {
-					if !ForkSupported(sub.Fork) {
-						continue
-					}
-					r.total++
-					if res := test.Run(sub); res.Passed {
-						r.passed++
-					}
-				}
-			}
-		}
-		results = append(results, r)
-		gTotal += r.total
-		gPassed += r.passed
-	}
-
-	sort.Slice(results, func(i, j int) bool {
-		ri := float64(results[i].passed) / float64(maxInt(results[i].total, 1))
-		rj := float64(results[j].passed) / float64(maxInt(results[j].total, 1))
-		return ri > rj
-	})
-
-	header := fmt.Sprintf("%-42s %6s %6s %6s", "Category", "Total", "Pass", "Rate")
-	t.Log(header)
-	t.Log(strings.Repeat("-", 65))
-	for _, r := range results {
-		if r.total == 0 {
-			continue
-		}
-		rate := float64(r.passed) / float64(r.total) * 100
-		t.Logf("%-42s %6d %6d %5.1f%%", r.cat, r.total, r.passed, rate)
-	}
-	t.Log(strings.Repeat("-", 65))
-	rate := float64(gPassed) / float64(maxInt(gTotal, 1)) * 100
-	t.Logf("%-42s %6d %6d %5.1f%%", "TOTAL", gTotal, gPassed, rate)
 }

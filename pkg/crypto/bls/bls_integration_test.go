@@ -8,7 +8,6 @@ import (
 )
 
 func TestBLSIntegrationPureGoVerify(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	backend := &PureGoBLSBackend{}
 	vectors := GetBLSTestVectors()
 	for _, tv := range vectors {
@@ -43,7 +42,6 @@ func TestBLSIntegrationPureGoVerifyWrongPubkey(t *testing.T) {
 }
 
 func TestBLSIntegrationAggregateVerify(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	backend := &PureGoBLSBackend{}
 
 	secrets := []*big.Int{big.NewInt(11), big.NewInt(22), big.NewInt(33)}
@@ -89,7 +87,6 @@ func TestBLSIntegrationAggregateVerifyInputValidation(t *testing.T) {
 }
 
 func TestBLSIntegrationFastAggregateVerify(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	backend := &PureGoBLSBackend{}
 
 	msg := []byte("common message")
@@ -166,9 +163,7 @@ func TestBLSIntegrationInvalidPubkeyFormat(t *testing.T) {
 
 func TestBLSIntegrationBackendSwitching(t *testing.T) {
 	original := DefaultBLSBackend()
-	if original.Name() != "pure-go" {
-		t.Errorf("default backend should be pure-go, got %q", original.Name())
-	}
+	t.Cleanup(func() { SetBLSBackend(original) })
 
 	// Switch to blst.
 	SetBLSBackend(&BlstBLSBackend{})
@@ -357,7 +352,6 @@ func TestBLSIntegrationVerifyWithBackendNil(t *testing.T) {
 }
 
 func TestBLSIntegrationVerifyWithBackendPureGo(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	backend := &PureGoBLSBackend{}
 	vectors := GetBLSTestVectors()
 	tv := vectors[1]

@@ -5,39 +5,11 @@ import (
 	"time"
 )
 
-func TestDefaultVDFv2Config(t *testing.T) {
-	cfg := DefaultVDFv2Config()
-	if cfg.SecurityLevel != 128 {
-		t.Errorf("SecurityLevel: want 128, got %d", cfg.SecurityLevel)
-	}
-	if cfg.Parallelism != 4 {
-		t.Errorf("Parallelism: want 4, got %d", cfg.Parallelism)
-	}
-	if cfg.ProofSize != 32 {
-		t.Errorf("ProofSize: want 32, got %d", cfg.ProofSize)
-	}
-}
-
 func TestNewVDFv2_Defaults(t *testing.T) {
 	vdf := NewVDFv2(DefaultVDFv2Config())
 	cfg := vdf.Config()
-	if cfg.SecurityLevel != 128 {
-		t.Errorf("SecurityLevel: want 128, got %d", cfg.SecurityLevel)
-	}
-}
-
-func TestNewVDFv2_ClampInvalidConfig(t *testing.T) {
-	// Low security level should be clamped to 128.
-	vdf := NewVDFv2(VDFv2Config{SecurityLevel: 50, Parallelism: 0, ProofSize: 10})
-	cfg := vdf.Config()
-	if cfg.SecurityLevel < 128 {
-		t.Errorf("SecurityLevel should be clamped to >= 128, got %d", cfg.SecurityLevel)
-	}
-	if cfg.Parallelism < 1 {
-		t.Errorf("Parallelism should be clamped to >= 1, got %d", cfg.Parallelism)
-	}
-	if cfg.ProofSize < 32 {
-		t.Errorf("ProofSize should be clamped to >= 32, got %d", cfg.ProofSize)
+	if cfg.Parallelism != 4 {
+		t.Errorf("Parallelism: want 4, got %d", cfg.Parallelism)
 	}
 }
 
@@ -53,8 +25,8 @@ func TestVDFv2_EvaluateAndVerify(t *testing.T) {
 	if result.Iterations != 50 {
 		t.Errorf("Iterations: want 50, got %d", result.Iterations)
 	}
-	if len(result.Output) != 32 {
-		t.Errorf("Output length: want 32, got %d", len(result.Output))
+	if len(result.Output) != formSize {
+		t.Errorf("Output length: want %d, got %d", formSize, len(result.Output))
 	}
 	if len(result.Proof) == 0 {
 		t.Fatal("Proof is empty")
@@ -167,43 +139,6 @@ func TestVDFv2_DifferentIterations(t *testing.T) {
 	}
 }
 
-func TestVDFv2_SecurityLevels(t *testing.T) {
-	for _, level := range []int{128, 192, 256} {
-		t.Run("", func(t *testing.T) {
-			cfg := VDFv2Config{SecurityLevel: level, Parallelism: 2, ProofSize: 32}
-			vdf := NewVDFv2(cfg)
-			input := []byte("security level test")
-
-			result, err := vdf.Evaluate(input, 20)
-			if err != nil {
-				t.Fatalf("Evaluate at level %d: %v", level, err)
-			}
-			if !vdf.Verify(result) {
-				t.Fatalf("verification failed at level %d", level)
-			}
-		})
-	}
-}
-
-func TestVDFv2_64ByteProof(t *testing.T) {
-	cfg := VDFv2Config{SecurityLevel: 128, Parallelism: 2, ProofSize: 64}
-	vdf := NewVDFv2(cfg)
-	input := []byte("64 byte proof test")
-
-	result, err := vdf.Evaluate(input, 25)
-	if err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-
-	if len(result.Proof) != 64 {
-		t.Errorf("proof size: want 64, got %d", len(result.Proof))
-	}
-
-	if !vdf.Verify(result) {
-		t.Fatal("64-byte proof failed verification")
-	}
-}
-
 func TestVDFv2_AggregateProofs(t *testing.T) {
 	vdf := NewVDFv2(DefaultVDFv2Config())
 
@@ -273,9 +208,8 @@ func TestVDFv2_VerifyAggregatedRejectsInvalid(t *testing.T) {
 
 func TestVDFv2_ParallelEvaluate(t *testing.T) {
 	vdf := NewVDFv2(VDFv2Config{
-		SecurityLevel: 128,
-		Parallelism:   2,
-		ProofSize:     32,
+
+		Parallelism: 2,
 	})
 
 	inputs := [][]byte{
@@ -357,27 +291,6 @@ func TestVDFv2_ParallelEvaluateConsistency(t *testing.T) {
 	}
 }
 
-func TestVDFv2_EstimateTime(t *testing.T) {
-	vdf := NewVDFv2(DefaultVDFv2Config())
-
-	// Zero iterations.
-	if est := vdf.EstimateTime(0); est != 0 {
-		t.Errorf("zero iterations should return 0, got %v", est)
-	}
-
-	// Non-zero iterations should return a positive duration.
-	est := vdf.EstimateTime(1000)
-	if est <= 0 {
-		t.Errorf("expected positive duration, got %v", est)
-	}
-
-	// More iterations should also return a positive duration.
-	est2 := vdf.EstimateTime(10000)
-	if est2 <= 0 {
-		t.Errorf("expected positive duration for 10000 iterations, got %v", est2)
-	}
-}
-
 func TestVDFv2_SingleIteration(t *testing.T) {
 	vdf := NewVDFv2(DefaultVDFv2Config())
 	input := []byte("single iteration")
@@ -394,9 +307,8 @@ func TestVDFv2_SingleIteration(t *testing.T) {
 
 func TestVDFv2_AggregateAndVerifyEndToEnd(t *testing.T) {
 	vdf := NewVDFv2(VDFv2Config{
-		SecurityLevel: 192,
-		Parallelism:   3,
-		ProofSize:     32,
+
+		Parallelism: 3,
 	})
 
 	// Parallel evaluate, then aggregate, then verify.
@@ -450,29 +362,6 @@ func TestVDFv2_ConcurrentEvaluateAndVerify(t *testing.T) {
 	}
 }
 
-func TestIsqrt(t *testing.T) {
-	tests := []struct {
-		input uint64
-		want  uint64
-	}{
-		{0, 0},
-		{1, 1},
-		{4, 2},
-		{9, 3},
-		{10, 3},
-		{16, 4},
-		{100, 10},
-		{1000000, 1000},
-	}
-
-	for _, tt := range tests {
-		got := isqrt(tt.input)
-		if got != tt.want {
-			t.Errorf("isqrt(%d): want %d, got %d", tt.input, tt.want, got)
-		}
-	}
-}
-
 func TestBytesEqual(t *testing.T) {
 	a, b, c := []byte{1, 2, 3}, []byte{1, 2, 3}, []byte{1, 2, 4}
 	if !bytesEqual(a, b) {
@@ -498,21 +387,6 @@ func TestCopyBytes(t *testing.T) {
 	c[0] = 0xff
 	if orig[0] == 0xff {
 		t.Fatal("copy should be independent of original")
-	}
-}
-
-func TestHashN(t *testing.T) {
-	data := []byte("hashN test")
-	h1 := hashN(data, 1)
-	if string(h1) != string(keccak256(data)) {
-		t.Fatal("hashN(1) should equal keccak256")
-	}
-	h2 := hashN(data, 2)
-	if string(h2) != string(keccak256(keccak256(data))) {
-		t.Fatal("hashN(2) should be double keccak256")
-	}
-	if string(h1) == string(h2) {
-		t.Fatal("different round counts should produce different results")
 	}
 }
 

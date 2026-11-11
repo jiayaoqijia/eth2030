@@ -1,6 +1,6 @@
 // VRF-based secret proposer election for the consensus layer.
 //
-// Uses an Ed25519-based VRF construction where each validator computes
+// Uses ECVRF-EDWARDS25519-SHA512-ELL2 where each validator computes
 // VRFProve(sk, epoch||slot) to derive a deterministic but unpredictable
 // proposer score. The proposer is selected by the lowest VRF output
 // (sortition). The reveal protocol requires the proposer to publish
@@ -13,6 +13,7 @@
 package vrf
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"math/big"
@@ -20,15 +21,17 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
+	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/ecvrf"
 )
 
 // VRF election constants.
 const (
-	// VRFKeySize is the size of VRF keys (Ed25519-like, 32 bytes).
-	VRFKeySize = 32
+	// VRFKeySize is the size of an Ed25519 seed or public key.
+	VRFKeySize = ed25519.SeedSize
 
-	// VRFProofSize is the size of a VRF proof (64 bytes: gamma + challenge).
-	VRFProofSize = 64
+	// VRFProofSize is the size of a canonical ECVRF proof.
+	VRFProofSize = ecvrf.ProofSize
 
 	// VRFOutputSize is the size of a VRF output hash (32 bytes).
 	VRFOutputSize = 32
@@ -55,13 +58,8 @@ type VRFKeyPair struct {
 	PublicKey [VRFKeySize]byte
 }
 
-// VRFProof holds the VRF proof and output for verification.
-type VRFProof struct {
-	// Gamma is the VRF point (first 32 bytes).
-	Gamma [32]byte
-	// Challenge is the Fiat-Shamir challenge (second 32 bytes).
-	Challenge [32]byte
-}
+// VRFProof holds the canonical ECVRF proof bytes.
+type VRFProof [VRFProofSize]byte
 
 // VRFOutput is the deterministic hash derived from a VRF proof.
 type VRFOutput [VRFOutputSize]byte
@@ -93,79 +91,28 @@ type VRFSlashingEvidence struct {
 	Reveal2        *VRFReveal
 }
 
-// GenerateVRFKeyPair generates a VRF keypair from a seed.
-// In production this would use a proper Ed25519 VRF construction;
-// here we derive keys from the seed using Keccak-256.
+// GenerateVRFKeyPair deterministically derives an ECVRF key pair from a seed.
 func GenerateVRFKeyPair(seed []byte) *VRFKeyPair {
-	skHash := crypto.Keccak256(append([]byte("vrf-secret-"), seed...))
-	pkHash := crypto.Keccak256(append([]byte("vrf-public-"), skHash...))
-
-	kp := &VRFKeyPair{}
-	copy(kp.SecretKey[:], skHash[:VRFKeySize])
-	copy(kp.PublicKey[:], pkHash[:VRFKeySize])
-	return kp
+	secret := [VRFKeySize]byte(crypto.Keccak256Hash([]byte("vrf-secret-"), seed))
+	key := ed25519.NewKeyFromSeed(secret[:])
+	public := key.Public().(ed25519.PublicKey)
+	return &VRFKeyPair{SecretKey: secret, PublicKey: [VRFKeySize]byte(public)}
 }
 
-// VRFProve computes a VRF proof for the given input using the secret key.
-// The input is typically (epoch || slot) serialized as bytes.
-// Returns the output hash and proof.
+// VRFProve returns the canonical ECVRF proof and a 32-byte proposer score input.
 func VRFProve(sk [VRFKeySize]byte, input []byte) (VRFOutput, VRFProof) {
-	// Gamma = H(sk || input) - deterministic point.
-	gammaBytes := crypto.Keccak256(append(sk[:], input...))
-
-	// Challenge = H(gamma || input) - Fiat-Shamir.
-	challengeBytes := crypto.Keccak256(append(gammaBytes, input...))
-
-	var proof VRFProof
-	copy(proof.Gamma[:], gammaBytes[:32])
-	copy(proof.Challenge[:], challengeBytes[:32])
-
-	// Output = H(gamma) - the final VRF output.
-	outputBytes := crypto.Keccak256(gammaBytes)
-	var output VRFOutput
-	copy(output[:], outputBytes[:VRFOutputSize])
-
-	return output, proof
+	proof := ecvrf.Prove(ed25519.NewKeyFromSeed(sk[:]), input)
+	output, err := ecvrf.ProofToHash(proof)
+	if err != nil {
+		return VRFOutput{}, VRFProof{}
+	}
+	return VRFOutput(sha256.Sum256(output)), VRFProof(proof)
 }
 
-// VRFVerify verifies a VRF proof against the public key and input.
-// Checks that the output matches the proof.
+// VRFVerify verifies the proof against the validator key and binds its output.
 func VRFVerify(pk [VRFKeySize]byte, input []byte, output VRFOutput, proof VRFProof) bool {
-	// Recompute gamma from proof: we need to verify the commitment chain.
-	// In a real Ed25519-VRF, this involves elliptic curve operations.
-	// Here we verify the hash chain: gamma -> challenge and gamma -> output.
-
-	// Verify challenge = H(gamma || input).
-	expectedChallenge := crypto.Keccak256(append(proof.Gamma[:], input...))
-	var expectedCh [32]byte
-	copy(expectedCh[:], expectedChallenge[:32])
-	if expectedCh != proof.Challenge {
-		return false
-	}
-
-	// Verify output = H(gamma).
-	expectedOutput := crypto.Keccak256(proof.Gamma[:])
-	var expectedOut VRFOutput
-	copy(expectedOut[:], expectedOutput[:VRFOutputSize])
-	if expectedOut != output {
-		return false
-	}
-
-	// Verify gamma is derived from sk and input (via pk binding).
-	// In a real VRF, this uses the discrete log relationship.
-	// Here, we verify by checking that H(pk || gamma || input) has a
-	// specific structure (binding property).
-	binding := crypto.Keccak256(append(pk[:], append(proof.Gamma[:], input...)...))
-	// The binding check ensures the gamma was computed with knowledge of sk.
-	// Non-zero binding is sufficient for our simulation.
-	allZero := true
-	for _, b := range binding {
-		if b != 0 {
-			allZero = false
-			break
-		}
-	}
-	return !allZero
+	ok, actual := ecvrf.Verify(ed25519.PublicKey(pk[:]), proof[:], input)
+	return ok && VRFOutput(sha256.Sum256(actual)) == output
 }
 
 // ComputeVRFElectionInput builds the VRF input for proposer election.

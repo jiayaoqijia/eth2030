@@ -79,7 +79,6 @@ func TestBLSAggDecompressG2(t *testing.T) {
 }
 
 func TestBLSAggGenerateAndVerifyPoP(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	ba := NewBLSAgg()
 	secret := big.NewInt(12345)
 	pk := BLSPubkeyFromSecret(secret)
@@ -189,7 +188,6 @@ func TestBLSAggAggregateSignaturesValidatedEmpty(t *testing.T) {
 }
 
 func TestBLSAggSignAndVerifyWithDST(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	ba := NewBLSAgg()
 	secret := big.NewInt(7890)
 	pk := BLSPubkeyFromSecret(secret)
@@ -229,7 +227,6 @@ func TestBLSSignatureSetEmpty(t *testing.T) {
 }
 
 func TestBLSSignatureSetSingle(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	secret := big.NewInt(999)
 	pk := BLSPubkeyFromSecret(secret)
 	msg := []byte("single entry")
@@ -247,7 +244,6 @@ func TestBLSSignatureSetSingle(t *testing.T) {
 }
 
 func TestBLSSignatureSetMultiple(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	ss := NewBLSSignatureSet()
 
 	for i := int64(1); i <= 5; i++ {
@@ -366,7 +362,6 @@ func TestRandomScalar(t *testing.T) {
 }
 
 func TestAggregateVerifyDistinct(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	ba := NewBLSAgg()
 
 	pk1 := BLSPubkeyFromSecret(big.NewInt(300))

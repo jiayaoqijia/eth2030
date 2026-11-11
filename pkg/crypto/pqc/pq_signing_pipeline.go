@@ -275,10 +275,10 @@ func (p *PQSigningPipeline) registerDefaults() {
 	p.signers[PipelineAlgFalcon512] = &PipelineSignerEntry{
 		AlgID: PipelineAlgFalcon512, Name: "Falcon-512", GasCost: PipelineGasFalcon512,
 		SigSize: Falcon512SigSize, PubKeySize: Falcon512PubKeySize, SecKeySize: Falcon512SecKeySize,
-		SignFn:   func(sk, msg []byte) ([]byte, error) { return falcon.SignReal(sk, msg) },
-		VerifyFn: func(pk, msg, sig []byte) bool { return falcon.VerifyReal(pk, msg, sig) },
+		SignFn:   func(sk, msg []byte) ([]byte, error) { return falcon.Sign(sk, msg) },
+		VerifyFn: func(pk, msg, sig []byte) bool { return falcon.Verify(pk, msg, sig) },
 		KeyGenFn: func() ([]byte, []byte, error) {
-			kp, err := falcon.GenerateKeyReal()
+			kp, err := falcon.GenerateKey()
 			if err != nil {
 				return nil, nil, err
 			}
@@ -348,49 +348,11 @@ func pipelineDerivePublicKey(algID uint8, sk []byte, pkSize int) []byte {
 	return pk
 }
 
-// pipelineMLDSAKeyFromSK reconstructs an MLDSAKeyPair from serialized sk.
 func pipelineMLDSAKeyFromSK(sk []byte) (*MLDSAKeyPair, error) {
-	if len(sk) < MLDSAPrivateKeySize {
-		return nil, fmt.Errorf("pq_pipeline: mldsa sk too short: %d", len(sk))
+	if len(sk) != MLDSAPrivateKeySize {
+		return nil, ErrInvalidKeySize
 	}
-	rho, kSeed, tr := sk[:32], sk[32:64], sk[64:128]
-	polySize := mldsaN * 4
-	s1 := make([]mldsaPoly, mldsaL)
-	off := 128
-	for j := 0; j < mldsaL; j++ {
-		if off+polySize <= len(sk) {
-			s1[j] = mldsaUnpackPoly(sk[off : off+polySize])
-		}
-		off += polySize
-	}
-	s2 := make([]mldsaPoly, mldsaK)
-	for i := 0; i < mldsaK; i++ {
-		if off+polySize <= len(sk) {
-			s2[i] = mldsaUnpackPoly(sk[off : off+polySize])
-		}
-		off += polySize
-	}
-	t0 := make([]mldsaPoly, mldsaK)
-	for i := 0; i < mldsaK; i++ {
-		if off+polySize <= len(sk) {
-			t0[i] = mldsaUnpackPoly(sk[off : off+polySize])
-		}
-		off += polySize
-	}
-	aMatrix := mldsaExpandA(rho)
-	t := mldsaMatVecMul(aMatrix, s1)
-	for i := 0; i < mldsaK; i++ {
-		t[i] = mldsaPolyAdd(t[i], s2[i])
-	}
-	t1 := make([]mldsaPoly, mldsaK)
-	for i := 0; i < mldsaK; i++ {
-		t1[i], _ = mldsaPower2Round(t[i])
-	}
-	return &MLDSAKeyPair{
-		PublicKey: mldsaSerializePK(rho, t1), SecretKey: sk[:MLDSAPrivateKeySize],
-		rho: copySlice(rho), kSeed: copySlice(kSeed), tr: copySlice(tr),
-		s1: s1, s2: s2, t0: t0, t1: t1, aMatrix: aMatrix,
-	}, nil
+	return &MLDSAKeyPair{SecretKey: sk}, nil
 }
 
 func pqSigTypeToPipelineAlg(sigType uint8) uint8 {

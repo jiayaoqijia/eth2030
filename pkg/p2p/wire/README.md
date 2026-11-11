@@ -4,7 +4,7 @@ Low-level devp2p connection layer: length-prefixed message framing, RLPx ECIES e
 
 ## Overview
 
-The `wire` package implements the transport substrate that all devp2p protocols run on. The central abstraction is the `Transport` interface (`ReadMsg` / `WriteMsg` / `Close`). `FrameTransport` wraps a `net.Conn` with plaintext 4-byte-length-prefixed framing (format: `length[4] || code[1] || payload`). `RLPxTransport` (in `rlpx.go`) wraps the underlying connection with RLPx frame-level encryption derived from the ECIES handshake in `handshake_ecies.go`. `Multiplexer` (in `multiplexer.go`) dispatches messages across multiple protocol handlers registered by code offset. `HelloPacket` and `Cap` define the devp2p hello/disconnect message types used during capability negotiation.
+The `wire` package implements the transport substrate that all devp2p protocols run on. The central abstraction is the `Transport` interface (`ReadMsg` / `WriteMsg` / `Close`). `FrameTransport` wraps a `net.Conn` with plaintext 4-byte-length-prefixed framing (format: `length[4] || code[1] || payload`). `RLPxTransport` (in `rlpx.go`) uses the go-ethereum RLPx handshake and encrypted frame transport. `Multiplexer` (in `multiplexer.go`) dispatches messages across multiple protocol handlers registered by code offset. `HelloPacket` and `Cap` define the devp2p hello/disconnect message types used during capability negotiation.
 
 ## Functionality
 

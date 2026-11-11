@@ -73,23 +73,6 @@ func VoteForSlot(engine *consensus.SSFEngine, slot uint64, root types.Hash, coun
 	return nil
 }
 
-// MakePQAttestation creates a PQ attestation for testing.
-func MakePQAttestation(slot, validatorIdx uint64, root types.Hash) *consensus.PQAttestation {
-	sigData := crypto.Keccak256Hash(root[:], []byte{byte(validatorIdx)})
-	sig := make([]byte, 64)
-	copy(sig, sigData[:])
-	copy(sig[32:], sigData[:])
-	return &consensus.PQAttestation{
-		Slot:            slot,
-		CommitteeIndex:  0,
-		BeaconBlockRoot: root,
-		SourceEpoch:     slot / 4,
-		TargetEpoch:     slot/4 + 1,
-		PQSignature:     sig,
-		ValidatorIndex:  validatorIdx,
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Transaction helpers
 // ---------------------------------------------------------------------------
@@ -245,18 +228,6 @@ func RegisterProvers(sys *proofs.MandatoryProofSystem, n int) ([]types.Hash, err
 		}
 	}
 	return ids, nil
-}
-
-// MakeProofSubmission creates a proof submission for a given prover and block.
-func MakeProofSubmission(proverID, blockHash types.Hash) *proofs.ProofSubmission {
-	proofData := crypto.Keccak256Hash(proverID[:], blockHash[:])
-	return &proofs.ProofSubmission{
-		ProverID:  proverID,
-		ProofType: "zksnark",
-		ProofData: proofData[:],
-		BlockHash: blockHash,
-		Timestamp: 1700000000,
-	}
 }
 
 // MakeExecutionProof creates a test execution proof for aggregation.

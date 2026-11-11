@@ -9,6 +9,7 @@ import (
 	"errors"
 	"math/big"
 
+	gethbn "github.com/ethereum/go-ethereum/crypto/bn256"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -18,122 +19,55 @@ var (
 	errBN254InvalidLength = errors.New("bn254: invalid input length")
 )
 
-// BN254Add performs point addition on the BN254 curve (precompile 0x06).
-// Input: 128 bytes (x1, y1, x2, y2) as 32-byte big-endian integers.
-// Short input is right-padded with zeros.
-// Output: 64 bytes (x3, y3).
+// BN254Add performs EIP-196 point addition. Short inputs are right-padded.
 func BN254Add(input []byte) ([]byte, error) {
 	input = bn254PadRight(input, 128)
-
-	x1 := new(big.Int).SetBytes(input[0:32])
-	y1 := new(big.Int).SetBytes(input[32:64])
-	x2 := new(big.Int).SetBytes(input[64:96])
-	y2 := new(big.Int).SetBytes(input[96:128])
-
-	// Validate both points.
-	if !g1IsOnCurve(x1, y1) {
+	var p, q gethbn.G1
+	if _, err := p.Unmarshal(input[:64]); err != nil {
 		return nil, errBN254InvalidPoint
 	}
-	if !g1IsOnCurve(x2, y2) {
+	if _, err := q.Unmarshal(input[64:]); err != nil {
 		return nil, errBN254InvalidPoint
 	}
-
-	p1 := g1FromAffine(x1, y1)
-	p2 := g1FromAffine(x2, y2)
-
-	r := g1Add(p1, p2)
-	rx, ry := r.g1ToAffine()
-
-	return bn254EncodeG1(rx, ry), nil
+	var result gethbn.G1
+	result.Add(&p, &q)
+	return result.Marshal(), nil
 }
 
-// BN254ScalarMul performs scalar multiplication on the BN254 curve (precompile 0x07).
-// Input: 96 bytes (x, y, s) as 32-byte big-endian integers.
-// Short input is right-padded with zeros.
-// Output: 64 bytes (x', y').
+// BN254ScalarMul performs EIP-196 scalar multiplication.
 func BN254ScalarMul(input []byte) ([]byte, error) {
 	input = bn254PadRight(input, 96)
-
-	x := new(big.Int).SetBytes(input[0:32])
-	y := new(big.Int).SetBytes(input[32:64])
-	s := new(big.Int).SetBytes(input[64:96])
-
-	if !g1IsOnCurve(x, y) {
+	var p gethbn.G1
+	if _, err := p.Unmarshal(input[:64]); err != nil {
 		return nil, errBN254InvalidPoint
 	}
-
-	p := g1FromAffine(x, y)
-	r := G1ScalarMul(p, s)
-	rx, ry := r.g1ToAffine()
-
-	return bn254EncodeG1(rx, ry), nil
+	var result gethbn.G1
+	result.ScalarMult(&p, new(big.Int).SetBytes(input[64:]))
+	return result.Marshal(), nil
 }
 
-// BN254PairingCheck performs the pairing check (precompile 0x08).
-// Input: k * 192 bytes, each 192-byte chunk is (G1_x, G1_y, G2_x_imag, G2_x_real,
-// G2_y_imag, G2_y_real) as 32-byte big-endian integers.
-// Output: 32 bytes, 1 if product of pairings equals identity, 0 otherwise.
+// BN254PairingCheck performs the EIP-197 pairing check using Ethereum's
+// coordinate encoding and subgroup validation.
 func BN254PairingCheck(input []byte) ([]byte, error) {
-	if len(input)%192 != 0 {
+	const pairSize = 192
+	if len(input)%pairSize != 0 {
 		return nil, errBN254InvalidLength
 	}
 
-	k := len(input) / 192
-	if k == 0 {
-		// Empty input: trivially true (empty product is identity).
-		return bn254PairingResult(true), nil
-	}
-
-	g1Points := make([]*G1Point, k)
-	g2Points := make([]*G2Point, k)
-
-	for i := 0; i < k; i++ {
-		offset := i * 192
-
-		// Parse G1 point (64 bytes).
-		g1x := new(big.Int).SetBytes(input[offset : offset+32])
-		g1y := new(big.Int).SetBytes(input[offset+32 : offset+64])
-
-		if !g1IsOnCurve(g1x, g1y) {
+	count := len(input) / pairSize
+	g1 := make([]*gethbn.G1, count)
+	g2 := make([]*gethbn.G2, count)
+	for i := range g1 {
+		pair := input[i*pairSize : (i+1)*pairSize]
+		g1[i], g2[i] = new(gethbn.G1), new(gethbn.G2)
+		if _, err := g1[i].Unmarshal(pair[:64]); err != nil {
 			return nil, errBN254InvalidPoint
 		}
-		g1Points[i] = g1FromAffine(g1x, g1y)
-
-		// Parse G2 point (128 bytes).
-		// Layout: x_imag(32) | x_real(32) | y_imag(32) | y_real(32)
-		g2xImag := new(big.Int).SetBytes(input[offset+64 : offset+96])
-		g2xReal := new(big.Int).SetBytes(input[offset+96 : offset+128])
-		g2yImag := new(big.Int).SetBytes(input[offset+128 : offset+160])
-		g2yReal := new(big.Int).SetBytes(input[offset+160 : offset+192])
-
-		// Validate field elements.
-		if g2xImag.Cmp(bn254P) >= 0 || g2xReal.Cmp(bn254P) >= 0 ||
-			g2yImag.Cmp(bn254P) >= 0 || g2yReal.Cmp(bn254P) >= 0 {
+		if _, err := g2[i].Unmarshal(pair[64:]); err != nil {
 			return nil, errBN254InvalidG2
 		}
-
-		g2x := &fp2{a0: g2xReal, a1: g2xImag}
-		g2y := &fp2{a0: g2yReal, a1: g2yImag}
-
-		// Check if G2 point is the identity.
-		if g2x.isZero() && g2y.isZero() {
-			g2Points[i] = G2Infinity()
-			continue
-		}
-
-		if !g2IsOnCurve(g2x, g2y) {
-			return nil, errBN254InvalidG2
-		}
-		g2Points[i] = g2FromAffine(g2x, g2y)
 	}
-
-	ok := bn254CheckPairing(g1Points, g2Points)
-	return bn254PairingResult(ok), nil
-}
-
-// bn254CheckPairing performs the actual multi-pairing check.
-func bn254CheckPairing(g1Points []*G1Point, g2Points []*G2Point) bool {
-	return bn254MultiPairing(g1Points, g2Points)
+	return bn254PairingResult(count == 0 || gethbn.PairingCheck(g1, g2)), nil
 }
 
 // bn254EncodeG1 encodes a G1 point as 64 bytes (x, y) big-endian.

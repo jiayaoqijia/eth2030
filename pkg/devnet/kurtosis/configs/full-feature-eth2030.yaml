@@ -1,0 +1,80 @@
+# Fork-acceptance devnet: eth2030 EL (updated deps) + eth2030cl:local CL
+# (sigp/lighthouse unstable 25b9b754 / 8.4.0-rc.0, integrate/unstable-202611)
+# with Gloas (ePBS) and Heze (FOCIL) forks ENABLED.
+# Baseline config (forks disabled, upstream CL image) remains full-feature.yaml.
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    el_log_level: debug
+    el_extra_params: ["--rpc.rate_limit=0"]
+    cl_type: lighthouse
+    cl_log_level: debug
+    cl_image: eth2030cl:local
+    # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
+    # --target-peers=2 prevents Lighthouse from dropping peers when it can't find
+    # enough DataColumn subnet peers (default target is 50, impossible with 3 nodes).
+    # --disable-peer-scoring prevents gossip scoring from penalizing peers that
+    # can't serve all 128 data columns, which causes peer drops in small devnets.
+    cl_extra_params: ["--subscribe-all-subnets", "--target-peers=2", "--disable-peer-scoring"]
+    count: 3
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 15
+  genesis_delay: 60
+  # Fork schedule:
+  # - fulu_fork_epoch: 1 → Fulu (PeerDAS) starts at epoch 1 (slot 32)
+  # - gloas_fork_epoch: 2 → Gloas (ePBS/EIP-7732) starts at epoch 2 (slot 64)
+  # - heze_fork_epoch: 3 → Heze (FOCIL/EIP-7805) starts at epoch 3 (slot 96)
+  # Note: Lighthouse warns about non-256-aligned fork epochs — this is acceptable
+  # for a devnet where stability is more important than period alignment.
+  fulu_fork_epoch: 1
+  gloas_fork_epoch: 2
+  heze_fork_epoch: 3
+
+additional_services:
+  - dora
+  - spamoor
+  - rakoon
+  - assertoor  # blockscout removed: blockscout-verif flaky in this env, not needed for CL/EL acceptance
+
+dora_params:
+  image: "eth2030/dora:v0.0.1"
+
+assertoor_params:
+  run_stability_check: true
+
+spamoor_params:
+  image: eth2030/spamoor:v0.0.1
+  # Resource management for spamoor
+  # CPU is milicores
+  # RAM is in MB
+  min_cpu: 5
+  max_cpu: 30
+  min_mem: 20
+  max_mem: 300
+  spammers:
+    - scenario: eoatx
+      name: "EOA Transfers"
+      config:
+        throughput: 6
+        max_pending: 12
+        max_wallets: 12
+        random_target: true
+        tip_fee: 2
+    - scenario: erc20tx
+      name: "ERC20 Token Transfers"
+      config:
+        throughput: 4
+        max_pending: 10
+        max_wallets: 10
+        random_target: true
+        tip_fee: 2
+    # NOTE: blob scenario omitted pre-fulu on purpose: upstream unstable
+    # lighthouse removed engine_getBlobsV1, so pre-fulu blob blocks cannot be
+    # fetch-verified. Post-fulu blob fetching uses getBlobsV2/V3 (supported).
+
+rakoon_params:
+  tx_type: eip7702
+  workers: 10
+  fuzzing: true

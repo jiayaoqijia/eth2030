@@ -12,17 +12,17 @@ func TestGenerateDilithiumKey(t *testing.T) {
 	if kp == nil {
 		t.Fatal("GenerateDilithiumKey returned nil")
 	}
-	if len(kp.SecretKey) != 32 {
-		t.Errorf("SecretKey length = %d, want 32", len(kp.SecretKey))
+	if len(kp.SecretKey) != MLDSAPrivateKeySize {
+		t.Errorf("SecretKey length = %d, want %d", len(kp.SecretKey), MLDSAPrivateKeySize)
 	}
-	if len(kp.PublicKey) != 32 {
-		t.Errorf("PublicKey length = %d, want 32", len(kp.PublicKey))
+	if len(kp.PublicKey) != MLDSAPublicKeySize {
+		t.Errorf("PublicKey length = %d, want %d", len(kp.PublicKey), MLDSAPublicKeySize)
 	}
 	if kp.Params == nil {
 		t.Fatal("Params is nil")
 	}
-	if kp.Params.SecurityLevel != DilithiumSecurityLevel2 {
-		t.Errorf("SecurityLevel = %d, want %d", kp.Params.SecurityLevel, DilithiumSecurityLevel2)
+	if kp.Params.SecurityLevel != DilithiumSecurityLevel3 {
+		t.Errorf("SecurityLevel = %d, want %d", kp.Params.SecurityLevel, DilithiumSecurityLevel3)
 	}
 }
 
@@ -127,8 +127,8 @@ func TestDilithiumVerifyWrongSignature(t *testing.T) {
 
 func TestDilithiumSignatureSize(t *testing.T) {
 	size := DilithiumSignatureSize()
-	if size != 64 {
-		t.Errorf("DilithiumSignatureSize() = %d, want 64", size)
+	if size != MLDSASignatureSize {
+		t.Errorf("DilithiumSignatureSize() = %d, want %d", size, MLDSASignatureSize)
 	}
 }
 
@@ -143,8 +143,8 @@ func TestDefaultDilithiumParams(t *testing.T) {
 	if p.D != DilithiumD {
 		t.Errorf("D = %d, want %d", p.D, DilithiumD)
 	}
-	if p.SecurityLevel != DilithiumSecurityLevel2 {
-		t.Errorf("SecurityLevel = %d, want %d", p.SecurityLevel, DilithiumSecurityLevel2)
+	if p.SecurityLevel != DilithiumSecurityLevel3 {
+		t.Errorf("SecurityLevel = %d, want %d", p.SecurityLevel, DilithiumSecurityLevel3)
 	}
 }
 

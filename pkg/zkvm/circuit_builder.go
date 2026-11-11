@@ -10,7 +10,12 @@ package zkvm
 import (
 	"errors"
 	"math/big"
+
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	"github.com/eth2030/eth2030/zkvm/poseidon"
 )
+
+var bn254ScalarField = fr.Modulus()
 
 // Circuit builder errors.
 var (
@@ -260,18 +265,15 @@ func (c *Circuit) Hash(inputs ...Variable) (Variable, error) {
 		vals[i] = c.getWitness(v)
 	}
 
-	// Compute the Poseidon hash.
-	params := DefaultPoseidonParams()
-	hashVal := PoseidonHash(params, vals...)
-
+	hashVal, err := poseidon.Hash(vals...)
+	if err != nil {
+		return 0, err
+	}
 	result := c.allocateInternal(hashVal)
 
-	// Add a constraint binding the hash output.
-	// In a real circuit, this would decompose the Poseidon permutation into
-	// individual R1CS constraints (hundreds of constraints per round).
-	// Here we add a single "oracle" constraint: hash_input_commitment * 1 = result.
-	// The verifier checks the Poseidon computation matches.
-	inputCommitment := c.computeInputCommitment(inputs)
+	// The local circuit format records an oracle value for the hash.
+	// It does not encode the permutation as R1CS constraints.
+	inputCommitment := c.allocateInternal(hashVal)
 	one := big.NewInt(1)
 	c.constraints = append(c.constraints, R1CSConstraint{
 		A: LinearCombination{{Coeff: one, Var: inputCommitment}},
@@ -279,26 +281,6 @@ func (c *Circuit) Hash(inputs ...Variable) (Variable, error) {
 		C: LinearCombination{{Coeff: one, Var: result}},
 	})
 	return result, nil
-}
-
-// computeInputCommitment creates an internal variable that commits to
-// a set of input variables via linear combination.
-func (c *Circuit) computeInputCommitment(inputs []Variable) Variable {
-	// Commitment = sum of inputs (simplified; real circuit would be full Poseidon).
-	sum := new(big.Int)
-	for _, v := range inputs {
-		sum.Add(sum, c.getWitness(v))
-	}
-	sum.Mod(sum, c.field)
-
-	// The hash result IS the commitment for our constraint purposes.
-	// We need to compute the actual Poseidon hash to match.
-	vals := make([]*big.Int, len(inputs))
-	for i, v := range inputs {
-		vals[i] = c.getWitness(v)
-	}
-	hashVal := PoseidonHash(nil, vals...)
-	return c.allocateInternal(hashVal)
 }
 
 // Synthesize finalizes the circuit. Returns the number of constraints

@@ -62,10 +62,6 @@ func BLSVerify(pubkey [BLSPubkeySize]byte, msg []byte, sig [BLSSignatureSize]byt
 
 // KZG function wrappers.
 
-func KZGCommit(polyAtS *big.Int) *BlsG1Point { return bls.KZGCommit(polyAtS) }
-func KZGComputeProof(secret, z, polyAtS, y *big.Int) *BlsG1Point {
-	return bls.KZGComputeProof(secret, z, polyAtS, y)
-}
 func KZGCompressG1(p *BlsG1Point) []byte { return bls.KZGCompressG1(p) }
 func KZGVerifyFromBytes(commitment []byte, z, y *big.Int, proof []byte) error {
 	return bls.KZGVerifyFromBytes(commitment, z, y, proof)

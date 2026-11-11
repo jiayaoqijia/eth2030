@@ -4,17 +4,20 @@
 package e2e_test
 
 import (
+	"bytes"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
 	e2e "github.com/eth2030/eth2030"
 	"github.com/eth2030/eth2030/consensus"
 	"github.com/eth2030/eth2030/core/block"
 	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/vdf"
 	"github.com/eth2030/eth2030/das"
 	"github.com/eth2030/eth2030/epbs"
 	epbsauction "github.com/eth2030/eth2030/epbs/auction"
@@ -382,12 +385,11 @@ func TestE2E_Roadmap_QuickSlotsTiming(t *testing.T) {
 		t.Fatalf("slots per epoch: got %d, want 4", cfg.SlotsPerEpoch)
 	}
 
-	genesis := time.Now().Add(-48 * time.Second) // 8 slots ago
+	genesis := time.Unix(1_700_000_000, 0)
 	sched := consensus.NewQuickSlotScheduler(cfg, genesis)
 
-	slot := sched.CurrentSlot()
-	if slot < 7 || slot > 9 {
-		t.Errorf("current slot: got %d, want ~8", slot)
+	if slot := sched.SlotAt(genesis.Add(48 * time.Second)); slot != 8 {
+		t.Errorf("slot after 48 seconds: got %d, want 8", slot)
 	}
 
 	epoch := sched.SlotToEpoch(8)
@@ -464,11 +466,11 @@ func TestE2E_Roadmap_AttestationScaling(t *testing.T) {
 // TestE2E_Roadmap_VDFRandomness tests VDF evaluation and proof verification
 // using the Wesolowski scheme.
 func TestE2E_Roadmap_VDFRandomness(t *testing.T) {
-	params := &crypto.VDFParams{T: 100, Lambda: 128}
-	vdf := crypto.NewWesolowskiVDF(params)
+	const iterations = 100
+	evaluator := vdf.NewVDFv2(vdf.DefaultVDFv2Config())
 
 	input := []byte("slot-randomness-seed-42")
-	proof, err := vdf.Evaluate(input, params.T)
+	proof, err := evaluator.Evaluate(input, iterations)
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
@@ -478,7 +480,7 @@ func TestE2E_Roadmap_VDFRandomness(t *testing.T) {
 	if len(proof.Proof) == 0 {
 		t.Fatal("empty VDF proof")
 	}
-	if !vdf.Verify(proof) {
+	if !evaluator.Verify(proof) {
 		t.Error("VDF proof did not verify")
 	}
 
@@ -486,7 +488,7 @@ func TestE2E_Roadmap_VDFRandomness(t *testing.T) {
 	tampered := *proof
 	tampered.Output = append([]byte{}, proof.Output...)
 	tampered.Output[0] ^= 0xff
-	if vdf.Verify(&tampered) {
+	if evaluator.Verify(&tampered) {
 		t.Error("tampered proof should not verify")
 	}
 }
@@ -507,6 +509,7 @@ func TestE2E_Roadmap_MandatoryProofSystem(t *testing.T) {
 	}
 
 	blockHash := e2e.DeterministicHash(42)
+	proof := mandatoryProofFixture(t, sys, blockHash)
 	assigned, err := sys.AssignProvers(blockHash)
 	if err != nil {
 		t.Fatalf("AssignProvers: %v", err)
@@ -517,7 +520,7 @@ func TestE2E_Roadmap_MandatoryProofSystem(t *testing.T) {
 
 	// Submit and verify 3 proofs.
 	for i := 0; i < 3; i++ {
-		sub := e2e.MakeProofSubmission(assigned[i], blockHash)
+		sub := &proofs.ProofSubmission{ProverID: assigned[i], BlockHash: blockHash, ProofType: "zksnark", ProofData: proof}
 		if err := sys.SubmitProof(sub); err != nil {
 			t.Fatalf("SubmitProof[%d]: %v", i, err)
 		}
@@ -806,4 +809,38 @@ func TestE2E_Roadmap_ProofAggregation(t *testing.T) {
 	if !verified {
 		t.Error("aggregate proof verification failed")
 	}
+}
+
+// mandatoryProofFixture supplies an actual Groth16 statement for the quorum tests.
+func mandatoryProofFixture(t *testing.T, sys *proofs.MandatoryProofSystem, blockHash types.Hash) []byte {
+	t.Helper()
+	circuit, err := proofs.CompileAACircuitGnark()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := proofs.SetupGnarkAAKeys(circuit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := proofs.ProveGnarkAA(circuit, keys, 2, 21000, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire bytes.Buffer
+	if _, err := proof.WriteTo(&wire); err != nil {
+		t.Fatal(err)
+	}
+	sys.RegisterVerifier("zksnark", func(sub *proofs.ProofSubmission) bool {
+		if sub.BlockHash != blockHash {
+			return false
+		}
+		reader := bytes.NewReader(sub.ProofData)
+		decoded := groth16.NewProof(ecc.BN254)
+		if _, err := decoded.ReadFrom(reader); err != nil || reader.Len() != 0 {
+			return false
+		}
+		ok, err := proofs.VerifyGnarkAAProof(keys, decoded, 2, 21000)
+		return ok && err == nil
+	})
+	return wire.Bytes()
 }

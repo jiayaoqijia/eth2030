@@ -1,5 +1,122 @@
 # Project Status
 
+## PR #47 Merge Resolution
+
+- Merged upstream `master` at `d610385` into the audit follow-up branch and retained both sets of status entries.
+- Preserved the refreshed Strawmap and linked its seven milestone cards to the corresponding EIP tracker sections.
+- Passed the Go module build and focused BAL, ePBS, FOCIL, core EIP, PQ, and rollup tests. The site build, static export assertions, and EIP tracker file checks also passed.
+
+## Cryptography Regression Fixes (2026-11-10)
+
+- Authenticated native PQ execution and transaction admission with a shared typed signing digest and the existing transaction wire format.
+- Matched the pinned Geth Prague activation and EIP-2537 contract layout. Historical native BLS replay uses an explicit chain configuration cutoff.
+- Corrected RLPx identity handling, PeerDAS cell-size consistency, empty ECIES messages, and proof batch deadlines. STARK gossip now transmits the complete proof and remains advisory.
+- The clean staged snapshot passed 206 Go test packages, builds, vet, tagged tests, Go-only tests, and targeted race checks. The BLS tests passed 914 success and failure vectors. The pinned EF gate reported 36,264 passes and 20 known outcomes with no unexpected failures or skips.
+
+## Ethereum Client Cryptography Follow-Up (2026-11-10)
+
+- Traced Geth's secp256k1, EVM curves, KZG, Engine JWT, and keystore providers and the separate Lighthouse BLS and Verkle paths.
+- Switched IPA openings, Poseidon, VDF, VRF, and prime-field share reconstruction to public libraries. Retired unused local signers and the old threshold prototype.
+- Added real opening verification for IPA and KZG batches and required registered verifiers for SNARK and STARK statements. The PQ attestation codec carries the full ML-DSA key and signature.
+- The clean staged source passed all 206 test-bearing Go packages, build, vet, tagged tests, Go-only tests, and targeted race checks. The pinned EF gate recorded 36,264 passes and 20 known outcomes with zero unexpected failures or skips.
+- A Geth provider probe selected Go KZG and C KZG in turn, generated and verified an opening with each, and compared their commitment bytes.
+- Recorded the format changes and outstanding STARK, lattice and aggregation work in the [codebase audit](docs/CODEBASE_AUDIT.md#vii-ethereum-client-references-and-follow-up-migration).
+
+## Public Cryptography Library Migration (2026-11-10)
+
+- Moved secp256k1, BN254 precompiles, BLAKE2b compression, ECIES, keystore and RLPx transport to go-ethereum. Engine JWT authentication uses golang-jwt.
+- Moved BLS12-381 arithmetic and encodings, BN254 point operations, Bandersnatch operations, EVM transforms, and Groth16 verification to gnark libraries. Blob and PeerDAS operations share the Ethereum KZG context.
+- Replaced the project-local PQ signing and KEM implementations with CIRCL and go-fn-dsa. Earlier PQ and ECIES artifacts require regeneration in the public library formats.
+- The staged Go snapshot passed builds, vet, the full fixture-backed suite, and tagged tests. The geth-backed EF gate recorded 36,264 passes and 20 known outcomes with zero unexpected failures or skips.
+- Recorded the remaining protocol migration work and compatibility boundaries in the [codebase audit](docs/CODEBASE_AUDIT.md#vi-public-cryptography-library-migration).
+
+## Unused Package Cleanup (2026-11-10)
+
+- Removed six packages with no in-repository importers in the [first cleanup batch](docs/CODEBASE_AUDIT.md#v-follow-up-results).
+- Verified the clean snapshot with Go builds, vet, module tidy, default and tagged tests, and the website path check. Both executables retained the same production dependency sets in the compared configurations.
+
+## Codebase Audit Follow-Up (2026-11-10)
+
+- Completed the [audit follow-up](docs/CODEBASE_AUDIT.md#v-follow-up-results) on `fix/codebase-audit-follow-up`.
+- Native point evaluation verifies the tracked upstream vector using the shared Ethereum KZG ceremony context. Docker and Makefile binary builds use `goethkzg`.
+- The geth-backed EF gate executed 36,284 pinned vectors locally. It reported 36,264 passes and 20 exact legacy outcomes, with zero unexpected failures or skips. The missing-fixture probe failed as intended.
+- Gnark v0.16.5 passed BN254 AA proving and verification. A compatibility probe also loaded the previous serialized R1CS and keys and verified a prior proof.
+- The fresh source snapshot passed formatting, vet, build, and all 213 test-bearing Go packages. The tagged and race suites passed locally. The container started both binary entry points and reported source commit `7e05845`. The site build and EIP path check passed.
+- Removed unused internal wrappers and moved ignored artifacts out of the worktree. Tor/Nym live probes require configured services, and the workflow results recorded here are local.
+
+## Codebase Audit Evidence Review (2026-11-10)
+
+- Updated [the codebase audit](docs/CODEBASE_AUDIT.md) with verified production import paths, the native KZG fixture result, tagged test outcomes, EF vector totals and exit behavior, and the gnark advisory.
+- Revised the follow-up to match the evidence and added commands for reproducing the results at the audited revisions.
+- Verified report links, the website verifier on the documented source snapshot, the Go build, and the website build.
+
+## English Documentation Review (2026-11-10)
+
+- Manually translated `docs/CODEBASE_AUDIT.md` into English, retaining the reported findings and reproduction commands.
+- Added the English documentation requirement to `AGENTS.md`.
+- Found no remaining Chinese text in the project-owned text files. Extracted text from the five tracked PDFs and visually checked pages without a text layer.
+- Verified the Go module with `go build ./...` and the website with `npm run build`.
+
+## Update Plan Phases 2+3: Dependency Upgrades + Lighthouse Sync (2026-11-06)
+
+### Current Status: COMPLETE (with recorded Gloas/Heze devnet dependency)
+
+**Scope:** Execute UPDATE_PLAN.md phases 2 (Go dependency upgrades) and 3 (lighthouse upstream sync), per the "upgrade as far as possible" directive.
+
+**Completed Work:**
+
+Phase 2 — eth2030 Go deps (each group committed separately):
+- go-ethereum v1.17.1 -> v1.17.10: GasPool AddGas -> NewGasPool, StateDB.Commit(rules, block), SetTxContext blockAccessIndex, Message gas fields -> *uint256.Int, Holesky removed upstream (mapped to Hoodi 560048, added hoodi network). EF state tests 36,126 passing. (f20cf72)
+- gnark v0.14.0 -> v0.16.4, gnark-crypto v0.19.2 -> v0.22.0: 65 packages green (eb20de1)
+- x/crypto v0.48.0 -> v0.58.0 (+net/sys/text/sync): 43 packages green (732e844)
+- blst v0.3.16 -> v0.3.17: 55 packages green (1934f0b)
+- Indirect refresh via go get -u: pebble v2 2.1.7, otel 1.47, grpc 1.85 etc.; full suite 213 packages, 0 cached (da9c207)
+- Dockerfile builder -> golang:1.27-alpine (go directive bumped to 1.26.8 by -u) (02a8789)
+- CLAUDE.md geth version refs updated (e711263)
+
+Phase 3 — lighthouse:
+- Verified all 69 fork commits (feat/fix-native-aa) are superseded by upstream unstable (ForkName::Heze + full IL infra, payload envelopes, PTC). Backup: backup/feat-fix-native-aa-20261106.
+- New branch integrate/unstable-202611 = sigp/lighthouse unstable 25b9b754 (8.4.0-rc.0, rust 1.91 image) + IFLOW symlink. (4df5a7bcf)
+- cargo update batch reverted: parking_lot trio now requires rustc >= 1.95, breaking the rust:1.91 Docker build; upstream lockfile is the MSRV-compatible set. (2c468be9c)
+- cargo check + make lint (clippy) clean; eth2030cl:local rebuilt.
+
+Phase 3e — devnet cross-validation (eth2030cl:local + forks enabled):
+- Sanity (forks disabled, upgraded deps): blocks advancing, CL verified, peers=2.
+- Fulu transition (PeerDAS): passed on both rounds.
+- Engine API compat fixes for lighthouse >= 8.4 (in pkg/engine, with tests):
+  - fcuV4/V5 third custodyColumns param accepted; attributes shape sniffing (lighthouse snake_case/hex vs fork-era camelCase); engine_forkchoiceUpdatedV5 routed (1d56d58)
+  - fcuV5 advertised in exchangeCapabilities; getBlobsV3 custody bitarray param (d673210)
+  - Gloas getPayloadV5/V6 responses carry blockAccessList (0x-hex, RLP bytes; EIP-7928 SSZ wire encoding TODO) + slotNumber from payload attributes; e2e test drives real backend (77287d4, 1991580)
+
+**Recorded dependency (blocks Gloas/Heze devnet acceptance):**
+The devnet EL runs eth2030-geth (ethereum-package's geth launcher hardcodes the `geth` command), so the Engine API is go-ethereum's built-in server — go-ethereum v1.17.10 does not emit the Gloas payload shape (blockAccessList/slotNumber), and the CL correctly rejects it (NoViablePayloadBid -> missing field blockAccessList). The pkg/engine fixes serve the self-built binary path (verified by e2e test against the real backend). Full Gloas/Heze devnet bring-up requires either: (a) devnet EL switched to the self-built binary (needs an ethereum-package launcher override or fork — refs are read-only), or (b) Gloas support upstream in go-ethereum. Local manual verification confirmed fcuV5 + lighthouse-shaped attributes parse and build correctly on the self-built EngineAPI.
+
+**Verification:**
+- `cd pkg && go build ./... && go test -timeout 240m ./...` (213 packages green incl. EF state tests)
+- `cd ../lighthouse && cargo check --workspace && make lint` (clean)
+- `cd pkg && go test -run TestGetPayloadV6ResponseCarriesGloasFields ./engine/` (Gloas wire shape)
+- Devnet sanity + fulu: `./scripts/run-devnet.sh full-feature-eth2030` -> fulu boundary passed (blocks past slot 32)
+
+## Update Plan Phase 0/1 Baseline (2026-11-06)
+
+### Current Status: COMPLETE
+
+**Scope:** Baseline re-validation after ~6.5 months of maintenance downtime, plus devnet infrastructure pinning per workspace docs/UPDATE_PLAN.md (phases 0 and 1).
+
+**Completed Work:**
+- Toolchain: Go 1.25.2 -> 1.27.3 (gvm default), rust/cargo 1.99.1
+- spamoor: pushed 3 unpushed commits (4d4b439..4908a05 on feat/support-native-aa)
+- eth2030: `go build ./...`, `go vet ./...`, `go test ./...` all green on go1.27.3 (213 packages, 0 cached results, 0 FAIL; includes core/eftest EF state tests, 156s)
+- lighthouse: `cargo check --workspace` clean (2m17s, 0 errors, 22 upstream future-incompat warnings)
+- Devnet infra pinned: run-devnet.sh / run-feature-tests.sh / run-geth-testnet.sh default KURTOSIS_PACKAGE to local refs/ethereum-package instead of remote master; submodule advanced 234fb546 (2026-02-12) -> 6.1.0 c4a8e15d (2026-04-02) because configs use heze_fork_epoch (upstream renamed eip7805_fork_epoch -> heze on 2026-02-26, eb8c590a)
+- Devnet smoke (full-feature, pinned package): blocks advancing, CL "Synced (verified)" with peers=2, EL net_peerCount=2, no WARN/ERROR in EL logs
+
+**Verification:**
+- `cd pkg && go build ./... && go vet ./... && go test -timeout 240m ./...`
+- `cd ../lighthouse && cargo check --workspace`
+- `cd pkg/devnet/kurtosis && ./scripts/cleanup.sh && ./scripts/run-devnet.sh full-feature`
+- `cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)` -> advancing
+
 ## Website Strawmap Refresh (2026-11-05)
 
 ### Current Status: LOCAL UPDATE COMPLETE; FURTHER AUDIT AND DEPLOYMENT PENDING
@@ -14,7 +131,6 @@ Verification: `cd site && npm run build && node scripts/check-export.mjs`; deskt
 ### Current Status: BLOCKED ON REPOSITORY ADMIN
 
 GitHub Pages is configured for GitHub Actions but currently binds `eth2030.altllm.ai`, while the website and deployment workflow specify `eth2030.com`. The latter resolves to GitHub Pages and returns 404. A repository administrator must change the Pages custom domain to `eth2030.com` and verify DNS and HTTPS; this replaces the existing custom-domain binding. The privacy page now identifies GitHub Pages as the hosting provider.
-
 
 ## Full-Feature Devnet Bring-Up (2026-03-25)
 

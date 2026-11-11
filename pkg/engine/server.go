@@ -19,6 +19,7 @@ import (
 	"github.com/eth2030/eth2030/engine/blobval"
 	"github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/metrics"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 // Backend is a type alias — canonical definition in engine/backendapi.
@@ -33,6 +34,7 @@ type EngineAPI struct {
 	listener        net.Listener
 	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)
 	authSecret      string
+	jwtSecret       *[32]byte
 	maxRequestSize  int64
 	requestTimeout  time.Duration    // P0: configurable request timeout (default 8s)
 	priorityHandler *PriorityHandler // P2: tracks request priorities
@@ -57,6 +59,15 @@ func (api *EngineAPI) SetAuthSecret(secret string) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	api.authSecret = secret
+	api.jwtSecret = nil
+}
+
+// SetJWTSecret configures Engine API HS256 authentication.
+func (api *EngineAPI) SetJWTSecret(secret [32]byte) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.authSecret = ""
+	api.jwtSecret = &secret
 }
 
 // SetMaxRequestSize updates the maximum allowed request body size.
@@ -303,6 +314,7 @@ func (api *EngineAPI) ExchangeCapabilities(requested []string) []string {
 		"engine_newPayloadV5",
 		"engine_forkchoiceUpdatedV3",
 		"engine_forkchoiceUpdatedV4",
+		"engine_forkchoiceUpdatedV5",
 		"engine_getPayloadV3",
 		"engine_getPayloadV4",
 		"engine_getPayloadV5",
@@ -511,17 +523,31 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 func (api *EngineAPI) authorizedRequest(r *http.Request) bool {
 	api.mu.Lock()
 	secret := api.authSecret
+	jwtSecret := api.jwtSecret
 	api.mu.Unlock()
 
-	if secret == "" {
+	if secret == "" && jwtSecret == nil {
 		return true
 	}
 
 	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
+	if len(auth) < 7 || !strings.EqualFold(auth[:7], "Bearer ") {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(secret)) == 1
+	if jwtSecret == nil {
+		return subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(secret)) == 1
+	}
+
+	var claims jwt.RegisteredClaims
+	token, err := jwt.ParseWithClaims(auth[7:], &claims, func(*jwt.Token) (any, error) {
+		return jwtSecret[:], nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithoutClaimsValidation())
+	if err != nil || !token.Valid || claims.IssuedAt == nil {
+		return false
+	}
+	now := time.Now()
+	age := now.Sub(claims.IssuedAt.Time)
+	return age >= -time.Minute && age <= time.Minute && claims.VerifyExpiresAt(now, false)
 }
 
 // validateBlobHashes checks that the blob versioned hashes from the CL

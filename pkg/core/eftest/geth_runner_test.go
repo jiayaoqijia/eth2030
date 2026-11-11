@@ -50,18 +50,48 @@ func TestGethRunnerSmoke(t *testing.T) {
 		}
 	}
 	t.Logf("smoke: %d passed, %d failed, %d skipped", passed, failed, skipped)
-	if passed == 0 {
-		t.Error("expected at least one passing test")
+	if passed == 0 || failed != 0 {
+		t.Errorf("expected successful fixture execution, got %d passed and %d failed", passed, failed)
 	}
 }
 
+// go-ethereum v1.17.10 excludes these legacy storage-collision fixtures in
+// tests/state_test.go. Keep executing the pinned Cancun and Prague vectors and
+// track their exact observed roots so a different result fails the gate.
+var legacyGethRoots = map[string][]string{
+	"stCreate2/RevertInCreateInInitCreate2Paris.json": {
+		"0x66d387d97b50ce1cf5dfe0d00f7b69a963091c5a2e4b7e8c83d204c5a3e517d2",
+	},
+	"stCreate2/create2collisionStorageParis.json": {
+		"0xb7f1cac2f16e94f72881f6edeee333c1a9db8d5cf3aa2454c2d53e590d806c75",
+		"0xf80c59c964196be76ffed56b99247e463d54dd64002716f276216810aded685a",
+		"0xa696e84d1092671f7cad3c860ef9537f5b7bf0ea0190b66dac736dbd4885a184",
+	},
+	"stExtCodeHash/dynamicAccountOverwriteEmpty_Paris.json": {
+		"0xa5eb59c308d0473198980b46664066a1475ae1e24dea4b3508c224fefba5ec2a",
+	},
+	"stRevertTest/RevertInCreateInInit_Paris.json": {
+		"0x906380cad079c25e5652a2ecdee8fec499cbd5e838303352d8057990b9e98913",
+	},
+	"stSStoreTest/InitCollisionParis.json": {
+		"0x0c0a220de34e681280506c92702e74a5714d7f6206210cbe3569348250506972",
+		"0x2d7c7ea8ebe327a7b12f5b9d39a23ada92458c28737edae01db72208da2afe4d",
+		"0x0f83a79b57db64f5eb2fb56499540c7d48f5931aa02fb299f9317bacb1db4c91",
+		"0x5a1214486bc8a618dc512cd435706dffeebb25d2c1bf785c00ccdc6ebe851f2c",
+	},
+}
+
 func TestGethCategorySummary(t *testing.T) {
-	if testing.Short() {
+	requireFixtures := os.Getenv("ETH2030_REQUIRE_EF_FIXTURES") == "1"
+	if testing.Short() && !requireFixtures {
 		t.Skip("skipping full EF test suite in short mode")
 	}
 
 	dir := testdataDir()
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if requireFixtures {
+			t.Fatalf("required EF state test fixtures missing: %s", dir)
+		}
 		t.Skip("go-ethereum test fixtures not available")
 	}
 
@@ -74,6 +104,7 @@ func TestGethCategorySummary(t *testing.T) {
 		passed  int
 		failed  int
 		skipped int
+		legacy  int
 	}
 
 	var (
@@ -82,6 +113,7 @@ func TestGethCategorySummary(t *testing.T) {
 		totPassed  int
 		totFailed  int
 		totSkipped int
+		totLegacy  int
 	)
 
 	var names []string
@@ -105,13 +137,26 @@ func TestGethCategorySummary(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			catDir := filepath.Join(dir, name)
-			files, _ := filepath.Glob(filepath.Join(catDir, "*.json"))
-			var passed, failed, skipped int
+			files, err := filepath.Glob(filepath.Join(catDir, "*.json"))
+			if err != nil {
+				t.Errorf("list state test fixtures in %s: %v", catDir, err)
+				return
+			}
+			if len(files) == 0 {
+				// The pinned suite uses direct category fixtures. The corpus also
+				// contains grouping directories with only nested suites.
+				t.Logf("%s has no direct fixture files", name)
+				return
+			}
+			var passed, failed, skipped, legacy int
 			for _, file := range files {
 				tests, loadErr := LoadGethTests(file)
-				if loadErr != nil {
+				if loadErr != nil || len(tests) == 0 {
+					t.Errorf("no state tests loaded from %s: %v", file, loadErr)
 					continue
 				}
+				base := filepath.Base(file)
+				roots := legacyGethRoots[name+"/"+base]
 				for _, test := range tests {
 					for _, sub := range test.Subtests() {
 						if !geth.EFTestForkSupported(sub.Fork) {
@@ -122,13 +167,20 @@ func TestGethCategorySummary(t *testing.T) {
 							defer func() {
 								if r := recover(); r != nil {
 									failed++
+									t.Errorf("%s/%s %s[%d] panicked: %v", name, test.Name, sub.Fork, sub.Index, r)
 								}
 							}()
 							result := test.RunWithGeth(sub)
-							if result.Passed {
+							known := test.Name == strings.TrimSuffix(base, ".json") &&
+								(sub.Fork == "Cancun" || sub.Fork == "Prague") && sub.Index < len(roots)
+							switch {
+							case known && !result.Passed && result.GotRoot.Hex() == roots[sub.Index]:
+								legacy++
+							case !known && result.Passed:
 								passed++
-							} else {
+							default:
 								failed++
+								t.Errorf("%s/%s %s[%d]: passed=%t, known legacy=%t, error=%v", name, test.Name, sub.Fork, sub.Index, result.Passed, known, result.Error)
 							}
 						}()
 					}
@@ -138,6 +190,7 @@ func TestGethCategorySummary(t *testing.T) {
 			catMap[name].passed = passed
 			catMap[name].failed = failed
 			catMap[name].skipped = skipped
+			catMap[name].legacy = legacy
 			mu.Unlock()
 		}()
 	}
@@ -150,37 +203,29 @@ func TestGethCategorySummary(t *testing.T) {
 		totPassed += cat.passed
 		totFailed += cat.failed
 		totSkipped += cat.skipped
+		totLegacy += cat.legacy
 	}
 	mu.Unlock()
 
 	t.Log("")
 	t.Log("=== GETH-BACKED EF STATE TEST RESULTS ===")
 	t.Log(strings.Repeat("-", 70))
-	t.Logf("%-40s %6s %6s %6s %6s", "CATEGORY", "PASS", "FAIL", "SKIP", "RATE")
+	t.Logf("%-40s %6s %6s %6s %6s", "CATEGORY", "PASS", "FAIL", "SKIP", "LEGACY")
 	t.Log(strings.Repeat("-", 70))
 
 	for _, n := range names {
 		cat := catMap[n]
-		total := cat.passed + cat.failed
-		rate := 0.0
-		if total > 0 {
-			rate = float64(cat.passed) / float64(total) * 100
-		}
-		t.Logf("%-40s %6d %6d %6d %5.1f%%", n, cat.passed, cat.failed, cat.skipped, rate)
+		t.Logf("%-40s %6d %6d %6d %6d", n, cat.passed, cat.failed, cat.skipped, cat.legacy)
 	}
 
 	t.Log(strings.Repeat("-", 70))
-	total := totPassed + totFailed
-	rate := 0.0
-	if total > 0 {
-		rate = float64(totPassed) / float64(total) * 100
-	}
-	t.Logf("%-40s %6d %6d %6d %5.1f%%", "TOTAL", totPassed, totFailed, totSkipped, rate)
-	t.Log("")
-	t.Logf("SUMMARY: %d/%d passing (%.1f%%)", totPassed, total, rate)
+	t.Logf("%-40s %6d %6d %6d %6d", "TOTAL", totPassed, totFailed, totSkipped, totLegacy)
 
 	if totPassed == 0 {
 		t.Error("expected at least some passing tests")
+	}
+	if requireFixtures && (totPassed != 36264 || totFailed != 0 || totSkipped != 0 || totLegacy != 20) {
+		t.Error("pinned suite must report 36,264 passes, zero failures or skips, and 20 known legacy outcomes")
 	}
 }
 
@@ -195,12 +240,15 @@ func TestGethRunnerSingleCategory(t *testing.T) {
 		t.Skip("test fixtures not available")
 	}
 
-	files, _ := filepath.Glob(filepath.Join(catDir, "*.json"))
+	files, err := filepath.Glob(filepath.Join(catDir, "*.json"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no stExample fixtures: %v", err)
+	}
 	var passed, failed int
 	for _, file := range files {
 		tests, err := LoadGethTests(file)
 		if err != nil {
-			continue
+			t.Fatal(err)
 		}
 		for _, test := range tests {
 			for _, sub := range test.Subtests() {
@@ -218,6 +266,9 @@ func TestGethRunnerSingleCategory(t *testing.T) {
 		}
 	}
 	t.Logf("stExample: %d passed, %d failed", passed, failed)
+	if passed == 0 || failed != 0 {
+		t.Fatalf("expected successful stExample fixture execution, got %d passed and %d failed", passed, failed)
+	}
 }
 
 func TestGethForkConfigs(t *testing.T) {

@@ -223,10 +223,8 @@ func TestIsKnown_UnknownTx(t *testing.T) {
 	sm := defaultMempool()
 	// With an empty bloom, unknown hashes should return false.
 	unknown := testTxHash(255)
-	// Not guaranteed to be false (bloom can false-positive), but with no items
-	// added, it should be false.
 	if sm.IsKnown(unknown) {
-		t.Skip("false positive in empty bloom filter (rare but possible)")
+		t.Fatal("an empty Bloom filter reported the unknown transaction as present")
 	}
 }
 

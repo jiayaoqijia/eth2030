@@ -204,21 +204,6 @@ func TestBlsFp2InvSelf(t *testing.T) {
 	}
 }
 
-func TestBlsFp2MulByNonResidueCheck(t *testing.T) {
-	// blsFp2MulByNonResidue multiplies by (1+u).
-	// (1+u)(a + b*u) = (a - b) + (a + b)*u
-	a := &blsFp2{c0: big.NewInt(3), c1: big.NewInt(5)}
-	r := blsFp2MulByNonResidue(a)
-	// Expected: c0 = 3 - 5 = -2 mod p, c1 = 3 + 5 = 8
-	expectedC0 := blsFpSub(big.NewInt(3), big.NewInt(5))
-	expectedC1 := blsFpAdd(big.NewInt(3), big.NewInt(5))
-	expected := &blsFp2{c0: expectedC0, c1: expectedC1}
-	if !r.equal(expected) {
-		t.Errorf("blsFp2MulByNonResidue mismatch: got (%s, %s), want (%s, %s)",
-			r.c0, r.c1, expected.c0, expected.c1)
-	}
-}
-
 func TestBlsFp2ConjMulIsNorm(t *testing.T) {
 	// a * conj(a) = norm(a) = c0^2 + c1^2 (real-valued).
 	a := &blsFp2{c0: big.NewInt(11), c1: big.NewInt(13)}
@@ -462,142 +447,13 @@ func TestBlsMapFp2ToG2ProducesOnCurvePoints(t *testing.T) {
 // Fp6 arithmetic
 // ---------------------------------------------------------------------------
 
-func TestBlsFp6MulByVShift(t *testing.T) {
-	// v * 1 = (0, 0, 0) with c1 = 1 -- i.e., the element v itself.
-	one := blsFp6One()
-	vTimesOne := blsFp6MulByV(one)
-
-	// In Fp6 = Fp2[v]/(v^3 - (1+u)):
-	// v * (1 + 0*v + 0*v^2) = 0 + 1*v + 0*v^2
-	// But blsFp6MulByV shifts: c0 = nonresidue*c2, c1 = c0, c2 = c1
-	// For one = {c0:1, c1:0, c2:0}: result = {c0:nonresidue*0, c1:1, c2:0}
-	if !vTimesOne.c0.isZero() {
-		t.Error("v*1 should have c0 = 0")
-	}
-	if !vTimesOne.c1.equal(blsFp2One()) {
-		t.Error("v*1 should have c1 = 1")
-	}
-	if !vTimesOne.c2.isZero() {
-		t.Error("v*1 should have c2 = 0")
-	}
-}
-
-func TestBlsFp6NegProperties(t *testing.T) {
-	a := &blsFp6{
-		c0: &blsFp2{c0: big.NewInt(3), c1: big.NewInt(4)},
-		c1: &blsFp2{c0: big.NewInt(5), c1: big.NewInt(6)},
-		c2: &blsFp2{c0: big.NewInt(7), c1: big.NewInt(8)},
-	}
-
-	// a + (-a) = 0
-	neg := blsFp6Neg(a)
-	sum := blsFp6Add(a, neg)
-	if !sum.c0.isZero() || !sum.c1.isZero() || !sum.c2.isZero() {
-		t.Error("a + (-a) should be zero in Fp6")
-	}
-}
-
-func TestBlsFp6SquaringMatchesMul(t *testing.T) {
-	a := &blsFp6{
-		c0: &blsFp2{c0: big.NewInt(11), c1: big.NewInt(13)},
-		c1: &blsFp2{c0: big.NewInt(17), c1: big.NewInt(19)},
-		c2: &blsFp2{c0: big.NewInt(23), c1: big.NewInt(29)},
-	}
-	sqr := blsFp6Sqr(a)
-	mul := blsFp6Mul(a, a)
-	if !sqr.c0.equal(mul.c0) || !sqr.c1.equal(mul.c1) || !sqr.c2.equal(mul.c2) {
-		t.Error("Fp6: sqr(a) != mul(a, a)")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Fp12 arithmetic
 // ---------------------------------------------------------------------------
 
-func TestBlsFp12ExpZero(t *testing.T) {
-	f := &blsFp12{
-		c0: &blsFp6{
-			c0: &blsFp2{c0: big.NewInt(5), c1: big.NewInt(7)},
-			c1: &blsFp2{c0: big.NewInt(11), c1: big.NewInt(13)},
-			c2: &blsFp2{c0: big.NewInt(17), c1: big.NewInt(19)},
-		},
-		c1: &blsFp6{
-			c0: &blsFp2{c0: big.NewInt(23), c1: big.NewInt(29)},
-			c1: &blsFp2{c0: big.NewInt(31), c1: big.NewInt(37)},
-			c2: &blsFp2{c0: big.NewInt(41), c1: big.NewInt(43)},
-		},
-	}
-
-	// f^0 = 1
-	r := blsFp12Exp(f, big.NewInt(0))
-	if !r.isOne() {
-		t.Error("f^0 should be 1 in Fp12")
-	}
-
-	// f^1 = f
-	r = blsFp12Exp(f, big.NewInt(1))
-	if !r.c0.c0.equal(f.c0.c0) ||
-		!r.c0.c1.equal(f.c0.c1) ||
-		!r.c0.c2.equal(f.c0.c2) ||
-		!r.c1.c0.equal(f.c1.c0) ||
-		!r.c1.c1.equal(f.c1.c1) ||
-		!r.c1.c2.equal(f.c1.c2) {
-		t.Error("f^1 should equal f in Fp12")
-	}
-}
-
-func TestBlsFp12MulInverse(t *testing.T) {
-	f := &blsFp12{
-		c0: &blsFp6{
-			c0: &blsFp2{c0: big.NewInt(2), c1: big.NewInt(3)},
-			c1: &blsFp2{c0: big.NewInt(5), c1: big.NewInt(7)},
-			c2: &blsFp2{c0: big.NewInt(11), c1: big.NewInt(13)},
-		},
-		c1: &blsFp6{
-			c0: &blsFp2{c0: big.NewInt(17), c1: big.NewInt(19)},
-			c1: &blsFp2{c0: big.NewInt(23), c1: big.NewInt(29)},
-			c2: &blsFp2{c0: big.NewInt(31), c1: big.NewInt(37)},
-		},
-	}
-
-	fInv := blsFp12Inv(f)
-	product := blsFp12Mul(f, fInv)
-	if !product.isOne() {
-		t.Error("f * f^(-1) should be 1 in Fp12")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Pairing internals
 // ---------------------------------------------------------------------------
-
-func TestBlsMillerLoopInfinityG1(t *testing.T) {
-	g1Inf := BlsG1Infinity()
-	g2 := BlsG2Generator()
-
-	result := blsMillerLoop(g1Inf, g2)
-	if !result.isOne() {
-		t.Error("Miller loop with G1 infinity should return 1")
-	}
-}
-
-func TestBlsMillerLoopInfinityG2(t *testing.T) {
-	g1 := BlsG1Generator()
-	g2Inf := BlsG2Infinity()
-
-	result := blsMillerLoop(g1, g2Inf)
-	if !result.isOne() {
-		t.Error("Miller loop with G2 infinity should return 1")
-	}
-}
-
-func TestBlsFinalExponentiationOfOne(t *testing.T) {
-	one := blsFp12One()
-	result := blsFinalExponentiation(one)
-	if !result.isOne() {
-		t.Error("final exponentiation of 1 should be 1")
-	}
-}
 
 func TestBlsPairingNonDegeneracy(t *testing.T) {
 	// e(G1, G2) should not be 1.

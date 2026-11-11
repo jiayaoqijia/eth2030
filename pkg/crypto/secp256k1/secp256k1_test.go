@@ -1,6 +1,7 @@
 package secp256k1
 
 import (
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"math/big"
 	"testing"
 )
@@ -57,7 +58,7 @@ func TestSignProduces65Bytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("test message"))
+	hash := gethcrypto.Keccak256([]byte("test message"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -180,7 +181,7 @@ func TestValidateSignatureRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("test message"))
+	hash := gethcrypto.Keccak256([]byte("test message"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -201,7 +202,7 @@ func TestValidateSignatureRejectsWrongKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("test message"))
+	hash := gethcrypto.Keccak256([]byte("test message"))
 	sig, err := Sign(hash, key1)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -217,12 +218,12 @@ func TestValidateSignatureRejectsWrongHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("test message"))
+	hash := gethcrypto.Keccak256([]byte("test message"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}
-	wrongHash := keccak256([]byte("different message"))
+	wrongHash := gethcrypto.Keccak256([]byte("different message"))
 	pubBytes := FromECDSAPub(&key.PublicKey)
 	if ValidateSignature(pubBytes, wrongHash, sig[:64]) {
 		t.Error("ValidateSignature should reject signature with wrong hash")
@@ -245,9 +246,6 @@ func TestSecp256k1CurveParams(t *testing.T) {
 	curve := S256()
 	params := curve.Params()
 
-	if params.Name != "secp256k1" {
-		t.Errorf("curve name = %s, want secp256k1", params.Name)
-	}
 	if params.BitSize != 256 {
 		t.Errorf("bit size = %d, want 256", params.BitSize)
 	}
@@ -255,10 +253,8 @@ func TestSecp256k1CurveParams(t *testing.T) {
 	if !curve.IsOnCurve(params.Gx, params.Gy) {
 		t.Error("generator point is not on curve")
 	}
-	// N * G should equal point at infinity.
-	x, y := curve.ScalarBaseMult(params.N.Bytes())
-	if x.Sign() != 0 || y.Sign() != 0 {
-		t.Error("N * G should be point at infinity")
+	if want := "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"; params.N.Text(16) != want {
+		t.Fatalf("curve order = %x, want %s", params.N, want)
 	}
 }
 
@@ -267,7 +263,7 @@ func TestEcrecoverRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("test message for ecrecover"))
+	hash := gethcrypto.Keccak256([]byte("test message for ecrecover"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -294,7 +290,7 @@ func TestSigToPubRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("another test"))
+	hash := gethcrypto.Keccak256([]byte("another test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -318,7 +314,7 @@ func TestEcrecoverDeriveAddress(t *testing.T) {
 
 	expectedAddr := PubkeyToAddress(key.PublicKey)
 
-	hash := keccak256([]byte("address derivation test"))
+	hash := gethcrypto.Keccak256([]byte("address derivation test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -344,7 +340,7 @@ func TestEcrecoverMultipleMessages(t *testing.T) {
 
 	messages := []string{"msg1", "msg2", "msg3", "hello world", "ethereum"}
 	for _, msg := range messages {
-		hash := keccak256([]byte(msg))
+		hash := gethcrypto.Keccak256([]byte(msg))
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign(%q) failed: %v", msg, err)
@@ -362,7 +358,7 @@ func TestEcrecoverMultipleMessages(t *testing.T) {
 }
 
 func TestEcrecoverRejectsInvalidSig(t *testing.T) {
-	hash := keccak256([]byte("test"))
+	hash := gethcrypto.Keccak256([]byte("test"))
 
 	// Wrong length.
 	_, err := Ecrecover(hash, make([]byte, 64))
@@ -384,13 +380,13 @@ func TestEcrecoverRejectsWrongHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := keccak256([]byte("original"))
+	hash := gethcrypto.Keccak256([]byte("original"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}
 
-	wrongHash := keccak256([]byte("different"))
+	wrongHash := gethcrypto.Keccak256([]byte("different"))
 	recovered, err := Ecrecover(wrongHash, sig)
 	if err != nil {
 		// May still succeed but recover a different key.
@@ -416,7 +412,7 @@ func TestSignLowS(t *testing.T) {
 	}
 	// Sign multiple times and verify S is always in lower half.
 	for i := 0; i < 20; i++ {
-		hash := keccak256([]byte{byte(i), byte(i >> 8)})
+		hash := gethcrypto.Keccak256([]byte{byte(i), byte(i >> 8)})
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)

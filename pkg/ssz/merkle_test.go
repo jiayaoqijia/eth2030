@@ -156,9 +156,8 @@ func TestMerkleizeWithLimit(t *testing.T) {
 func TestMerkleizeEmptyChunks(t *testing.T) {
 	root := Merkleize(nil, 0)
 	// Empty input gets a zero chunk and is Merkleized.
-	if root == [32]byte{} {
-		// An empty input with zero limit defaults to a single zero chunk.
-		// The root of a single zero chunk is the zero chunk itself.
+	if root != [32]byte{} {
+		t.Fatalf("empty Merkle root = %x, want zero", root)
 	}
 }
 
@@ -327,11 +326,9 @@ func TestHashTreeRootByteListDeterministic(t *testing.T) {
 
 func TestHashTreeRootByteListEmpty(t *testing.T) {
 	root := HashTreeRootByteList(nil, 32)
-	// Not zero because MixInLength mixes the zero-length.
-	var zeroRoot [32]byte
-	if root == zeroRoot {
-		// The root includes mix-in of length=0, so it may differ from zero.
-		// Just ensure consistency.
+	var zeroChunkAndLength [64]byte
+	if want := sha256.Sum256(zeroChunkAndLength[:]); root != want {
+		t.Fatalf("empty byte list root = %x, want %x", root, want)
 	}
 }
 
@@ -362,9 +359,9 @@ func TestHashTreeRootBitlistDeterministic(t *testing.T) {
 
 func TestHashTreeRootBitlistEmpty(t *testing.T) {
 	root := HashTreeRootBitlist(nil, 8)
-	// Should include MixInLength with length=0.
-	if root == [32]byte{} {
-		// Even empty bitlist has a non-zero root due to MixInLength.
+	var zeroChunkAndLength [64]byte
+	if want := sha256.Sum256(zeroChunkAndLength[:]); root != want {
+		t.Fatalf("empty bitlist root = %x, want %x", root, want)
 	}
 }
 

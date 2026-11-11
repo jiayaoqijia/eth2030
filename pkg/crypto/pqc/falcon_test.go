@@ -9,7 +9,7 @@ func TestFalconSignerImplementsPQSigner(t *testing.T) {
 	var _ PQSigner = (*FalconSigner)(nil)
 }
 
-func TestFalconGenerateKeyDeterministic(t *testing.T) {
+func TestFalconGenerateDistinctKeys(t *testing.T) {
 	signer := &FalconSigner{}
 	kp1, err := signer.GenerateKey()
 	if err != nil {
@@ -20,12 +20,11 @@ func TestFalconGenerateKeyDeterministic(t *testing.T) {
 		t.Fatalf("second GenerateKey: %v", err)
 	}
 
-	// Stub uses a fixed seed, so key pairs must be identical.
-	if !bytes.Equal(kp1.PublicKey, kp2.PublicKey) {
-		t.Error("deterministic keygen produced different public keys")
+	if bytes.Equal(kp1.PublicKey, kp2.PublicKey) {
+		t.Error("key generation repeated a public key")
 	}
-	if !bytes.Equal(kp1.SecretKey, kp2.SecretKey) {
-		t.Error("deterministic keygen produced different secret keys")
+	if bytes.Equal(kp1.SecretKey, kp2.SecretKey) {
+		t.Error("key generation repeated a secret key")
 	}
 }
 
@@ -80,7 +79,7 @@ func TestFalconSignProducesCorrectSize(t *testing.T) {
 	}
 }
 
-func TestFalconSignDeterministic(t *testing.T) {
+func TestFalconRepeatedSignaturesVerify(t *testing.T) {
 	signer := &FalconSigner{}
 	kp, _ := signer.GenerateKey()
 
@@ -88,8 +87,8 @@ func TestFalconSignDeterministic(t *testing.T) {
 	sig1, _ := signer.Sign(kp.SecretKey, msg)
 	sig2, _ := signer.Sign(kp.SecretKey, msg)
 
-	if !bytes.Equal(sig1, sig2) {
-		t.Error("signing same message with same key produced different signatures")
+	if !signer.Verify(kp.PublicKey, msg, sig1) || !signer.Verify(kp.PublicKey, msg, sig2) {
+		t.Error("both signatures must verify")
 	}
 }
 

@@ -31,10 +31,9 @@ func TestGetSignerFalcon(t *testing.T) {
 }
 
 func TestGetSignerSPHINCS(t *testing.T) {
-	// SPHINCS+ has no signer implementation yet.
 	s := GetSigner(SPHINCSSHA256)
-	if s != nil {
-		t.Error("GetSigner(SPHINCSSHA256) should return nil (no signer yet)")
+	if s == nil {
+		t.Error("GetSigner(SPHINCSSHA256) returned nil")
 	}
 }
 

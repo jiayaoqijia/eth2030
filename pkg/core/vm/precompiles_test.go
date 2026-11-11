@@ -9,9 +9,32 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/ripemd160"
 )
+
+func TestECRecoverAcceptsHighS(t *testing.T) {
+	key, err := gethcrypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := gethcrypto.Keccak256([]byte("EIP-2 precompile recovery"))
+	sig, err := gethcrypto.Sign(hash, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := make([]byte, 128)
+	copy(input, hash)
+	input[63] = 27 + (sig[64] ^ 1)
+	copy(input[64:96], sig[:32])
+	new(big.Int).Sub(gethcrypto.S256().Params().N, new(big.Int).SetBytes(sig[32:64])).FillBytes(input[96:])
+
+	out, _, err := RunPrecompiledContract(types.Address{19: 1}, input, 3000)
+	want := gethcrypto.PubkeyToAddress(key.PublicKey)
+	if err != nil || len(out) != 32 || !bytes.Equal(out[12:], want[:]) {
+		t.Fatalf("high-S recovery = %x, %v, want padded address %x", out, err, want)
+	}
+}
 
 func TestIsPrecompiledContract(t *testing.T) {
 	// Addresses 0x01-0x0a (Cancun) + 0x0b-0x13 (EIP-2537 BLS12-381).
@@ -495,46 +518,13 @@ func TestKZGPrecompileOutOfGas(t *testing.T) {
 	}
 }
 
-// sha256Sum is a helper that returns [32]byte.
-func sha256Sum(data []byte) [32]byte {
-	return sha256.Sum256(data)
-}
-
-// buildKZGPrecompileInput constructs a valid 192-byte KZG point evaluation input
-// using a real commitment and proof for polynomial p(X) = 3X + 7,
-// evaluated at z=5 giving y=22, with trusted setup secret s=42.
 func buildKZGPrecompileInput(t *testing.T) []byte {
 	t.Helper()
-
-	secret := big.NewInt(42)
-	z := big.NewInt(5)
-	polyAtS := big.NewInt(133) // p(s) = 3*42 + 7
-	y := big.NewInt(22)        // p(5) = 22
-
-	commitPoint := crypto.KZGCommit(polyAtS)
-	proofPoint := crypto.KZGComputeProof(secret, z, polyAtS, y)
-
-	commitBytes := crypto.KZGCompressG1(commitPoint)
-	proofBytes := crypto.KZGCompressG1(proofPoint)
-
-	// Build versioned hash: sha256(commitment) with version prefix.
-	commitHash := sha256Sum(commitBytes)
-	commitHash[0] = types.VersionedHashVersionKZG
-
-	// Build 192-byte input: versioned_hash(32) | z(32) | y(32) | commitment(48) | proof(48)
-	input := make([]byte, 192)
-	copy(input[0:32], commitHash[:])
-
-	zBytes := z.Bytes()
-	copy(input[64-len(zBytes):64], zBytes)
-
-	yBytes := y.Bytes()
-	copy(input[96-len(yBytes):96], yBytes)
-
-	copy(input[96:144], commitBytes)
-	copy(input[144:192], proofBytes)
-
-	return input
+	fixtures := loadPrecompileFixtures(t, "pointEvaluation.json")
+	if len(fixtures) == 0 {
+		t.Fatal("missing point evaluation vectors")
+	}
+	return hexDecode(t, fixtures[0].Input)
 }
 
 // buildModExpInput constructs the 96-byte header + data for the modexp precompile.

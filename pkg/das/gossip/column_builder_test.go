@@ -3,6 +3,7 @@ package gossip
 import (
 	"testing"
 
+	"github.com/eth2030/eth2030/crypto/bls"
 	"github.com/eth2030/eth2030/das/dastypes"
 )
 
@@ -11,9 +12,9 @@ import (
 func colBuilderTestBlobs(numBlobs, blobSize int) [][]byte {
 	blobs := make([][]byte, numBlobs)
 	for i := 0; i < numBlobs; i++ {
-		blobs[i] = make([]byte, blobSize)
-		for j := range blobs[i] {
-			blobs[i][j] = byte((i*37 + j*13 + 7) & 0xFF)
+		blobs[i] = make([]byte, bls.KZGBytesPerBlob)
+		for j := 0; j < blobSize/32; j++ {
+			blobs[i][j*32+31] = byte(i + j + 1)
 		}
 	}
 	return blobs
@@ -398,22 +399,35 @@ func TestColumnBuilderToDataColumnSidecar(t *testing.T) {
 		t.Fatalf("BuildColumns: %v", err)
 	}
 
-	commitments := make([]dastypes.KZGCommitment, 2)
-	commitments[0][0] = 0xAA
-	commitments[1][0] = 0xBB
+	backend := bls.DefaultKZGBackend()
+	commitments := make([]dastypes.KZGCommitment, len(blobs))
+	for i, blob := range blobs {
+		commitment, err := backend.BlobToCommitment(blob)
+		if err != nil {
+			t.Fatal(err)
+		}
+		commitments[i] = commitment
+	}
 
-	sidecar := cb.ToDataColumnSidecar(cols[0], commitments)
-	if sidecar.Index != cols[0].Index {
-		t.Errorf("sidecar Index = %d, want %d", sidecar.Index, cols[0].Index)
+	message, err := cb.CreateGossipMessage(1, 0, cols[1].Index, cols[1].Cells[0][:], cols[1].Proofs[0])
+	if err != nil {
+		t.Fatalf("constructed cell rejected by gossip: %v", err)
 	}
-	if len(sidecar.Column) != 2 {
-		t.Errorf("sidecar Column count = %d, want 2", len(sidecar.Column))
+	if err := cb.ValidateGossipMessage(message); err != nil {
+		t.Fatalf("validate constructed cell: %v", err)
 	}
-	if len(sidecar.KZGCommitments) != 2 {
-		t.Errorf("sidecar Commitments count = %d, want 2", len(sidecar.KZGCommitments))
+
+	sidecar := cb.ToDataColumnSidecar(cols[1], commitments)
+	if sidecar.Index != cols[1].Index || len(sidecar.Column) != len(blobs) ||
+		len(sidecar.KZGCommitments) != len(blobs) || len(sidecar.KZGProofs) != len(blobs) {
+		t.Fatalf("unexpected sidecar shape for column %d", sidecar.Index)
 	}
-	if sidecar.KZGCommitments[0][0] != 0xAA {
-		t.Error("commitment not copied correctly")
+	for i, cell := range sidecar.Column {
+		valid, err := backend.VerifyCellProof(sidecar.KZGCommitments[i][:], cell[:],
+			sidecar.KZGProofs[i][:], uint64(sidecar.Index))
+		if err != nil || !valid {
+			t.Fatalf("sidecar cell %d proof = %v, %v", i, valid, err)
+		}
 	}
 }
 
@@ -446,30 +460,5 @@ func TestColumnBuilderDefaultConfig(t *testing.T) {
 	}
 	if cfg.CellSize != dastypes.BytesPerCell {
 		t.Errorf("CellSize = %d, want %d", cfg.CellSize, dastypes.BytesPerCell)
-	}
-}
-
-func TestColumnBuilderExtractCellZeroPadding(t *testing.T) {
-	// Blob shorter than required: cell should be zero-padded.
-	blob := []byte{1, 2, 3, 4}
-	cell := extractCell(blob, 0, 4, 8)
-	if cell[0] != 1 || cell[1] != 2 || cell[2] != 3 || cell[3] != 4 {
-		t.Error("first 4 bytes should match blob data")
-	}
-	for i := 4; i < 8; i++ {
-		if cell[i] != 0 {
-			t.Errorf("cell[%d] = %d, want 0 (zero-padded)", i, cell[i])
-		}
-	}
-}
-
-func TestColumnBuilderExtractCellBeyondBlobLength(t *testing.T) {
-	// Column index that starts beyond the blob length.
-	blob := make([]byte, 16)
-	cell := extractCell(blob, 10, 16, 8) // offset 80 > len 16
-	for i := 0; i < 8; i++ {
-		if cell[i] != 0 {
-			t.Errorf("cell[%d] = %d, want 0 for out-of-bounds", i, cell[i])
-		}
 	}
 }

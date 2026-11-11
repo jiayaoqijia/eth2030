@@ -148,7 +148,6 @@ func TestMakeBLSTestCommittee(t *testing.T) {
 }
 
 func TestVerifySyncCommitteeSignature_Valid(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	pubkeys, secrets := makeTestCommitteeAndSecrets(smallTestSize)
 	v := NewSyncCommitteeBLSVerifierWithSize(smallTestSize)
 
@@ -227,7 +226,6 @@ func TestVerifySyncCommitteeSignature_NoParticipants(t *testing.T) {
 }
 
 func TestVerifySyncCommitteeSignature_SupermajoritySubset(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	// Use 3 out of 4 (75% > 66.7%).
 	pubkeys, secrets := makeTestCommitteeAndSecrets(smallTestSize)
 	v := NewSyncCommitteeBLSVerifierWithSize(smallTestSize)
@@ -247,7 +245,6 @@ func TestVerifySyncCommitteeSignature_SupermajoritySubset(t *testing.T) {
 }
 
 func TestVerifierCounters(t *testing.T) {
-	t.Skip("requires real blst backend for pairing correctness")
 	pubkeys, secrets := makeTestCommitteeAndSecrets(smallTestSize)
 	v := NewSyncCommitteeBLSVerifierWithSize(smallTestSize)
 

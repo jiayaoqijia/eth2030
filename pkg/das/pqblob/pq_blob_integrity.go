@@ -119,7 +119,7 @@ type FalconBlobIntegritySigner struct {
 
 func NewFalconBlobIntegritySigner() (*FalconBlobIntegritySigner, error) {
 	fs := &pqc.FalconSigner{}
-	kp, err := fs.GenerateKeyReal()
+	kp, err := fs.GenerateKey()
 	if err != nil {
 		return nil, fmt.Errorf("pq_integrity: falcon keygen: %w", err)
 	}
@@ -150,7 +150,7 @@ func (f *FalconBlobIntegritySigner) SignCommitment(commitment *PQBlobCommitment,
 	}
 	msg := integrityCommitMessage(commitment.Digest[:])
 	fs := &pqc.FalconSigner{}
-	sig, err := fs.SignReal(kp.SecretKey, msg)
+	sig, err := fs.Sign(kp.SecretKey, msg)
 	if err != nil {
 		return nil, fmt.Errorf("pq_integrity: falcon sign: %w", err)
 	}
@@ -168,7 +168,7 @@ func (f *FalconBlobIntegritySigner) VerifyIntegrity(sig *PQBlobIntegritySig, com
 		return false
 	}
 	fs := &pqc.FalconSigner{}
-	return fs.VerifyReal(sig.PublicKey, integrityCommitMessage(commitment.Digest[:]), sig.SignatureBytes)
+	return fs.Verify(sig.PublicKey, integrityCommitMessage(commitment.Digest[:]), sig.SignatureBytes)
 }
 
 // --- SPHINCS+ Blob Integrity Signer ---
@@ -296,7 +296,7 @@ func dispatchIntegrityVerify(sig *PQBlobIntegritySig, commitment *PQBlobCommitme
 	case IntegrityAlgMLDSA:
 		return pqc.NewMLDSASigner().Verify(sig.PublicKey, msg, sig.SignatureBytes)
 	case IntegrityAlgFalcon:
-		return (&pqc.FalconSigner{}).VerifyReal(sig.PublicKey, msg, sig.SignatureBytes)
+		return (&pqc.FalconSigner{}).Verify(sig.PublicKey, msg, sig.SignatureBytes)
 	case IntegrityAlgSPHINCS:
 		return pqc.NewSPHINCSSigner().Verify(sig.PublicKey, msg, sig.SignatureBytes)
 	default:
