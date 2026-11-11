@@ -45,7 +45,7 @@ func MakeBlockContext(header *types.Header, getHash func(uint64) gethcommon.Hash
 		ctx.Difficulty = new(big.Int).Set(header.Difficulty)
 	}
 
-	if header.MixDigest != (types.Hash{}) {
+	if header.Difficulty != nil && header.Difficulty.Sign() == 0 {
 		rnd := ToGethHash(header.MixDigest)
 		ctx.Random = &rnd
 	}

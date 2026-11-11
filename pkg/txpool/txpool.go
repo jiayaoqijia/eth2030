@@ -7,7 +7,9 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/eips"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/log"
@@ -105,6 +107,8 @@ type Config struct {
 	// IsPrague indicates the chain is at or past the Prague fork.
 	// When true, the EIP-7623 calldata floor is applied during validation.
 	IsPrague bool
+	// IsOsaka enables EIP-7825 admission checks.
+	IsOsaka bool
 	// IsGlamsterdan indicates the chain is at or past the Glamsterdam fork (EIP-2780).
 	// When true, the base tx gas cost is 4500 instead of 21000 for intrinsic validation.
 	IsGlamsterdan bool
@@ -254,6 +258,15 @@ func New(config Config, state StateReader) *TxPool {
 // up-to-date recommendations.
 func (pool *TxPool) RecordBlock(header *types.Header, txs []*types.Transaction) {
 	pool.suggestor.RecordBlockFromHeader(header, txs)
+}
+
+// SetForkRules updates admission rules after a canonical head change.
+func (pool *TxPool) SetForkRules(cfg *config.ChainConfig, time uint64) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	pool.config.IsPrague = cfg.IsPrague(time)
+	pool.config.IsGlamsterdan = cfg.IsGlamsterdan(time)
+	pool.config.IsOsaka = cfg.IsOsaka(time)
 }
 
 // SuggestGasPrice returns a fee suggestion for the desired speed tier.
@@ -535,6 +548,11 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	// Gas limit check.
+	if pool.config.IsOsaka {
+		if err := gas.ValidateTransactionGasLimit(tx.Gas()); err != nil {
+			return err
+		}
+	}
 	if tx.Gas() > pool.config.BlockGasLimit {
 		return ErrGasLimit
 	}
@@ -1514,11 +1532,11 @@ func AccessListGasGlamst(al types.AccessList) uint64 {
 // transaction. The block processor enforces this floor; txs that fail it are
 // silently skipped, so we reject them at pool entry.
 //
-// Prague/EIP-7623: floor = TxGas(21000) + tokens*10 + (TxCreateGas if create)
+// Prague/EIP-7623: floor = TxGas(21000) + tokens*10
 //
 //	tokens = zero_bytes*1 + nonzero_bytes*4
 //
-// Glamsterdam/EIP-7976: floor = TxBase(4500) + total_bytes*4*16 + accessListFloor + (TxCreateGas if create)
+// Glamsterdam/EIP-7976: floor = TxBase(4500) + total_bytes*4*16 + accessListFloor
 //
 //	access list floor counts each address (20B) and key (32B) at token cost.
 func CalldataFloorGas(data []byte, isCreate bool, isGlamsterdan bool, al types.AccessList) uint64 {
@@ -1538,9 +1556,6 @@ func CalldataFloorGas(data []byte, isCreate bool, isGlamsterdan bool, al types.A
 			tokens += uint64(len(tuple.StorageKeys)) * 32 * 4
 		}
 		floor := glamstTxBase + tokens*glamstFloorPerTok
-		if isCreate {
-			floor += TxCreateGas
-		}
 		return floor
 	}
 
@@ -1554,9 +1569,6 @@ func CalldataFloorGas(data []byte, isCreate bool, isGlamsterdan bool, al types.A
 		}
 	}
 	floor := pragueTxBase + tokens*pragueFloorPerTok
-	if isCreate {
-		floor += TxCreateGas
-	}
 	return floor
 }
 

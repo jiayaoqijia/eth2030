@@ -1,5 +1,41 @@
 # Lean4 Verification Check-list
 
+## Native Execution Requests and SSZ Integration
+
+- [x] Trace native request collection, block commitment, replay, and Engine API handling against the EIPs.
+- [x] Collect canonical deposit, withdrawal, and consolidation requests through the native execution paths.
+- [x] Verify nonempty requests through block building, validation, Engine API, and the SSZ projection.
+- [x] Run affected and default suites and record the results.
+
+## Execution SSZ and Framework Test Effectiveness Review
+
+- [x] Verify the branch and run the default, tagged, and race suites.
+- [x] Measure whether targeted behavior changes fail their intended tests.
+- [x] Close demonstrated assertion gaps and repeat the targeted checks.
+- [x] Record the results in `STATUS.md`.
+
+## Execution SSZ Specification Review
+
+- [x] Compare transaction and block encodings with the pinned and published EIP drafts.
+- [x] Normalize EIP-6404 transaction bytes, signatures, and Merkle roots.
+- [x] Implement the published EIP-7807 payload and header summary codecs.
+- [x] Verify independent vectors and affected suites.
+
+## EIP Test Framework Completion
+
+- [x] Repair simulator results, fork timing, transaction signing, and failure assertions.
+- [x] Complete STF, pool, encoding, RPC, Engine, and differential probes with regression tests.
+- [x] Enforce the coverage gate and verify generated scaffolds and the README walkthrough.
+- [x] Develop and verify a new EIP test-first through the scaffold.
+- [x] Complete scenario contracts and run Amsterdam fixture generation and consumption.
+- [x] Run the default and variant suites, verify the build, and reconcile the plan and status.
+
+## EIP Test Framework Acceptance Review (2026-11-11)
+
+- [x] Compare the implementation and examples with the plan's acceptance criteria.
+- [x] Run the framework suite, default Go suite, and local CI checks.
+- [x] Verify failure detection and exercise the documented tooling entry points.
+- [x] Record verified results and remaining gaps in `STATUS.md`.
 ## PR #47 Merge Resolution
 
 - [x] Confirm the pull request head and fetch the current upstream base.

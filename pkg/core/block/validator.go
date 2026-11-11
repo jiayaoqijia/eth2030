@@ -140,13 +140,42 @@ func (v *BlockValidator) ValidateHeader(header, parent *types.Header) error {
 	return nil
 }
 
+// MaxRLPBlockSize is the EIP-7934 execution block limit. The 10 MiB
+// consensus limit reserves 2 MiB for beacon block data.
+const MaxRLPBlockSize = 8 << 20
+
+func validateRLPBlockSize(cfg *config.ChainConfig, blk *types.Block) error {
+	if cfg == nil || !cfg.IsOsaka(blk.Time()) {
+		return nil
+	}
+	size, err := blk.RLPEncodedSize()
+	if err != nil {
+		return err
+	}
+	if size > MaxRLPBlockSize {
+		return fmt.Errorf("RLP block size %d exceeds limit %d", size, MaxRLPBlockSize)
+	}
+	return nil
+}
+
 // ValidateBody checks the block body (transactions, uncles, withdrawals) against the header.
 func (v *BlockValidator) ValidateBody(block *types.Block) error {
+	if err := validateRLPBlockSize(v.config, block); err != nil {
+		return err
+	}
 	header := block.Header()
 
 	// Post-merge: no uncles allowed.
 	if len(block.Uncles()) > 0 {
 		return ErrInvalidUncleHash
+	}
+
+	if gas.IsGasLimitCapped(v.config, header.Time) {
+		for i, tx := range block.Transactions() {
+			if err := gas.ValidateTransactionGasLimit(tx.Gas()); err != nil {
+				return fmt.Errorf("transaction %d: %w", i, err)
+			}
+		}
 	}
 
 	// Validate transaction trie root: compute the Merkle trie hash from the
@@ -255,7 +284,10 @@ func (v *BlockValidator) ValidateRequests(header *types.Header, requests types.R
 		return fmt.Errorf("%w: post-Prague block missing requests_hash", ErrInvalidRequestHash)
 	}
 
-	return types.ValidateRequestsHash(header, requests)
+	if err := types.ValidateRequestsHash(header, requests); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequestHash, err)
+	}
+	return nil
 }
 
 // ValidateBlockAccessList verifies the Block Access List (BAL) hash in the

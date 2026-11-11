@@ -75,6 +75,7 @@ type BuildResult struct {
 	Status     BuildStatus
 	Block      *types.Block
 	Receipts   []*types.Receipt
+	Requests   types.Requests
 	BAL        *bal.BlockAccessList
 	BlockValue *big.Int
 	Error      error
@@ -99,6 +100,7 @@ type PendingPayload struct {
 	status     BuildStatus
 	block      *types.Block
 	receipts   []*types.Receipt
+	requests   types.Requests
 	bal        *bal.BlockAccessList
 	blockValue *big.Int
 	err        error
@@ -165,12 +167,13 @@ func (p *PendingPayload) SetBuilding() {
 }
 
 // SetCompleted marks the payload as completed with the given result.
-func (p *PendingPayload) SetCompleted(block *types.Block, receipts []*types.Receipt, bal *bal.BlockAccessList, blockValue *big.Int) {
+func (p *PendingPayload) SetCompleted(block *types.Block, receipts []*types.Receipt, bal *bal.BlockAccessList, blockValue *big.Int, requests ...*types.Request) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.status = BuildStatusCompleted
 	p.block = block
 	p.receipts = receipts
+	p.requests = requests
 	p.bal = bal
 	p.blockValue = blockValue
 	close(p.readyChan)
@@ -197,6 +200,7 @@ func (p *PendingPayload) Wait(timeout time.Duration) (*BuildResult, error) {
 			Status:     p.status,
 			Block:      p.block,
 			Receipts:   p.receipts,
+			Requests:   p.requests,
 			BAL:        p.bal,
 			BlockValue: p.blockValue,
 			Error:      p.err,
@@ -220,6 +224,7 @@ func (p *PendingPayload) GetResult() (*BuildResult, error) {
 		Status:     p.status,
 		Block:      p.block,
 		Receipts:   p.receipts,
+		Requests:   p.requests,
 		BAL:        p.bal,
 		BlockValue: p.blockValue,
 		Error:      p.err,
@@ -297,9 +302,14 @@ func NewAsyncBuilder(config *coreconfig.ChainConfig, txPool block.TxPoolReader, 
 	}
 }
 
-// SetValidateParent sets the parent validation function.
-// This should be called before starting the builder to enable
-// validation that prevents building on stale parents during reorgs.
+// SetTxPool replaces the pool for subsequent payload builds.
+func (b *AsyncBuilder) SetTxPool(pool block.TxPoolReader) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.txPool = pool
+}
+
+// SetValidateParent sets the parent check before starting the builder.
 func (b *AsyncBuilder) SetValidateParent(fn ValidateParentFunc) {
 	b.validateParent = fn
 }
@@ -477,10 +487,13 @@ func (b *AsyncBuilder) processRequest(req *BuildRequest, workerID int) {
 	)
 
 	// Build the block
-	builder := block.NewBlockBuilder(b.config, nil, b.txPool)
+	b.mu.RLock()
+	pool := b.txPool
+	b.mu.RUnlock()
+	builder := block.NewBlockBuilder(b.config, nil, pool)
 	builder.SetState(req.State.Dup())
 
-	blk, receipts, err := builder.BuildBlock(req.ParentHeader, &block.BuildBlockAttributes{
+	blk, result, err := builder.BuildBlockWithResult(req.ParentHeader, &block.BuildBlockAttributes{
 		Timestamp:        req.Attrs.Timestamp,
 		FeeRecipient:     req.Attrs.FeeRecipient,
 		Random:           req.Attrs.PrevRandao,
@@ -503,9 +516,9 @@ func (b *AsyncBuilder) processRequest(req *BuildRequest, workerID int) {
 	}
 
 	// Calculate block value
-	blockValue := calcBlockValue(blk, receipts, req.ParentHeader.BaseFee)
+	blockValue := calcBlockValue(blk, result.Receipts, req.ParentHeader.BaseFee)
 
-	pending.SetCompleted(blk, receipts, nil, blockValue)
+	pending.SetCompleted(blk, result.Receipts, result.BlockAccessList, blockValue, result.Requests...)
 	metrics.EnginePayloadBuildSuccess.Inc()
 
 	asyncBuilderLog.Info("build_completed",

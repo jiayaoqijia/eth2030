@@ -283,9 +283,18 @@ func (bc *Blockchain) evictOldestBlock() {
 // During Phase 2 all Engine API reads (HasBlock, GetBlock, CurrentBlock, etc.)
 // can proceed without waiting, eliminating HTTP timeouts under heavy load.
 func (bc *Blockchain) InsertBlock(blk *types.Block) error {
+	_, err := bc.InsertBlockWithResult(blk)
+	return err
+}
+
+// InsertBlockWithResult returns the execution result of a newly validated block.
+// A block already present in the chain returns a nil result.
+func (bc *Blockchain) InsertBlockWithResult(blk *types.Block) (*execution.ProcessResult, error) {
 	bc.insertMu.Lock()
 	defer bc.insertMu.Unlock()
-	return bc.insertBlock(blk)
+	var result *execution.ProcessResult
+	err := bc.insertBlock(blk, &result)
+	return result, err
 }
 
 // collectAncestorsLocked builds the chain of blocks that must be re-executed
@@ -351,7 +360,7 @@ func (bc *Blockchain) collectAncestorsLocked(target *types.Block) ([]*types.Bloc
 }
 
 // insertBlock is the internal three-phase insert. Caller must hold bc.insertMu.
-func (bc *Blockchain) insertBlock(blk *types.Block) error {
+func (bc *Blockchain) insertBlock(blk *types.Block, inserted **execution.ProcessResult) error {
 	hash := blk.Hash()
 	num := blk.NumberU64()
 	header := blk.Header()
@@ -561,17 +570,9 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		return err
 	}
 
-	// EIP-7685: process requests before state root (may modify state).
-	if bc.config != nil && bc.config.IsPrague(header.Time) {
-		if _, err := execution.ProcessRequests(bc.config, statedb, header); err != nil {
-			blockchainLog.Error("block_requests_fail",
-				"event", "block_requests_fail",
-				"hash", hash.Hex(),
-				"num", num,
-				"error", err,
-			)
-			return fmt.Errorf("process requests block %d: %w", num, err)
-		}
+	// EIP-7685: commit only the requests reproduced by execution.
+	if err := bc.validator.ValidateRequests(header, result.Requests); err != nil {
+		return fmt.Errorf("block %d requests: %w", num, err)
 	}
 
 	// Validate state root.
@@ -735,6 +736,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		)
 	}
 
+	*inserted = result
 	return nil
 }
 

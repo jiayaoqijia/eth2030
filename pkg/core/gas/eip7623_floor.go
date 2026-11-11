@@ -48,13 +48,10 @@ type FloorGasResult struct {
 // The floor is based on the calldata byte composition:
 //   - Zero bytes contribute 1 token each
 //   - Non-zero bytes contribute 4 tokens each
-//   - Floor = TxGas + tokens * TotalCostFloorPerToken (+ TxCreateGas if create)
+//   - Floor = TxGas + tokens * TotalCostFloorPerToken
 func CalcFloorGas(data []byte, isCreate bool) FloorGasResult {
 	tokens := calldataTokens(data)
 	floor := TxGas + tokens*TotalCostFloorPerToken
-	if isCreate {
-		floor += TxCreateGas
-	}
 	return FloorGasResult{
 		FloorGas: floor,
 		Tokens:   tokens,
@@ -72,9 +69,6 @@ func CalcFloorGasGlamst(data []byte, accessList types.AccessList, isCreate bool)
 	totalTokens := calldataFloorTokens + alTokens
 
 	floor := vm.TxBaseGlamsterdam + totalTokens*TotalCostFloorPerTokenGlamst
-	if isCreate {
-		floor += TxCreateGas
-	}
 	return FloorGasResult{
 		FloorGas: floor,
 		Tokens:   totalTokens,

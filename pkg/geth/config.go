@@ -38,6 +38,7 @@ func ToGethChainConfig(c *config.ChainConfig) *params.ChainConfig {
 		ShanghaiTime: c.ShanghaiTime,
 		CancunTime:   c.CancunTime,
 		PragueTime:   c.PragueTime,
+		OsakaTime:    c.OsakaTime,
 	}
 	return gc
 }
@@ -114,6 +115,18 @@ func EFTestChainConfig(fork string) (*params.ChainConfig, error) {
 	}
 
 	return c, nil
+}
+
+// AmsterdamFixtureConfig activates the standard Ethereum forks through Amsterdam.
+func AmsterdamFixtureConfig() *params.ChainConfig {
+	cfg, _ := EFTestChainConfig("Prague")
+	zero := uint64(0)
+	cfg.OsakaTime, cfg.BPO1Time, cfg.BPO2Time, cfg.AmsterdamTime = &zero, &zero, &zero, &zero
+	cfg.BlobScheduleConfig = &params.BlobScheduleConfig{
+		Cancun: params.DefaultCancunBlobConfig, Prague: params.DefaultPragueBlobConfig,
+		BPO1: params.DefaultBPO1BlobConfig, BPO2: params.DefaultBPO2BlobConfig,
+	}
+	return cfg
 }
 
 // EFTestForkSupported returns whether a fork name is supported for EF tests.

@@ -177,6 +177,26 @@ func (s *MemoryStateDB) GetState(addr types.Address, key types.Hash) types.Hash 
 	return types.Hash{}
 }
 
+// StorageSnapshot returns the account's current nonzero storage slots.
+func (s *MemoryStateDB) StorageSnapshot(addr types.Address) map[types.Hash]types.Hash {
+	result := make(map[types.Hash]types.Hash)
+	if obj := s.getStateObject(addr); obj != nil {
+		for slot, value := range obj.committedStorage {
+			if !value.IsZero() {
+				result[slot] = value
+			}
+		}
+		for slot, value := range obj.dirtyStorage {
+			if value.IsZero() {
+				delete(result, slot)
+			} else {
+				result[slot] = value
+			}
+		}
+	}
+	return result
+}
+
 func (s *MemoryStateDB) SetState(addr types.Address, key types.Hash, value types.Hash) {
 	obj := s.getOrNewStateObject(addr)
 	prevDirty, prevExists := obj.dirtyStorage[key]

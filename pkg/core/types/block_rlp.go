@@ -68,6 +68,41 @@ func (b *Block) EncodeRLP() ([]byte, error) {
 	return rlp.WrapList(blockPayload), nil
 }
 
+// RLPEncodedSize returns the exact length of EncodeRLP without assembling the block.
+func (b *Block) RLPEncodedSize() (int, error) {
+	header, err := b.header.EncodeRLP()
+	if err != nil {
+		return 0, err
+	}
+	var txBytes, uncleBytes, withdrawalBytes int
+	for _, tx := range b.body.Transactions {
+		encoded, err := tx.EncodeRLP()
+		if err != nil {
+			return 0, err
+		}
+		size := len(encoded)
+		if tx.Type() != LegacyTxType {
+			size = rlp.EstimateStringSize(size)
+		}
+		txBytes += size
+	}
+	for _, uncle := range b.body.Uncles {
+		encoded, err := uncle.EncodeRLP()
+		if err != nil {
+			return 0, err
+		}
+		uncleBytes += len(encoded)
+	}
+	size := len(header) + rlp.EstimateListSize(txBytes) + rlp.EstimateListSize(uncleBytes)
+	if b.body.Withdrawals != nil {
+		for _, w := range b.body.Withdrawals {
+			withdrawalBytes += len(EncodeWithdrawal(w))
+		}
+		size += rlp.EstimateListSize(withdrawalBytes)
+	}
+	return rlp.EstimateListSize(size), nil
+}
+
 // DecodeBlockRLP decodes an RLP-encoded block.
 func DecodeBlockRLP(data []byte) (*Block, error) {
 	s := rlp.NewStreamFromBytes(data)

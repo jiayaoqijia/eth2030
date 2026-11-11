@@ -88,8 +88,8 @@ func TestSSZRoundtripAccessListTx(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Typed tx should start with type byte.
-	if encoded[0] != AccessListTxType {
-		t.Fatalf("expected type byte %d, got %d", AccessListTxType, encoded[0])
+	if encoded[8] != 5 || encoded[9] != AccessListTxType {
+		t.Fatalf("unexpected transaction selector/type: %d/%d", encoded[8], encoded[9])
 	}
 
 	decoded, err := SSZToTransaction(encoded)
@@ -126,8 +126,8 @@ func TestSSZRoundtripDynamicFeeTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if encoded[0] != DynamicFeeTxType {
-		t.Fatalf("expected type byte %d, got %d", DynamicFeeTxType, encoded[0])
+	if encoded[8] != 7 || encoded[9] != DynamicFeeTxType {
+		t.Fatalf("unexpected transaction selector/type: %d/%d", encoded[8], encoded[9])
 	}
 
 	decoded, err := SSZToTransaction(encoded)
@@ -164,8 +164,8 @@ func TestSSZRoundtripBlobTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if encoded[0] != BlobTxType {
-		t.Fatalf("expected type byte %d, got %d", BlobTxType, encoded[0])
+	if encoded[8] != 9 || encoded[9] != BlobTxType {
+		t.Fatalf("unexpected transaction selector/type: %d/%d", encoded[8], encoded[9])
 	}
 
 	decoded, err := SSZToTransaction(encoded)
@@ -209,7 +209,7 @@ func TestSSZRoundtripSetCodeTx(t *testing.T) {
 				ChainID: big.NewInt(1),
 				Address: BytesToAddress([]byte{0xaa, 0xbb}),
 				Nonce:   3,
-				V:       big.NewInt(28),
+				V:       big.NewInt(1),
 				R:       big.NewInt(11111),
 				S:       big.NewInt(22222),
 			},
@@ -223,8 +223,8 @@ func TestSSZRoundtripSetCodeTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if encoded[0] != SetCodeTxType {
-		t.Fatalf("expected type byte %d, got %d", SetCodeTxType, encoded[0])
+	if encoded[8] != 10 || encoded[9] != SetCodeTxType {
+		t.Fatalf("unexpected transaction selector/type: %d/%d", encoded[8], encoded[9])
 	}
 
 	decoded, err := SSZToTransaction(encoded)

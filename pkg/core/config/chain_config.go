@@ -1,6 +1,10 @@
 package config
 
-import "math/big"
+import (
+	"math/big"
+
+	"github.com/eth2030/eth2030/core/types"
+)
 
 // ChainConfig holds chain-level configuration for fork scheduling.
 // Pre-merge forks are activated by block number, post-merge by timestamp.
@@ -29,10 +33,18 @@ type ChainConfig struct {
 	ShanghaiTime    *uint64
 	CancunTime      *uint64
 	PragueTime      *uint64
+	OsakaTime       *uint64
 	AmsterdamTime   *uint64
 	GlamsterdanTime *uint64
 	HogotaTime      *uint64
 	IPlusTime       *uint64
+
+	// DepositContractAddress selects the EIP-6110 event emitter. Zero uses
+	// the mainnet deposit contract address.
+	DepositContractAddress types.Address
+	// RequireRequestPredeploys enforces the EIP-7002/7251 code requirement.
+	// Minimal private chains may omit the queue contracts.
+	RequireRequestPredeploys bool
 
 	// LegacyNativeBLSUntil preserves the experimental native precompile
 	// layout before the given timestamp. Nil selects the Ethereum layout.
@@ -137,6 +149,11 @@ func (c *ChainConfig) IsCancun(time uint64) bool {
 // IsPrague returns whether the given block time is at or past Prague.
 func (c *ChainConfig) IsPrague(time uint64) bool {
 	return isTimestampForked(c.PragueTime, time)
+}
+
+// IsOsaka reports whether the configured Osaka timestamp has been reached.
+func (c *ChainConfig) IsOsaka(t uint64) bool {
+	return isTimestampForked(c.OsakaTime, t)
 }
 
 // IsAmsterdam returns whether the given block time is at or past Amsterdam.
@@ -348,6 +365,9 @@ var MainnetTerminalTotalDifficulty, _ = new(big.Int).SetString("5875000000000000
 
 // MainnetConfig is the chain config for Ethereum mainnet.
 var MainnetConfig = &ChainConfig{
+	DepositContractAddress:   types.DepositContractAddress,
+	RequireRequestPredeploys: true,
+
 	ChainID:                 big.NewInt(1),
 	HomesteadBlock:          big.NewInt(1_150_000),
 	EIP150Block:             big.NewInt(2_463_000),
@@ -366,6 +386,7 @@ var MainnetConfig = &ChainConfig{
 	ShanghaiTime:            newUint64(1681338455),
 	CancunTime:              newUint64(1710338135),
 	PragueTime:              newUint64(1746612311),
+	OsakaTime:               newUint64(1764798551),
 	AmsterdamTime:           nil, // not yet scheduled
 	GlamsterdanTime:         nil, // not yet scheduled
 	HogotaTime:              nil, // not yet scheduled
@@ -376,6 +397,9 @@ var MainnetConfig = &ChainConfig{
 
 // SepoliaConfig is the chain config for the Sepolia test network.
 var SepoliaConfig = &ChainConfig{
+	DepositContractAddress:   types.HexToAddress("0x7f02c3e3c98b133055b8b348b2ac625669ed295d"),
+	RequireRequestPredeploys: true,
+
 	ChainID:                 big.NewInt(11155111),
 	HomesteadBlock:          big.NewInt(0),
 	EIP150Block:             big.NewInt(0),
@@ -392,6 +416,7 @@ var SepoliaConfig = &ChainConfig{
 	ShanghaiTime:            newUint64(1677557088),
 	CancunTime:              newUint64(1706655072),
 	PragueTime:              newUint64(1741159776),
+	OsakaTime:               newUint64(1760427360),
 	AmsterdamTime:           nil,
 	GlamsterdanTime:         nil,
 	HogotaTime:              nil,
@@ -402,6 +427,9 @@ var SepoliaConfig = &ChainConfig{
 
 // HoleskyConfig is the chain config for the Holesky test network.
 var HoleskyConfig = &ChainConfig{
+	DepositContractAddress:   types.HexToAddress("0x4242424242424242424242424242424242424242"),
+	RequireRequestPredeploys: true,
+
 	ChainID:                 big.NewInt(17000),
 	HomesteadBlock:          big.NewInt(0),
 	EIP150Block:             big.NewInt(0),
@@ -417,6 +445,7 @@ var HoleskyConfig = &ChainConfig{
 	ShanghaiTime:            newUint64(1696000704),
 	CancunTime:              newUint64(1707305664),
 	PragueTime:              newUint64(1740434112),
+	OsakaTime:               newUint64(1759308480),
 	AmsterdamTime:           nil,
 	GlamsterdanTime:         nil,
 	HogotaTime:              nil,

@@ -319,7 +319,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		var tracker *bal.AccessTracker
 		if balActive {
 			tracker = bal.NewTracker()
-			preBalances, preNonces = capturePreState(statedb, tx)
+			preBalances, preNonces = capturePreState(p.config, statedb, tx, header.Coinbase)
 		}
 
 		// EIP-7701: pre-execution AA validation and gas estimation for AA txs.
@@ -497,47 +497,9 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		}
 	}
 
-	// EIP-4895: process beacon chain withdrawals after all transactions.
-	// Withdrawals are applied post-Shanghai (activated with the merge).
-	if p.config != nil && p.config.IsShanghai(header.Time) {
-		if balActive {
-			postTracker := bal.NewTracker()
-
-			// Capture pre-withdrawal balances.
-			preWithdrawalBals := make(map[types.Address]*big.Int)
-			for _, w := range block.Withdrawals() {
-				if w == nil {
-					continue
-				}
-				if _, seen := preWithdrawalBals[w.Address]; !seen {
-					preWithdrawalBals[w.Address] = new(big.Int).Set(statedb.GetBalance(w.Address))
-				}
-			}
-
-			ProcessWithdrawals(statedb, block.Withdrawals())
-
-			// Record balance changes from withdrawals.
-			for addr, preBal := range preWithdrawalBals {
-				postBal := statedb.GetBalance(addr)
-				if preBal.Cmp(postBal) != 0 {
-					postTracker.RecordBalanceChange(addr, preBal, postBal)
-				}
-			}
-
-			// AccessIndex = n+1 for post-execution (after all transactions).
-			postBAL := postTracker.Build(uint64(len(block.Transactions()) + 1))
-			for _, entry := range postBAL.Entries {
-				blockBAL.AddEntry(entry)
-			}
-		} else {
-			ProcessWithdrawals(statedb, block.Withdrawals())
-		}
-	}
-
-	// Sort BAL entries into strict lexicographic order by (Address, AccessIndex)
-	// per EIP-7928 §ordering before returning.
-	if blockBAL != nil {
-		blockBAL.Sort()
+	requests, err := FinalizeBlockExecution(p.config, p.getHash, statedb, header, block.Withdrawals(), receipts, blockBAL)
+	if err != nil {
+		return nil, err
 	}
 
 	execLog.Debug("block_process_done",
@@ -560,18 +522,40 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 	return &ProcessResult{
 		Receipts:        receipts,
+		Requests:        requests,
 		BlockAccessList: blockBAL,
 	}, nil
+}
+
+func cacheTransactionSender(cfg *corconfig.ChainConfig, tx *types.Transaction) {
+	if tx.Sender() != nil {
+		return
+	}
+	switch inner := tx.Inner().(type) {
+	case *types.AATx:
+		tx.SetSender(inner.Sender)
+	case *types.FrameTx:
+		tx.SetSender(inner.Sender)
+	case *types.PQTransaction:
+		tx.SetSender(types.PQPubKeyToAddress(inner.PQPublicKey))
+	default:
+		if cfg != nil && cfg.ChainID != nil {
+			if addr, err := types.MakeSigner(cfg.ChainID.Uint64(), tx.Type()).Sender(tx); err == nil {
+				tx.SetSender(addr)
+			}
+		}
+	}
 }
 
 // capturePreState captures balance and nonce values for addresses involved
 // in a transaction before it is applied. This allows computing the delta
 // for the BAL after the transaction completes.
-func capturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Address]*big.Int, map[types.Address]uint64) {
+func capturePreState(cfg *corconfig.ChainConfig, statedb state.StateDB, tx *types.Transaction, coinbase types.Address) (map[types.Address]*big.Int, map[types.Address]uint64) {
 	balances := make(map[types.Address]*big.Int)
 	nonces := make(map[types.Address]uint64)
 
-	// Sender (from cached sender on the tx).
+	// Resolve wire-decoded transactions before recording the pre-state.
+	cacheTransactionSender(cfg, tx)
 	if sender := tx.Sender(); sender != nil {
 		balances[*sender] = new(big.Int).Set(statedb.GetBalance(*sender))
 		nonces[*sender] = statedb.GetNonce(*sender)
@@ -583,6 +567,7 @@ func capturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Ad
 		nonces[*to] = statedb.GetNonce(*to)
 	}
 
+	balances[coinbase] = new(big.Int).Set(statedb.GetBalance(coinbase))
 	return balances, nonces
 }
 
@@ -590,6 +575,7 @@ func capturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Ad
 // by comparing pre-tx state snapshots with post-tx state.
 func populateTracker(tracker *bal.AccessTracker, statedb state.StateDB, preBalances map[types.Address]*big.Int, preNonces map[types.Address]uint64) {
 	for addr, preBal := range preBalances {
+		tracker.RecordAddressTouch(addr)
 		postBal := statedb.GetBalance(addr)
 		if preBal.Cmp(postBal) != 0 {
 			tracker.RecordBalanceChange(addr, preBal, postBal)
@@ -651,176 +637,42 @@ func calcWithdrawalsRoot(ws []*types.Withdrawal) types.Hash {
 	return t.Hash()
 }
 
-// ProcessWithRequests executes all transactions in a block and then collects
-// EIP-7685 execution layer requests from system contracts. Use this for
-// post-Prague blocks that include the requests_hash field.
+// configureBlockEVM installs the same fork rules for user and system calls.
+func configureBlockEVM(config *corconfig.ChainConfig, header *types.Header, evm *vm.EVM) map[types.Address]vm.PrecompiledContract {
+	// Select the correct jump table based on fork rules.
+	var precompileAddrs map[types.Address]vm.PrecompiledContract
+	if config != nil {
+		rules := config.Rules(header.Number, config.IsMerge(), header.Time)
+		forkRules := vm.ForkRules{
+			IsGlamsterdan:    rules.IsGlamsterdan,
+			IsPrague:         rules.IsPrague,
+			IsCancun:         rules.IsCancun,
+			IsShanghai:       rules.IsShanghai,
+			IsMerge:          rules.IsMerge,
+			IsLondon:         rules.IsLondon,
+			IsBerlin:         rules.IsBerlin,
+			IsIstanbul:       rules.IsIstanbul,
+			IsConstantinople: rules.IsConstantinople,
+			IsByzantium:      rules.IsByzantium,
+			IsHomestead:      rules.IsHomestead,
+			IsEIP158:         rules.IsEIP158,
+			IsEIP7708:        rules.IsEIP7708,
+			IsEIP7954:        rules.IsEIP7954,
+			IsIPlus:          rules.IsIPlus,
+			LegacyNativeBLS:  rules.LegacyNativeBLS,
+		}
+		evm.SetJumpTable(vm.SelectJumpTable(forkRules))
+		precompileAddrs = vm.SelectPrecompiles(forkRules)
+		evm.SetPrecompiles(precompileAddrs)
+		evm.SetForkRules(forkRules)
+	}
+
+	return precompileAddrs
+}
+
+// ProcessWithRequests exposes the execution outputs including EIP-7685 requests.
 func (p *StateProcessor) ProcessWithRequests(block *types.Block, statedb state.StateDB) (*ProcessResult, error) {
-	receipts, err := p.Process(block, statedb)
-	if err != nil {
-		return nil, err
-	}
-
-	requests, err := ProcessRequests(p.config, statedb, block.Header())
-	if err != nil {
-		return nil, fmt.Errorf("processing execution requests: %w", err)
-	}
-
-	return &ProcessResult{
-		Receipts: receipts,
-		Requests: requests,
-	}, nil
-}
-
-// ProcessRequests collects execution layer requests from system contracts
-// after all transactions are processed. This implements EIP-7685.
-//
-// Per the EIP, requests are generated by calling specific system contracts:
-//   - Deposit requests (0x00): read from the deposit contract
-//   - Withdrawal requests (0x01): call the withdrawal request contract
-//   - Consolidation requests (0x02): call the consolidation request contract
-//
-// System calls use a special system address as the caller, with a large gas
-// allowance. The calls are not user-initiated transactions and do not
-// consume block gas.
-func ProcessRequests(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header) (types.Requests, error) {
-	if config == nil || !config.IsPrague(header.Time) {
-		return nil, nil
-	}
-
-	var requests types.Requests
-
-	// Collect deposit requests (type 0x00).
-	depositRequests, err := processDepositRequests(statedb)
-	if err != nil {
-		return nil, fmt.Errorf("deposit requests: %w", err)
-	}
-	requests = append(requests, depositRequests...)
-
-	// Collect withdrawal requests (type 0x01).
-	withdrawalRequests, err := processWithdrawalRequests(statedb)
-	if err != nil {
-		return nil, fmt.Errorf("withdrawal requests: %w", err)
-	}
-	requests = append(requests, withdrawalRequests...)
-
-	// Collect consolidation requests (type 0x02).
-	consolidationRequests, err := processConsolidationRequests(statedb)
-	if err != nil {
-		return nil, fmt.Errorf("consolidation requests: %w", err)
-	}
-	requests = append(requests, consolidationRequests...)
-
-	return requests, nil
-}
-
-// processDepositRequests reads deposit request data from the deposit contract.
-func processDepositRequests(statedb state.StateDB) (types.Requests, error) {
-	addr := types.DepositContractAddress
-	if !statedb.Exist(addr) {
-		return nil, nil
-	}
-	return readRequestsFromStorage(statedb, addr, types.DepositRequestType)
-}
-
-// processWithdrawalRequests calls the withdrawal request system contract
-// and collects the resulting requests.
-func processWithdrawalRequests(statedb state.StateDB) (types.Requests, error) {
-	addr := types.WithdrawalRequestAddress
-	if !statedb.Exist(addr) {
-		return nil, nil
-	}
-	return readRequestsFromStorage(statedb, addr, types.WithdrawalRequestType)
-}
-
-// processConsolidationRequests calls the consolidation request system contract
-// and collects the resulting requests.
-func processConsolidationRequests(statedb state.StateDB) (types.Requests, error) {
-	addr := types.ConsolidationRequestAddress
-	if !statedb.Exist(addr) {
-		return nil, nil
-	}
-	return readRequestsFromStorage(statedb, addr, types.ConsolidationRequestType)
-}
-
-// requestCountSlot is the well-known storage slot (slot 0) where system
-// contracts store the count of pending requests.
-var requestCountSlot = types.Hash{}
-
-// requestDataSlotBase is the base storage slot (slot 1) where system
-// contracts store request data sequentially.
-var requestDataSlotBase = types.BytesToHash([]byte{0x01})
-
-// readRequestsFromStorage reads requests from a system contract's storage.
-//
-// Convention: slot 0 holds the request count (as a uint256). Slots 1..N each
-// hold one request's data as a raw 32-byte word. The contract is expected to
-// pack request data into consecutive slots starting at slot 1.
-//
-// After reading, the count slot is cleared to zero (requests are consumed).
-func readRequestsFromStorage(statedb state.StateDB, addr types.Address, reqType byte) (types.Requests, error) {
-	countVal := statedb.GetState(addr, requestCountSlot)
-	count := countToUint64(countVal)
-	if count == 0 {
-		return nil, nil
-	}
-
-	var requests types.Requests
-	for i := uint64(0); i < count; i++ {
-		slot := incrementSlot(requestDataSlotBase, i)
-		data := statedb.GetState(addr, slot)
-
-		if data == (types.Hash{}) {
-			continue
-		}
-
-		trimmed := trimTrailingZeros(data[:])
-		if len(trimmed) > 0 {
-			requests = append(requests, types.NewRequest(reqType, trimmed))
-		}
-	}
-
-	// Clear the request count after consumption.
-	statedb.SetState(addr, requestCountSlot, types.Hash{})
-
-	return requests, nil
-}
-
-// countToUint64 extracts a uint64 count from a 32-byte storage value.
-// The value is stored as big-endian uint256; we take the low 8 bytes.
-func countToUint64(val types.Hash) uint64 {
-	var count uint64
-	for i := 24; i < 32; i++ {
-		count = (count << 8) | uint64(val[i])
-	}
-	return count
-}
-
-// incrementSlot adds an offset to a storage slot hash. Used to compute
-// sequential slot addresses: slot = base + offset.
-func incrementSlot(base types.Hash, offset uint64) types.Hash {
-	var result types.Hash
-	copy(result[:], base[:])
-	carry := offset
-	for i := 31; i >= 0 && carry > 0; i-- {
-		sum := uint64(result[i]) + (carry & 0xFF)
-		result[i] = byte(sum & 0xFF)
-		carry = (carry >> 8) + (sum >> 8)
-	}
-	return result
-}
-
-// trimTrailingZeros removes trailing zero bytes from a slice.
-func trimTrailingZeros(b []byte) []byte {
-	end := len(b)
-	for end > 0 && b[end-1] == 0 {
-		end--
-	}
-	if end == 0 {
-		return nil
-	}
-	out := make([]byte, end)
-	copy(out, b[:end])
-	return out
+	return p.ProcessWithBAL(block, statedb)
 }
 
 // ApplyTransaction applies a single transaction to the state and returns a receipt.
@@ -880,17 +732,7 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 		tx.SetSender(types.PQPubKeyToAddress(pq.PQPublicKey))
 	}
 
-	// Recover sender if not already cached.
-	if tx.Sender() == nil {
-		if aatx, ok := tx.Inner().(*types.AATx); ok {
-			tx.SetSender(aatx.Sender)
-		} else if config.ChainID != nil {
-			signer := types.NewLondonSigner(config.ChainID.Uint64())
-			if addr, err := signer.Sender(tx); err == nil {
-				tx.SetSender(addr)
-			}
-		}
-	}
+	cacheTransactionSender(config, tx)
 	msg := corconfig.TransactionToMessage(tx)
 	// AA-1.3: wire slasher so applyMessage can slash paymasters on bad settlement.
 	msg.Slasher = slasher
@@ -1061,11 +903,7 @@ func calldataFloorGas(data []byte, isCreate bool) uint64 {
 			tokens += 4
 		}
 	}
-	floor := TxGas + tokens*TotalCostFloorPerToken
-	if isCreate {
-		floor += TxCreateGas
-	}
-	return floor
+	return TxGas + tokens*TotalCostFloorPerToken
 }
 
 // calldataFloorGasGlamst computes the EIP-7976 calldata floor gas cost for Glamsterdam.
@@ -1080,11 +918,7 @@ func calldataFloorGasGlamst(data []byte, accessList types.AccessList, isCreate b
 	accessListTokens := accessListDataTokens(accessList)
 
 	totalTokens := calldataFloorTokens + accessListTokens
-	floor := vm.TxBaseGlamsterdam + totalTokens*TotalCostFloorPerTokenGlamst
-	if isCreate {
-		floor += TxCreateGas
-	}
-	return floor
+	return vm.TxBaseGlamsterdam + totalTokens*TotalCostFloorPerTokenGlamst
 }
 
 // calldataTokens computes calldata tokens for the standard path.
@@ -1324,7 +1158,9 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		igas += accessListGas(msg.AccessList)
 	}
 
-	// EIP-7623/7976: the gas limit must also cover the calldata floor (Prague+).
+	// EIP-7623/7976: the gas limit must cover both intrinsic gas and the
+	// calldata floor. Only the intrinsic cost is deducted before execution.
+	requiredGas := igas
 	// This prevents post-execution floor adjustment from exceeding gas limit.
 	if config != nil && config.IsPrague(header.Time) {
 		var floor uint64
@@ -1334,15 +1170,13 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		} else {
 			floor = calldataFloorGas(msg.Data, isCreate)
 		}
-		if floor > igas {
-			igas = floor
-		}
+		requiredGas = max(igas, floor)
 	}
 
-	if igas > msg.GasLimit {
+	if requiredGas > msg.GasLimit {
 		// Intrinsic gas exceeds gas limit — return as error (matching go-ethereum).
 		gp.AddGas(msg.GasLimit)
-		return nil, fmt.Errorf("intrinsic gas too low: have %d, want %d", msg.GasLimit, igas)
+		return nil, fmt.Errorf("intrinsic gas too low: have %d, want %d", msg.GasLimit, requiredGas)
 	}
 
 	gasLeft := msg.GasLimit - igas
@@ -1385,33 +1219,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		evm.SetInitialReservoir(reservoir)
 	}
 
-	// Select the correct jump table based on fork rules.
-	var precompileAddrs map[types.Address]vm.PrecompiledContract
-	if config != nil {
-		rules := config.Rules(header.Number, config.IsMerge(), header.Time)
-		forkRules := vm.ForkRules{
-			IsGlamsterdan:    rules.IsGlamsterdan,
-			IsPrague:         rules.IsPrague,
-			IsCancun:         rules.IsCancun,
-			IsShanghai:       rules.IsShanghai,
-			IsMerge:          rules.IsMerge,
-			IsLondon:         rules.IsLondon,
-			IsBerlin:         rules.IsBerlin,
-			IsIstanbul:       rules.IsIstanbul,
-			IsConstantinople: rules.IsConstantinople,
-			IsByzantium:      rules.IsByzantium,
-			IsHomestead:      rules.IsHomestead,
-			IsEIP158:         rules.IsEIP158,
-			IsEIP7708:        rules.IsEIP7708,
-			IsEIP7954:        rules.IsEIP7954,
-			IsIPlus:          rules.IsIPlus,
-			LegacyNativeBLS:  rules.LegacyNativeBLS,
-		}
-		evm.SetJumpTable(vm.SelectJumpTable(forkRules))
-		precompileAddrs = vm.SelectPrecompiles(forkRules)
-		evm.SetPrecompiles(precompileAddrs)
-		evm.SetForkRules(forkRules)
-	}
+	precompileAddrs := configureBlockEVM(config, header, evm)
 
 	// Pre-warm EIP-2930 access list: mark sender, destination, coinbase, and precompiles as warm.
 	statedb.AddAddressToAccessList(msg.From)
@@ -1758,8 +1566,8 @@ func CalldataFloorGasGlamst(data []byte, accessList types.AccessList, isCreate b
 }
 
 // CapturePreState captures balance and nonce values for a transaction's addresses.
-func CapturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Address]*big.Int, map[types.Address]uint64) {
-	return capturePreState(statedb, tx)
+func CapturePreState(cfg *corconfig.ChainConfig, statedb state.StateDB, tx *types.Transaction, coinbase types.Address) (map[types.Address]*big.Int, map[types.Address]uint64) {
+	return capturePreState(cfg, statedb, tx, coinbase)
 }
 
 // BalTrackerOrNil converts a *bal.AccessTracker to vm.BALTracker safely.
@@ -1816,27 +1624,6 @@ func ApplyMessage(cfg *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb st
 // ValidateBAL is an exported version of validateBAL for tests.
 func ValidateBAL(header *types.Header, accessList *bal.BlockAccessList) error {
 	return validateBAL(header, accessList)
-}
-
-// RequestCountSlot exposes the request count storage slot for tests.
-var RequestCountSlot = requestCountSlot
-
-// RequestDataSlotBase exposes the request data base storage slot for tests.
-var RequestDataSlotBase = requestDataSlotBase
-
-// IncrementSlot is an exported version of incrementSlot for tests.
-func IncrementSlot(base types.Hash, offset uint64) types.Hash {
-	return incrementSlot(base, offset)
-}
-
-// CountToUint64 is an exported version of countToUint64 for tests.
-func CountToUint64(val types.Hash) uint64 {
-	return countToUint64(val)
-}
-
-// TrimTrailingZeros is an exported version of trimTrailingZeros for tests.
-func TrimTrailingZeros(b []byte) []byte {
-	return trimTrailingZeros(b)
 }
 
 // buildAAUserOp constructs an eips.UserOperation from the on-chain AATx fields.

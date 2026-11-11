@@ -4,7 +4,7 @@
 
 ## Overview
 
-Package `types` defines the canonical data structures used throughout the ETH2030 client: blocks, headers, transactions (seven types), receipts, logs, withdrawals, and EL requests. It implements RLP encoding for all wire-format types and SSZ encoding (EIP-6404/7807) for post-Hegotá formats.
+Package `types` defines the canonical data structures used throughout the ETH2030 client: blocks, headers, transactions (seven types), receipts, logs, withdrawals, and EL requests. It implements RLP encoding for all wire-format types and standalone SSZ codecs for the published EIP-6404 and EIP-7807 drafts.
 
 The package covers a wide range of EIPs including EIP-1559 dynamic fees, EIP-2930 access lists, EIP-4844 blob transactions, EIP-4895 withdrawals, EIP-7685 EL requests, EIP-7702 SetCode (AA), EIP-8141 frame transactions, and PQ (post-quantum) transactions.
 
@@ -90,7 +90,8 @@ type Receipt struct {
 - `Authorization` — EIP-7702 SetCode auth entry
 - `TxAssertion` — transaction-level assertions
 - `MultidimGas` — EIP-7706 3-dimensional gas vector
-- SSZ encoders: `BlockSSZ`, `TxSSZ`, `WithdrawalSSZ` (EIP-6404/7807)
+- Execution SSZ: `TransactionToSSZ`, `SSZToTransaction`, `TransactionSSZRoot`,
+  `TransactionsSSZRoot`, `ExecutionPayloadSSZ` and `ExecutionHeaderSSZ`
 
 ## Usage
 
@@ -102,3 +103,30 @@ if err := rlp.DecodeBytes(raw, tx); err != nil { ... }
 block := types.NewBlock(header, &types.Body{Transactions: txs})
 fmt.Println(block.Hash(), block.Number())
 ```
+
+## Execution SSZ draft versions
+
+The transaction codec follows [EIP-6404](https://eips.ethereum.org/EIPS/eip-6404)
+and [EIP-7932](https://eips.ethereum.org/EIPS/eip-7932) at Ethereum EIPs revision
+`bd93d240b72702450920eeeadc2ce593626bfd8a`. It uses the published secp256k1
+algorithm selector `0x00` and the ten compatible-union payload variants.
+Transaction roots use typed field Merkleization. Reconstructing an RLP
+transaction preserves its original chain ID, signature parity and identity.
+Transaction conversion requires an EIP-7932-compatible signature.
+
+[The published EIP-7807 draft](https://eips.ethereum.org/EIPS/eip-7807)
+at that revision defines its own payload container. It commits to existing
+transaction, receipt and withdrawal envelope bytes. Use
+`NewExecutionPayloadSSZ` with the actual receipts and explicit consensus inputs,
+then `MarshalSSZ`, `UnmarshalSSZ` and `HashTreeRoot` on the payload or header
+summary. The draft codecs are available independently of fork activation.
+The production chain continues to use its configured RLP block and transaction
+identities, Engine API formats and RPC rules.
+
+Independent reference vectors live in
+[`testdata/execution_ssz`](testdata/execution_ssz/). The generator uses the
+schema declarations from the published EIPs and pinned Electra specification
+with `ethereum/remerkleable` revision `2f0baeef0082d4278acaef7d822deb7009d7db7e`.
+Pass the two EIP Markdown files and
+`refs/consensus-specs/specs/electra/beacon-chain.md` to `generate.py` with the
+reference checkout on `PYTHONPATH` to reproduce the JSON.

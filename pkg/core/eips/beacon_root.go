@@ -3,7 +3,6 @@ package eips
 import (
 	"encoding/binary"
 
-	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -21,6 +20,10 @@ const (
 // This system contract stores parent beacon block roots so the EVM can access them.
 var BeaconRootAddress = types.HexToAddress("0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02")
 
+type systemStorage interface {
+	SetState(types.Address, types.Hash, types.Hash)
+}
+
 // ProcessBeaconBlockRoot stores the parent beacon block root into the beacon
 // root system contract at the start of block processing. This implements
 // EIP-4788: Beacon block root in the EVM.
@@ -33,7 +36,7 @@ var BeaconRootAddress = types.HexToAddress("0x000F3df6D732807Ef1319fB7B8bB8522d0
 //
 // The call is made as a system call with caller = SystemAddress (0xff...fe).
 // It does not consume block gas and is not a user-initiated transaction.
-func ProcessBeaconBlockRoot(statedb state.StateDB, header *types.Header) {
+func ProcessBeaconBlockRoot(statedb systemStorage, header *types.Header) {
 	if header.ParentBeaconRoot == nil {
 		return
 	}

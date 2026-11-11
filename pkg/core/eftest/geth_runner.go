@@ -195,10 +195,16 @@ func (st *GethStateTest) RunWithGeth(subtest StateSubtest) *GethRunResult {
 	result.ExpectedRoot = hexToHash(post.Hash)
 	result.ExpectedLogs = hexToHash(post.Logs)
 
-	config, err := geth.EFTestChainConfig(subtest.Fork)
-	if err != nil {
-		result.Error = err
-		return result
+	var config *gethparams.ChainConfig
+	if subtest.Fork == "Amsterdam" {
+		config = geth.AmsterdamFixtureConfig()
+	} else {
+		var err error
+		config, err = geth.EFTestChainConfig(subtest.Fork)
+		if err != nil {
+			result.Error = err
+			return result
+		}
 	}
 
 	// Build pre-state.

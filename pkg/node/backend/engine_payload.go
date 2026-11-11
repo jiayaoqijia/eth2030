@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/bls"
@@ -17,6 +18,14 @@ import (
 
 // GetPayloadByID retrieves a previously requested payload by its ID.
 func (b *EngineBackend) GetPayloadByID(id payload.PayloadID) (*payload.GetPayloadResponse, error) {
+	p, err := b.awaitPayload(id)
+	if err != nil {
+		return nil, err
+	}
+	return b.payloadResponse(id, p)
+}
+
+func (b *EngineBackend) awaitPayload(id payload.PayloadID) (*pendingPayload, error) {
 	slog.Debug("engine_getPayload", "payloadID", id)
 
 	b.mu.Lock()
@@ -39,6 +48,10 @@ func (b *EngineBackend) GetPayloadByID(id payload.PayloadID) (*payload.GetPayloa
 		return nil, p.err
 	}
 
+	return p, nil
+}
+
+func (b *EngineBackend) payloadResponse(id payload.PayloadID, p *pendingPayload) (*payload.GetPayloadResponse, error) {
 	blk := p.block
 	header := blk.Header()
 
@@ -74,7 +87,11 @@ func (b *EngineBackend) GetPayloadByID(id payload.PayloadID) (*payload.GetPayloa
 		},
 	}
 
+	if p.result != nil {
+		execPayload.ExecutionRequests = p.result.Requests.Encode()
+	}
 	if ws := blk.Withdrawals(); ws != nil {
+		execPayload.Withdrawals = make([]*payload.Withdrawal, 0, len(ws))
 		for _, w := range ws {
 			execPayload.Withdrawals = append(execPayload.Withdrawals, &payload.Withdrawal{
 				Index:          w.Index,
@@ -184,13 +201,17 @@ func (b *EngineBackend) GetPayloadV4ByID(id payload.PayloadID) (*payload.GetPayl
 		ExecutionPayload:  &resp.ExecutionPayload.ExecutionPayloadV3,
 		BlockValue:        resp.BlockValue,
 		BlobsBundle:       resp.BlobsBundle,
-		ExecutionRequests: [][]byte{},
+		ExecutionRequests: resp.ExecutionPayload.ExecutionRequests,
 	}, nil
 }
 
 // GetPayloadV6ByID retrieves a previously built payload for getPayloadV6 (Amsterdam).
 func (b *EngineBackend) GetPayloadV6ByID(id payload.PayloadID) (*payload.GetPayloadV6Response, error) {
-	resp, err := b.GetPayloadByID(id)
+	p, err := b.awaitPayload(id)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := b.payloadResponse(id, p)
 	if err != nil {
 		return nil, err
 	}
@@ -219,13 +240,17 @@ func (b *EngineBackend) GetPayloadV6ByID(id payload.PayloadID) (*payload.GetPayl
 			)
 		}
 	}
+	var blockBAL *bal.BlockAccessList
+	if p.result != nil {
+		blockBAL = p.result.BlockAccessList
+	}
+	v5 := enginepayload.BlockToPayloadV5(p.block, p.block.Header().MixDigest, resp.ExecutionPayload.Withdrawals, blockBAL, p.slot)
+	v5.ExecutionRequests = resp.ExecutionPayload.ExecutionRequests
 	return &payload.GetPayloadV6Response{
-		ExecutionPayload: &payload.ExecutionPayloadV5{
-			ExecutionPayloadV4: *resp.ExecutionPayload,
-		},
+		ExecutionPayload:  v5,
 		BlockValue:        resp.BlockValue,
 		BlobsBundle:       blobsBundleV2,
-		ExecutionRequests: [][]byte{},
+		ExecutionRequests: resp.ExecutionPayload.ExecutionRequests,
 	}, nil
 }
 

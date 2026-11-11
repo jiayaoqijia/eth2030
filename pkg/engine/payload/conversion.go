@@ -5,10 +5,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 )
+
+// DecodeBlockAccessList validates the Engine API DATA field and returns its
+// EIP-7928 commitment to the canonical RLP bytes.
+func DecodeBlockAccessList(raw json.RawMessage) (types.Hash, error) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil || !strings.HasPrefix(value, "0x") {
+		return types.Hash{}, fmt.Errorf("blockAccessList must be 0x-prefixed hex DATA")
+	}
+	encoded, err := hex.DecodeString(value[2:])
+	if err != nil {
+		return types.Hash{}, fmt.Errorf("blockAccessList: %w", err)
+	}
+	if len(encoded) == 0 {
+		return types.Hash{}, fmt.Errorf("blockAccessList RLP is empty")
+	}
+	// The processor validates canonical RLP by matching this commitment
+	// against the BAL reconstructed from execution.
+	return crypto.Keccak256Hash(encoded), nil
+}
 
 // PayloadToHeader converts an ExecutionPayloadV4 to a block Header.
 func PayloadToHeader(p *ExecutionPayloadV4) *types.Header {

@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
 )
 
 // Execution request type constants per EIP-7685 (re-exported for execution_requests module).
@@ -44,9 +43,6 @@ const (
 	// ConsolidationRequestDataLen is the expected data length for a consolidation request.
 	// source_address(20) + source_pubkey(48) + target_pubkey(48) = 116
 	ConsolidationRequestDataLen = 116
-
-	// MaxExecutionRequestsPerType is the maximum number of requests per type in a block.
-	MaxExecutionRequestsPerType = 16
 )
 
 // Execution request errors.
@@ -119,7 +115,6 @@ func ValidateExecutionRequestList(requests []*ExecutionRequest) error {
 		return ErrExecReqNil
 	}
 
-	typeCounts := make(map[byte]int)
 	var lastType byte
 
 	for i, req := range requests {
@@ -151,7 +146,6 @@ func ValidateExecutionRequestList(requests []*ExecutionRequest) error {
 			return err
 		}
 
-		typeCounts[req.Type]++
 	}
 
 	return nil
@@ -161,14 +155,14 @@ func ValidateExecutionRequestList(requests []*ExecutionRequest) error {
 // Deposit, withdrawal, and consolidation requests have fixed per-item sizes;
 // the total data must be a multiple of that size.
 func validateRequestDataLength(reqType byte, data []byte, index int) error {
-	var expectedItemLen int
+	var expectedItemLen, limit int
 	switch reqType {
 	case ExecReqDepositType:
-		expectedItemLen = DepositRequestDataLen
+		expectedItemLen, limit = DepositRequestDataLen, types.MaxDepositsPerPayload
 	case ExecReqWithdrawalType:
-		expectedItemLen = WithdrawalRequestDataLen
+		expectedItemLen, limit = WithdrawalRequestDataLen, types.MaxWithdrawalRequestsPerPayload
 	case ExecReqConsolidationType:
-		expectedItemLen = ConsolidationRequestDataLen
+		expectedItemLen, limit = ConsolidationRequestDataLen, types.MaxConsolidationRequestsPerPayload
 	default:
 		return nil // unknown types pass length check
 	}
@@ -183,33 +177,17 @@ func validateRequestDataLength(reqType byte, data []byte, index int) error {
 	}
 
 	itemCount := len(data) / expectedItemLen
-	if itemCount > MaxExecutionRequestsPerType {
+	if itemCount > limit {
 		return fmt.Errorf("%w at index %d: %d items exceeds max %d for type 0x%02x",
-			ErrExecReqTooMany, index, itemCount, MaxExecutionRequestsPerType, reqType)
+			ErrExecReqTooMany, index, itemCount, limit, reqType)
 	}
 
 	return nil
 }
 
-// ComputeExecutionRequestsHash computes the SHA-256 hash of the concatenated raw
-// execution requests. This is used to include the requests commitment in
-// the execution payload header per EIP-7685.
+// ComputeExecutionRequestsHash computes the EIP-7685 wire commitment.
 func ComputeExecutionRequestsHash(requests [][]byte) types.Hash {
-	if len(requests) == 0 {
-		return types.Hash{}
-	}
-
-	// Concatenate all raw request bytes.
-	var totalLen int
-	for _, r := range requests {
-		totalLen += len(r)
-	}
-	buf := make([]byte, 0, totalLen)
-	for _, r := range requests {
-		buf = append(buf, r...)
-	}
-
-	return crypto.Keccak256Hash(buf)
+	return types.ComputeWireRequestsHash(requests)
 }
 
 // SplitRequestsByType groups parsed execution requests by their type byte.

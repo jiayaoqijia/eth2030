@@ -1,10 +1,13 @@
 package payload
 
 import (
+	"bytes"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -35,7 +38,8 @@ func TestPendingPayload_SetCompleted(t *testing.T) {
 	block := types.NewBlock(&types.Header{Number: big.NewInt(1)}, nil)
 	receipts := []*types.Receipt{{}}
 
-	pending.SetCompleted(block, receipts, nil, big.NewInt(100))
+	requests := types.Requests{types.NewRequest(types.DepositRequestType, make([]byte, types.DepositRequestSSZSize))}
+	pending.SetCompleted(block, receipts, nil, big.NewInt(100), requests...)
 
 	if pending.Status() != BuildStatusCompleted {
 		t.Fatalf("want Completed, got %v", pending.Status())
@@ -51,6 +55,13 @@ func TestPendingPayload_SetCompleted(t *testing.T) {
 	}
 	if result.Block == nil {
 		t.Fatal("Block should not be nil")
+	}
+	if got := result.Requests.Encode(); len(got) != 1 || !bytes.Equal(got[0], requests[0].Encode()) {
+		t.Fatalf("async completion lost the request group: %x", got)
+	}
+	cached, err := pending.GetResult()
+	if err != nil || len(cached.Requests) != 1 || !bytes.Equal(cached.Requests[0].Encode(), requests[0].Encode()) {
+		t.Fatalf("cached completion lost the request group: %v", err)
 	}
 }
 
@@ -204,5 +215,51 @@ func TestAsyncBuilder_EvictOldest(t *testing.T) {
 
 	if count > 2 {
 		t.Fatalf("want at most 2 pending, got %d", count)
+	}
+}
+
+func TestAsyncBuildKeepsExecutionRequests(t *testing.T) {
+	cfg := *config.TestConfig
+	cfg.RequireRequestPredeploys = true
+	statedb := state.NewMemoryStateDB()
+	config.ApplyGenesisAlloc(statedb, config.ExecutionRequestContractAlloc())
+
+	// Seed one consolidation entry in the deployed contract's queue.
+	address := types.ConsolidationRequestAddress
+	request := types.ConsolidationRequest{
+		SourceAddress: types.Address{0x42},
+		SourcePubkey:  [48]byte{0x01, 47: 0x02},
+		TargetPubkey:  [48]byte{0x03, 47: 0x04},
+	}
+	statedb.SetState(address, types.Hash{31: 3}, types.Hash{31: 1})
+	statedb.SetState(address, types.Hash{31: 4}, types.BytesToHash(request.SourceAddress[:]))
+	statedb.SetState(address, types.Hash{31: 5}, types.BytesToHash(request.SourcePubkey[:32]))
+	middle := append(bytes.Clone(request.SourcePubkey[32:]), request.TargetPubkey[:16]...)
+	statedb.SetState(address, types.Hash{31: 6}, types.BytesToHash(middle))
+	statedb.SetState(address, types.Hash{31: 7}, types.BytesToHash(request.TargetPubkey[16:]))
+
+	genesis := (&config.Genesis{Config: &cfg, GasLimit: 30_000_000}).ToBlock()
+	builder := NewAsyncBuilder(&cfg, nil, AsyncBuilderConfig{Workers: 1})
+	builder.Start()
+	defer builder.Stop()
+
+	pending, err := builder.QueueBuild(PayloadID{1}, genesis.Hash(), genesis.Header(), statedb, &BuildAttributes{
+		Timestamp: 12, GasLimit: genesis.GasLimit(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := pending.Wait(5 * time.Second)
+	if err != nil || result.Status != BuildStatusCompleted {
+		t.Fatalf("async build did not complete: %+v, %v", result, err)
+	}
+	want := types.NewRequest(types.ConsolidationRequestType, request.Encode()).Encode()
+	wire := result.Requests.Encode()
+	if len(wire) != 1 || !bytes.Equal(wire[0], want) {
+		t.Fatalf("async build requests %x, want %x", wire, want)
+	}
+	hash := result.Block.Header().RequestsHash
+	if hash == nil || *hash != types.ComputeWireRequestsHash(wire) {
+		t.Fatal("async block did not commit to the returned requests")
 	}
 }

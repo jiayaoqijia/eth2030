@@ -213,7 +213,7 @@ func (api *EngineAPI) NewPayloadV4(
 	}
 
 	// EIP-7685: executionRequests must be provided (can be empty list, not nil).
-	if executionRequests == nil {
+	if err := types.ValidateExecutionRequestsWire(executionRequests); err != nil {
 		return PayloadStatusV1{}, ErrInvalidParams
 	}
 
@@ -257,7 +257,7 @@ func (api *EngineAPI) NewPayloadV5(
 	}
 
 	// EIP-7685: executionRequests must be provided.
-	if executionRequests == nil {
+	if err := types.ValidateExecutionRequestsWire(executionRequests); err != nil {
 		return PayloadStatusV1{}, ErrInvalidParams
 	}
 
@@ -375,7 +375,7 @@ func (api *EngineAPI) Start(addr string) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", api.httpHandler)
+	mux.Handle("/", api.Handler())
 
 	api.mu.Lock()
 	api.listener = ln
@@ -410,6 +410,9 @@ func (api *EngineAPI) Stop() error {
 	}
 	return srv.Shutdown(context.Background())
 }
+
+// Handler exposes the same HTTP handler used by Start.
+func (api *EngineAPI) Handler() http.Handler { return http.HandlerFunc(api.httpHandler) }
 
 // httpHandler handles incoming HTTP requests and dispatches them as JSON-RPC.
 // P0: Implements request timeout protection to prevent CL-EL cascade failures.

@@ -891,7 +891,7 @@ func opDelegateCall(pc *uint64, evm *EVM, contract *Contract, memory *Memory, st
 	// The Run loop already deducted callGasTemp from contract.Gas (as part of dynamic gas).
 	callGas := evm.callGasTemp
 
-	ret, returnGas, err := evm.DelegateCall(contract.CallerAddress, addr, args, callGas)
+	ret, returnGas, err := evm.delegateCall(contract.CallerAddress, contract.Address, contract.Value, addr, args, callGas)
 
 	contract.Gas += returnGas
 

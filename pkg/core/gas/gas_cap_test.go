@@ -43,29 +43,29 @@ func TestMaxTransactionGasValue(t *testing.T) {
 }
 
 func TestIsGasLimitCapped(t *testing.T) {
-	praguetime := uint64(1000)
+	osakaTime := uint64(1000)
 	cfg := &config.ChainConfig{
-		PragueTime: &praguetime,
+		OsakaTime: &osakaTime,
 	}
 
-	// Before Prague: not capped.
+	// Before Osaka: not capped.
 	if IsGasLimitCapped(cfg, 999) {
-		t.Error("expected gas limit not capped before Prague")
+		t.Error("expected gas limit not capped before Osaka")
 	}
 
-	// At Prague: capped.
+	// At Osaka: capped.
 	if !IsGasLimitCapped(cfg, 1000) {
-		t.Error("expected gas limit capped at Prague activation")
+		t.Error("expected gas limit capped at Osaka activation")
 	}
 
-	// After Prague: capped.
+	// After Osaka: capped.
 	if !IsGasLimitCapped(cfg, 2000) {
-		t.Error("expected gas limit capped after Prague activation")
+		t.Error("expected gas limit capped after Osaka activation")
 	}
 
-	// No Prague: not capped.
-	noPrague := &config.ChainConfig{}
-	if IsGasLimitCapped(noPrague, 5000) {
-		t.Error("expected gas limit not capped without Prague config")
+	// No Osaka: not capped.
+	noOsaka := &config.ChainConfig{}
+	if IsGasLimitCapped(noOsaka, 5000) {
+		t.Error("expected gas limit not capped without Osaka config")
 	}
 }

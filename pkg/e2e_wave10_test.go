@@ -32,7 +32,7 @@ func makeGenesisBlock() (*types.Block, *state.MemoryStateDB) {
 	calldataExcessGas := uint64(0)
 	emptyWHash := types.EmptyRootHash
 	emptyBeaconRoot := types.EmptyRootHash
-	emptyRequestsHash := types.EmptyRootHash
+	emptyRequestsHash := types.EmptyRequestsHash
 	header := &types.Header{
 		Number:            big.NewInt(0),
 		GasLimit:          30000000,
@@ -80,7 +80,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 	calldataGasUsed := uint64(0)
 	emptyWHash := types.EmptyRootHash
 	emptyBeaconRoot2 := types.EmptyRootHash
-	emptyRequestsHash2 := types.EmptyRootHash
+	emptyRequestsHash2 := types.EmptyRequestsHash
 	header := &types.Header{
 		ParentHash:        parent.Hash(),
 		Number:            new(big.Int).Add(parentHeader.Number, big.NewInt(1)),

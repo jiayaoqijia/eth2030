@@ -1,6 +1,7 @@
 package bal
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -137,5 +138,23 @@ func TestHashChangesWithStorageChange(t *testing.T) {
 
 	if bal1.Hash() == bal2.Hash() {
 		t.Fatal("hashes should differ when storage change values differ")
+	}
+}
+
+func TestEIP7928WireEncoding(t *testing.T) {
+	empty, err := NewBlockAccessList().EncodeRLP()
+	if err != nil || len(empty) != 1 || empty[0] != 0xc0 {
+		t.Fatalf("empty BAL %x: %v", empty, err)
+	}
+	list := NewBlockAccessList()
+	addr := types.Address{19: 1}
+	slot := types.Hash{31: 2}
+	list.AddEntry(AccessEntry{Address: addr, AccessIndex: 0, StorageReads: []StorageAccess{{Slot: slot}}})
+	list.AddEntry(AccessEntry{Address: addr, AccessIndex: 1, StorageChanges: []StorageChange{{Slot: slot, NewValue: types.Hash{31: 3}}}})
+	wire, err := list.EncodeRLP()
+	// [[address, [[2, [[1, 3]]]], [], [], [], []]]
+	const want = "e1e0940000000000000000000000000000000000000001c6c502c3c20103c0c0c0c0"
+	if err != nil || fmt.Sprintf("%x", wire) != want {
+		t.Fatalf("wire %x, want %s: %v", wire, want, err)
 	}
 }

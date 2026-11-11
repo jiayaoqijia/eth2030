@@ -16,7 +16,7 @@ import (
 // withdrawals via their execution layer (0x01) withdrawal credentials.
 
 // System contract address for EIP-7002 withdrawal requests.
-var WithdrawalRequestContract = types.HexToAddress("0x0c15F14308530b7CDB8460094BbB9cC28b9AaAAb")
+var WithdrawalRequestContract = types.WithdrawalRequestAddress
 
 // Storage slot layout for the withdrawal request contract.
 const (

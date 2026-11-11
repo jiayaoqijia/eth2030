@@ -408,6 +408,16 @@ func decodeTypedTx(txType byte, payload []byte) (*Transaction, error) {
 		return decodePQFromPayload(payload)
 	case MultiDimFeeTxType:
 		return DecodeMultiDimFeeTx(payload)
+	case LocalTxType:
+		var dec localTxRLP
+		if err := rlp.DecodeBytes(payload, &dec); err != nil {
+			return nil, err
+		}
+		if len(dec.To) != 0 && len(dec.To) != AddressLength {
+			return nil, fmt.Errorf("invalid local transaction recipient length %d", len(dec.To))
+		}
+		to := bytesToAddressPtr(dec.To)
+		return NewLocalTx(dec.ChainID, dec.Nonce, to, dec.Value, dec.Gas, dec.GasTipCap, dec.GasFeeCap, dec.Data, dec.ScopeHint), nil
 	default:
 		return nil, fmt.Errorf("unsupported transaction type: 0x%02x", txType)
 	}
@@ -690,6 +700,8 @@ func (tx *Transaction) SigningHash() Hash {
 		return signingHashBlob(t)
 	case *SetCodeTx:
 		return signingHashSetCode(t)
+	case *MultiDimFeeTx:
+		return t.signingHash(t.ChainID)
 	case *FrameTx:
 		return ComputeFrameSigHash(t)
 	case *PQTransaction:
@@ -720,7 +732,7 @@ func signingHashLegacy(tx *LegacyTx) Hash {
 	enc(tx.Value)
 	enc(tx.Data)
 
-	if chainID != nil && chainID.Sign() > 0 {
+	if tx.V != nil && tx.V.Cmp(big.NewInt(35)) >= 0 {
 		enc(chainID)
 		enc(uint(0))
 		enc(uint(0))

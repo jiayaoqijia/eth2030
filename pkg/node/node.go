@@ -462,6 +462,8 @@ func New(config *Config) (*Node, error) {
 			}
 		}
 		poolCfg.IsGlamsterdan = chainCfg.IsGlamsterdan(genesisTime)
+		poolCfg.IsPrague = chainCfg.IsPrague(genesisTime)
+		poolCfg.IsOsaka = chainCfg.IsOsaka(genesisTime)
 	}
 	// --txpool.price-history: number of blocks for the gas-price suggestor.
 	if config.TxpoolPriceHistory > 0 {
@@ -573,6 +575,7 @@ func New(config *Config) (*Node, error) {
 	n.ethHandler.SetDownloader(n.syncer)
 	// Reset the tx pool after P2P block insertion to evict confirmed txs.
 	n.ethHandler.SetOnBlockInserted(func() {
+		n.txPool.SetForkRules(n.blockchain.Config(), n.blockchain.CurrentBlock().Time())
 		n.txPool.Reset(n.blockchain.State())
 	})
 
@@ -854,6 +857,7 @@ func New(config *Config) (*Node, error) {
 	n.fcStateManager.OnReorg(func(ev forkchoice.ReorgEvent) {
 		// Reset tx pool state views so pending/queued reflect the new chain tip.
 		if n.txPool != nil && n.blockchain != nil {
+			n.txPool.SetForkRules(n.blockchain.Config(), n.blockchain.CurrentBlock().Time())
 			n.txPool.Reset(n.blockchain.State())
 		}
 	})

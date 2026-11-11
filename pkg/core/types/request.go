@@ -14,6 +14,11 @@ const (
 	DepositRequestType       byte = 0x00 // EIP-6110: supply validator deposits
 	WithdrawalRequestType    byte = 0x01 // EIP-7002: trigger validator withdrawals
 	ConsolidationRequestType byte = 0x02 // EIP-7251: validator consolidations
+
+	WithdrawalRequestSSZSize           = 76
+	ConsolidationRequestSSZSize        = 116
+	MaxWithdrawalRequestsPerPayload    = 16
+	MaxConsolidationRequestsPerPayload = 2
 )
 
 // System contract addresses for EIP-7685 request processing.
@@ -25,11 +30,11 @@ var (
 
 	// WithdrawalRequestAddress is the system contract for triggering
 	// validator withdrawals (EIP-7002).
-	WithdrawalRequestAddress = HexToAddress("0x0c15F14308530b7CDB8460094BbB9cC28b9AaAAb")
+	WithdrawalRequestAddress = HexToAddress("0x00000961Ef480Eb55e80D19ad83579A64c007002")
 
 	// ConsolidationRequestAddress is the system contract for validator
 	// consolidations (EIP-7251).
-	ConsolidationRequestAddress = HexToAddress("0x00431F263cE400f4da8Fc0D8Edf967BBB28Bc16a")
+	ConsolidationRequestAddress = HexToAddress("0x0000BBdDc7CE488642fb579F8B00f3a590007251")
 )
 
 // SystemAddress is the caller address used for system contract calls.
@@ -241,31 +246,50 @@ func DecodeRequests(data []byte) (Requests, error) {
 // Per EIP-7685: sha256(sha256(requests_0) ++ sha256(requests_1) ++ ...)
 // where each requests_i is the concatenation of all request data of type i.
 func ComputeRequestsHash(requests Requests) Hash {
-	// Group requests by type, maintaining order.
-	byType := make(map[byte][][]byte)
+	// Combine nonempty data for each type in production order.
+	var groups [256][]byte
 	for _, r := range requests {
-		byType[r.Type] = append(byType[r.Type], r.Data)
-	}
-
-	// Compute the flat hash: sha256 of all type-prefixed request hashes.
-	h := sha256.New()
-	for i := byte(0); i <= 2; i++ {
-		datas, ok := byType[i]
-		if !ok {
+		if r == nil || len(r.Data) == 0 {
 			continue
 		}
-		// Concatenate all request data of this type.
-		typeH := sha256.New()
-		typeH.Write([]byte{i})
-		for _, d := range datas {
-			typeH.Write(d)
+		i := r.Type
+		if len(groups[i]) == 0 {
+			groups[i] = append(groups[i], i)
 		}
-		h.Write(typeH.Sum(nil))
+		groups[i] = append(groups[i], r.Data...)
 	}
+	return ComputeWireRequestsHash(groups[:])
+}
 
+// ComputeWireRequestsHash commits to the EIP-7685 groups in wire order.
+func ComputeWireRequestsHash(requests [][]byte) Hash {
+	h := sha256.New()
+	for _, group := range requests {
+		if len(group) <= 1 {
+			continue
+		}
+		digest := sha256.Sum256(group)
+		h.Write(digest[:])
+	}
 	var result Hash
 	copy(result[:], h.Sum(nil))
 	return result
+}
+
+// ValidateExecutionRequestsWire checks the Prague Engine API request array.
+func ValidateExecutionRequestsWire(requests [][]byte) error {
+	if requests == nil {
+		return errors.New("execution requests must be an array")
+	}
+	for i, request := range requests {
+		if len(request) < 2 {
+			return fmt.Errorf("execution request %d has empty data", i)
+		}
+		if i > 0 && request[0] <= requests[i-1][0] {
+			return fmt.Errorf("execution request %d type must be strictly ascending", i)
+		}
+	}
+	return nil
 }
 
 // ValidateRequestsHash verifies the requests_hash field in a block header.
