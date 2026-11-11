@@ -1,5 +1,16 @@
 # Project Status
 
+## Full-Feature Devnet Interop After BAL Enforcement (2026-11-12)
+
+Ran `full-feature-eth2030` kurtosis devnet (3x eth2030:local EL + 3x eth2030cl:local Lighthouse 8.4.0-rc.0, 15s slots) against the BAL-enforced Track 1 branch.
+
+- Fork schedule confirmed from the devnet genesis (`refs/ethereum-package/el_cl_genesis_data/genesis.json`): prague@0, osaka@+480s, **amsterdam@+960s — coinciding with CL gloas_fork_epoch 2 (slot 64)**, fulu at slot 32, heze at slot 96.
+- All three forks activated cleanly: blocks progressed through slot 32 (Fulu/PeerDAS), slot 64 (Gloas ePBS + Amsterdam BAL enforcement) and slot 96 (Heze/FOCIL) with no stall; head passed 131 during monitoring with spamoor EOA transfers landing continuously.
+- BAL enforcement interoperates with Lighthouse: every block after Amsterdam processed with `amsterdamActive:true` and nonempty `balEntries` (40-43 per block); `engine_newPayloadV5` responses all `error:false`; two EL nodes independently processed block 131 with identical hash/gasUsed/balEntries (43), confirming deterministic BAL derivation under the strict header-hash rule.
+- Lighthouse's ePBS bid flow is live on the devnet ("Bid has no blobs, data is available" debug logs) with no CL ERROR/CRIT and no EL WARN/ERROR (beyond filtered noise) on any of the six nodes.
+- Finding recorded as follow-up: the JSON-RPC block object does not expose the `blockAccessListHash` header field (the field exists and is enforced; only the eth_getBlockByNumber serializer omits it). Explorers/CL tooling reading the field from RPC will not see it.
+- The devnet was left running (enclave `eth2030-devnet`, dora at http://127.0.0.1:32809, assertoor at http://127.0.0.1:32811); stop with `pkg/devnet/kurtosis/scripts/cleanup.sh eth2030-devnet`.
+
 ## EIP Integration Test Coverage for Track 1 (2026-11-12)
 
 Added EIP-standard integration tests for the Glamsterdam Track 1 work on `feat/track1-glamsterdam`.

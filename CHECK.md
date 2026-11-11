@@ -46,7 +46,7 @@ gap against current code before starting — parts of the 2026-03 gap analysis a
 
 ### Track 6 — Devnet and site
 
-- [ ] Gloas devnet dependency (recorded at `a75a67a`); full-feature devnet run validating ePBS + FOCIL + BAL together.
+- [x] Gloas devnet dependency (recorded at `a75a67a`); full-feature devnet run validating ePBS + FOCIL + BAL together. (full-feature-eth2030: fulu@32, gloas@64+Amsterdam BAL enforcement, heze@96 all clean; newPayloadV5 with BAL accepted from lighthouse 8.4.0-rc.0; follow-up: expose blockAccessListHash in the eth_getBlockByNumber serializer.)
 - [ ] Site publishing: deployment workflow names `eth2030.com` while GitHub Pages binds `eth2030.altllm.ai`.
 
 Recommended start order: Track 1 (ePBS PTC + fork-choice is the largest single P0), Track 3 snap-sync in parallel, Track 6 devnet as the integration gate.
