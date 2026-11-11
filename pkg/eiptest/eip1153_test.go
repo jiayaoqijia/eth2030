@@ -21,7 +21,7 @@ func TestEIP1153_TransientStorage(t *testing.T) {
 		0x60, 0x00, // PUSH1 0
 		0x5c,       // TLOAD(0)
 		0x60, 0x00, // PUSH1 0
-		0x52,       // MSTORE(0, tload)
+		0x52,                         // MSTORE(0, tload)
 		0x60, 0x20, 0x60, 0x00, 0xf3, // RETURN(0, 32)
 	}
 	addr := stf.Deploy(s.Alice(), reader)
@@ -38,8 +38,8 @@ func TestEIP1153_TransientStorage(t *testing.T) {
 	// value must store 42.
 	persist := []byte{
 		0x60, 0x2a, 0x60, 0x00, 0x5d, // TSTORE(0, 42)
-		0x60, 0x00, 0x5c,             // TLOAD(0)
-		0x60, 0x00, 0x55,             // SSTORE(0, tload)
+		0x60, 0x00, 0x5c, // TLOAD(0)
+		0x60, 0x00, 0x55, // SSTORE(0, tload)
 		0x00,
 	}
 	addr2 := stf.Deploy(s.Alice(), persist)

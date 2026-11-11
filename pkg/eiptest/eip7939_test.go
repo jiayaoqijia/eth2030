@@ -17,7 +17,7 @@ func TestEIP7939_CLZ(t *testing.T) {
 	// CALLDATALOAD(0) → CLZ → MSTORE(0) → RETURN(0, 32).
 	clz := []byte{
 		0x60, 0x00, 0x35, // CALLDATALOAD(0)
-		0x1e,       // CLZ
+		0x1e,             // CLZ
 		0x60, 0x00, 0x52, // MSTORE(0, result)
 		0x60, 0x20, 0x60, 0x00, 0xf3, // RETURN(0, 32)
 	}

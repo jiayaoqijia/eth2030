@@ -1,5 +1,15 @@
 # Project Status
 
+## eiptest Framework Implementation (2026-11-11)
+
+- Implemented the full `eiptest` framework on `feat/eiptest-framework` per the [task plan](docs/plans/eiptest-framework-plan.md): `Sim` chain simulator over the production blockchain/builder/processor path with scheduled-fork configs and genesis-alloc funding; ten-type tx builder DSL; assertion library; seven surface probes (STF, pool, fork, encoding, RPC over the production RPCBackend, Engine payload flow with transaction injection, geth differential); EIP coverage registry gate wired into the default suite; scaffold generator with optional devnet config emission (`tools/eiptest-scaffold`).
+- Shipped 45 EIP integration test files (60 test functions) covering the implementation list (tiers A–C; network/CL tiers documented as exempt). Full suite runs in ~0.75s with no build tags; the registry gate fails the default suite when an implemented EIP lacks a test file.
+- Contract pipeline (`make contracts`): three solc scenario contracts compiled to runtime bytecode with a Go generator (`tools/gen-contracts`) and an end-to-end deploy/ABI test. Vector pipeline (`make eest`): wired uv + geth `evm` fill; the pinned EEST checkout is mid weld-migration (pytest cannot collect), so consumption is verified with a real GeneralStateTests fixture through `eftest.RunSingleFixture`.
+- Production fixes the framework surfaced during development: EIP-7702 delegated-EOA calls now resolve the 0xef0100 designator in `core/vm` (Call + call handlers — previously calls into delegated EOAs executed the designator bytes and reverted); Engine API `ProcessBlockV5` now decodes the lighthouse ≥ 8.4 hex-string BAL form it itself emits; `SetTxPool` now feeds payload building (async builder + the sync FCU path built with a nil pool) instead of only inclusion-list generation.
+- Recorded tracked findings for follow-up: ~360-gas contract-creation divergence between native and geth backends; post-Glamsterdan builder drops calldata-carrying txs between 1–2 KB; EIP-8141 frame execution reverts across probed variants while envelope/pool surfaces work; geth differential adapter applies no post-block system contracts (EIP-4788/2935), so the Diff probe compares receipts not roots.
+- Corrected the plan's record: the `integration` build tag is not orphaned — CI's `test-variants` matrix runs it and the suite is green locally (core tagged suite verified; `core/eftest` under the tag runs the full EF pass at ~115s).
+- Verification: `go vet ./...` clean, `go build ./...` clean, `go test ./eiptest/...` green (58 tests, ~0.75s), `make contracts` idempotent, scaffold generate→compile→test round-trip verified with a throwaway EIP.
+
 ## EIP Integration Test Framework Plan (2026-11-11)
 
 - Authored the `eiptest` framework design and phased task plan at [docs/plans/eiptest-framework-plan.md](docs/plans/eiptest-framework-plan.md): an in-process integration test base for future EIP development, with seven surface probes (STF, pool, fork gating, encoding, RPC, engine payload flow, geth differential), an EIP coverage registry gate, and a test scaffold generator.

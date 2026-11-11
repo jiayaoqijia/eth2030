@@ -36,4 +36,3 @@ func TestEIP8070_SparseBlobpoolAdmission(t *testing.T) {
 	)
 	p.ExpectRejected(t, bad, "")
 }
-

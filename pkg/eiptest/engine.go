@@ -11,9 +11,9 @@ import (
 // forkchoiceUpdated → getPayload → newPayload loop, with transaction
 // injection into payload building via the backend's pool hook.
 type EngineProbe struct {
-	s      *Sim
+	s       *Sim
 	backend *engine.EngineBackend
-	queue  *slicePool
+	queue   *slicePool
 }
 
 // Engine returns the Engine API probe. The probe owns an independent
@@ -122,13 +122,17 @@ func (p *EngineProbe) BuildAndProcess() (*engine.ExecutionPayloadV5, engine.Payl
 
 type errNoPayloadIDError struct{}
 
-func (errNoPayloadIDError) Error() string { return "eiptest: forkchoiceUpdated returned nil payload id" }
+func (errNoPayloadIDError) Error() string {
+	return "eiptest: forkchoiceUpdated returned nil payload id"
+}
 
 var errNoPayloadID = errNoPayloadIDError{}
 
 type errUnknownHeadError struct{}
 
-func (errUnknownHeadError) Error() string { return "eiptest: engine backend does not know the head block" }
+func (errUnknownHeadError) Error() string {
+	return "eiptest: engine backend does not know the head block"
+}
 
 var errUnknownHead = errUnknownHeadError{}
 

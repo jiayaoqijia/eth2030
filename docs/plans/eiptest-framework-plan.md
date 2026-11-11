@@ -36,9 +36,11 @@ Writing an integration test becomes fill-in-the-blank.
 Structural issues relevant to this plan:
 
 1. **Three unshared in-process E2E systems**: 137 test funcs at `pkg/` root (no tag),
-   65 under `//go:build integration` in `pkg/core/` + `pkg/p2p/transport/` (the tag is
-   referenced by no script, Makefile, or CI — introduced in `53362ff`), 14 in
-   `pkg/engine/`.
+   65 under `//go:build integration` in `pkg/core/` + `pkg/p2p/transport/`, 14 in
+   `pkg/engine/`. (Correction, 2026-11-11 during implementation: the tag is NOT
+   orphaned — CI's `test-variants` matrix runs `-tags integration ./core ./p2p/...`
+   and the suite is green locally. `eiptest` supersedes it for future feature work;
+   the existing suites stay for their current coverage.)
 2. **5 duplicated genesis helpers** (`pkg/e2e_wave10_test.go:28`,
    `pkg/engine/backend_test.go:13`, `pkg/core/testhelpers_test.go:77`,
    `pkg/integration_test.go`, `pkg/e2e_helpers.go`) and **5 duplicated signing helpers**.

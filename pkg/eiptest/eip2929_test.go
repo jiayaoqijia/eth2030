@@ -16,8 +16,8 @@ func TestEIP2929_ColdWarmAccess(t *testing.T) {
 	// Contract: two SLOADs of slot 0 then return.
 	twoLoads := []byte{
 		0x60, 0x00, // PUSH1 0
-		0x54, // SLOAD (cold: 2100)
-		0x50, // POP
+		0x54,       // SLOAD (cold: 2100)
+		0x50,       // POP
 		0x60, 0x00, // PUSH1 0
 		0x54, // SLOAD (warm: 100)
 		0x50, // POP

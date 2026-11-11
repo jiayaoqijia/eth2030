@@ -4,9 +4,9 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
-	"github.com/eth2030/eth2030/core/state"
 )
 
 // STF is the state-transition probe: deploy contracts, send transactions and
@@ -39,7 +39,8 @@ func (p *STF) Deploy(from *Account, runtime []byte) types.Address {
 }
 
 // wrapInitcode builds constructor code that returns the given runtime:
-//   PUSH2 len; PUSH2 hdrLen; PUSH1 0; CODECOPY; PUSH2 len; PUSH1 0; RETURN
+//
+//	PUSH2 len; PUSH2 hdrLen; PUSH1 0; CODECOPY; PUSH2 len; PUSH1 0; RETURN
 const initcodeHeaderLen = 15
 
 func wrapInitcode(runtime []byte) []byte {
@@ -48,13 +49,13 @@ func wrapInitcode(runtime []byte) []byte {
 	}
 	l := len(runtime)
 	ic := make([]byte, 0, initcodeHeaderLen+l)
-	ic = append(ic, 0x61, byte(l>>8), byte(l))          // PUSH2 len
-	ic = append(ic, 0x61, 0x00, initcodeHeaderLen)      // PUSH2 headerLen (src offset)
-	ic = append(ic, 0x60, 0x00)                         // PUSH1 0 (dst)
-	ic = append(ic, 0x39)                               // CODECOPY
-	ic = append(ic, 0x61, byte(l>>8), byte(l))          // PUSH2 len
-	ic = append(ic, 0x60, 0x00)                         // PUSH1 0
-	ic = append(ic, 0xf3)                               // RETURN
+	ic = append(ic, 0x61, byte(l>>8), byte(l))     // PUSH2 len
+	ic = append(ic, 0x61, 0x00, initcodeHeaderLen) // PUSH2 headerLen (src offset)
+	ic = append(ic, 0x60, 0x00)                    // PUSH1 0 (dst)
+	ic = append(ic, 0x39)                          // CODECOPY
+	ic = append(ic, 0x61, byte(l>>8), byte(l))     // PUSH2 len
+	ic = append(ic, 0x60, 0x00)                    // PUSH1 0
+	ic = append(ic, 0xf3)                          // RETURN
 	return append(ic, runtime...)
 }
 

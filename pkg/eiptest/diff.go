@@ -106,3 +106,49 @@ func (s *Sim) SnapshotAccounts(t *testing.T, addrs ...types.Address) map[types.A
 	}
 	return out
 }
+
+// DiffReceipts executes blk through both backends over the same pre-state
+// and compares per-transaction outcomes (status and gas used). This is the
+// tx-semantics level of the differential surface; see DiffBlock for the
+// state-root level and its documented system-contract boundary.
+func (d *DiffProbe) DiffReceipts(t *testing.T, blk *types.Block, accounts map[types.Address]*PreAccountView, nativeReceipts []*types.Receipt) {
+	t.Helper()
+
+	pre := map[string]geth.PreAccount{}
+	for addr, view := range accounts {
+		pre[addr.Hex()[2:]] = geth.PreAccount{
+			Balance: view.Balance, Nonce: view.Nonce, Code: view.Code, Storage: view.Storage,
+		}
+	}
+	st, err := geth.MakePreState(pre)
+	if err != nil {
+		t.Fatalf("geth pre-state: %v", err)
+	}
+	defer st.Close()
+
+	gcfg := geth.ToGethChainConfig(d.s.cfg)
+	if gcfg == nil {
+		t.Fatal("geth config mapping returned nil")
+	}
+	gproc := geth.NewGethBlockProcessorWithEth2028(gcfg, d.s.cfg)
+	getHash := func(n uint64) gethcommon.Hash {
+		return geth.ToGethHash(d.s.bc.GetHashFn()(n))
+	}
+	gethReceipts, _, err := gproc.ProcessBlock(st.StateDB, blk, getHash)
+	if err != nil {
+		t.Fatalf("geth execution failed: %v", err)
+	}
+
+	if len(gethReceipts) != len(nativeReceipts) {
+		t.Fatalf("receipt count: native %d vs geth %d", len(nativeReceipts), len(gethReceipts))
+	}
+	for i := range nativeReceipts {
+		if nativeReceipts[i].Status != gethReceipts[i].Status {
+			t.Fatalf("tx %d status: native %d vs geth %d", i, nativeReceipts[i].Status, gethReceipts[i].Status)
+		}
+		if nativeReceipts[i].GasUsed != gethReceipts[i].GasUsed {
+			t.Fatalf("tx %d gas used: native %d vs geth %d (differential divergence)",
+				i, nativeReceipts[i].GasUsed, gethReceipts[i].GasUsed)
+		}
+	}
+}

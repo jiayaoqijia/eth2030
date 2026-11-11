@@ -20,8 +20,8 @@ func TestEIP7702_SetCodeLifecycle(t *testing.T) {
 	delegate := s.STF().Deploy(bob, []byte{
 		0x33,       // CALLER
 		0x60, 0x00, // PUSH1 0
-		0x55,       // SSTORE(0, caller)
-		0x00,       // STOP
+		0x55, // SSTORE(0, caller)
+		0x00, // STOP
 	})
 
 	// Alice signs an authorization delegating herself to the delegate. The

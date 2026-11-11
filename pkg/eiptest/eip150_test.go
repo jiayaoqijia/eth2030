@@ -35,8 +35,8 @@ func logLeftover() []byte {
 		0x52,       // MSTORE(0, L)
 		0x60, 0x20, // size 32
 		0x60, 0x00, // offset 0
-		0xa0,       // LOG0
-		0x00,       // STOP
+		0xa0, // LOG0
+		0x00, // STOP
 	}
 }
 

@@ -19,7 +19,7 @@ func TestEIP6404_SSZTransactions(t *testing.T) {
 	bob := eiptest.ToPtr(s.Bob().Address)
 
 	cases := map[string]*types.Transaction{
-		"legacy":     eiptest.UnsignedLegacy(alice.Address, 1, bob, big.NewInt(1), nil, 21000, big.NewInt(2_000_000_000)),
+		"legacy":      eiptest.UnsignedLegacy(alice.Address, 1, bob, big.NewInt(1), nil, 21000, big.NewInt(2_000_000_000)),
 		"access-list": eiptest.UnsignedAccessList(alice.Address, chainID, 2, bob, big.NewInt(1), nil, 21000, big.NewInt(2_000_000_000), big.NewInt(1), nil),
 		"dynamic-fee": eiptest.UnsignedDynamicFee(alice.Address, chainID, 3, bob, big.NewInt(1), nil, 21000, big.NewInt(2_000_000_000), big.NewInt(1)),
 	}

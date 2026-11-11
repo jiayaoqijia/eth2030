@@ -41,12 +41,12 @@ const (
 
 // EIPEntry registers one EIP's integration test surface.
 type EIPEntry struct {
-	Number   int      // EIP number (0 for the PQC aggregate entry)
-	Title    string   // short name
-	Tier     Tier     // coverage tier
+	Number   int       // EIP number (0 for the PQC aggregate entry)
+	Title    string    // short name
+	Tier     Tier      // coverage tier
 	Surfaces []Surface // surfaces exercised by the test file
-	TestFile string   // file in pkg/eiptest (e.g. "eip7702_test.go"); empty iff Exempt set
-	Exempt   string   // documented exemption reason (must be non-empty iff TestFile empty)
+	TestFile string    // file in pkg/eiptest (e.g. "eip7702_test.go"); empty iff Exempt set
+	Exempt   string    // documented exemption reason (must be non-empty iff TestFile empty)
 }
 
 // Registry is the authoritative coverage table. Keep sorted by Number.

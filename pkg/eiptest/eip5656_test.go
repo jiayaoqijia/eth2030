@@ -25,7 +25,7 @@ func TestEIP5656_MCOPY(t *testing.T) {
 		0x5e,       // MCOPY(dst, src, len)
 		0x60, 0x02, // size
 		0x60, 0x00, // offset
-		0xf3,       // RETURN
+		0xf3, // RETURN
 	}
 	addr := stf.Deploy(s.Alice(), mcopy)
 	tx := stf.Tx(s.Alice(), addr, nil)

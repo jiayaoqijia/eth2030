@@ -23,7 +23,7 @@ func TestEIP2718_TypedEnvelopeMatrix(t *testing.T) {
 
 	// Builders run lazily so each tx gets a fresh nonce.
 	cases := []struct {
-		name string
+		name  string
 		build func() *types.Transaction
 	}{
 		{"legacy", func() *types.Transaction {

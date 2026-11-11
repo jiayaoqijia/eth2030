@@ -19,7 +19,7 @@ func TestEIP2200_SSTORERepricing(t *testing.T) {
 	set42 := []byte{
 		0x60, 0x2a, // PUSH1 42
 		0x60, 0x00, // PUSH1 0
-		0x55, // SSTORE
+		0x55,       // SSTORE
 		0x60, 0x2a, // PUSH1 42
 		0x60, 0x00, // PUSH1 0
 		0x55, // SSTORE (same value rewrite — 100 gas)

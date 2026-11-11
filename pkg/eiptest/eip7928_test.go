@@ -10,7 +10,6 @@ import (
 	"github.com/eth2030/eth2030/eiptest"
 )
 
-
 // TestEIP7928_BlockAccessList verifies EIP-7928 at the chain level: a block
 // with a value transfer produces a BAL whose entries cover the sender and
 // recipient (balance changes), with valid per-account access indexing.

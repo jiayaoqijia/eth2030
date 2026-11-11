@@ -54,11 +54,11 @@ func TestSimDemo(t *testing.T) {
 var contractStore42Init = []byte{
 	0x60, 0x2a, // PUSH1 42
 	0x60, 0x00, // PUSH1 0
-	0x55, // SSTORE
+	0x55,       // SSTORE
 	0x60, 0x01, // PUSH1 1  (runtime size)
 	0x60, 0x0c, // PUSH1 12 (runtime offset)
 	0x60, 0x00, // PUSH1 0
-	0x39, // CODECOPY
+	0x39,       // CODECOPY
 	0x60, 0x01, // PUSH1 1
 	0x60, 0x00, // PUSH1 0
 	0xf3, // RETURN

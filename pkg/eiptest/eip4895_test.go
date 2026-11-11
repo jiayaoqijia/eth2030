@@ -19,10 +19,10 @@ func TestEIP4895_Withdrawals(t *testing.T) {
 	before := s.Balance(scratch.Address)
 
 	wd := &types.Withdrawal{
-		Index:     1,
+		Index:          1,
 		ValidatorIndex: 7,
-		Address:   scratch.Address,
-		Amount:    1_000, // gwei
+		Address:        scratch.Address,
+		Amount:         1_000, // gwei
 	}
 	// Sim needs withdrawal support on commit: drive via the builder attrs
 	// through a custom commit. WirePool keeps the builder; use CommitWithdrawals.

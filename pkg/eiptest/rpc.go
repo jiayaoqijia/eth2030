@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/chain"
-	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/core/mev"
 	nodebackend "github.com/eth2030/eth2030/node/backend"
 	"github.com/eth2030/eth2030/proofs"
 	rpcserver "github.com/eth2030/eth2030/rpc"
+	"github.com/eth2030/eth2030/txpool"
 )
 
 // RPCProbe exposes the simulated chain through the production JSON-RPC server
@@ -128,6 +128,15 @@ type rpcError struct {
 }
 
 func (e *rpcError) Error() string { return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message) }
+
+// Value extracts a field of a JSON object result.
+func (p *RPCProbe) Value(result json.RawMessage, key string) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(result, &obj); err != nil {
+		return nil
+	}
+	return obj[key]
+}
 
 // ExpectField asserts the JSON object at result has key with the raw JSON
 // value wantJSON (e.g. `"0x1a"`, `null`, `[]`).

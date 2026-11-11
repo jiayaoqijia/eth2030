@@ -26,7 +26,7 @@ func TestEIP7547_ILSatisfaction(t *testing.T) {
 		t.Fatalf("encode tx: %v", err)
 	}
 	il := &focil.InclusionList{
-		Slot:           1,
+		Slot:          1,
 		ProposerIndex: 3,
 		Entries:       []focil.InclusionListEntry{{Transaction: enc}},
 	}

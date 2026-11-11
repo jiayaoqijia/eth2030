@@ -28,14 +28,14 @@ func TestEIP6780_SelfdestructRestriction(t *testing.T) {
 		0x57,       // JUMPI
 		0x60, 0x01, // PUSH1 1
 		0x60, 0x00, // PUSH1 0
-		0x55,       // SSTORE(0, 1)
+		0x55, // SSTORE(0, 1)
 	}
 	code := append([]byte{}, head...)
 	code = append(code, 0x73)
 	code = append(code, destroyTo[:]...)
-	code = append(code, 0xff) // SELFDESTRUCT
-	code = append(code, 0x5b) // JUMPDEST (target)
-	code = append(code, 0x00) // STOP
+	code = append(code, 0xff)          // SELFDESTRUCT
+	code = append(code, 0x5b)          // JUMPDEST (target)
+	code = append(code, 0x00)          // STOP
 	code[7] = byte(len(head) + 21 + 1) // jump target = after beneficiary+SELFDESTRUCT
 	addr := stf.Deploy(s.Alice(), code)
 

@@ -6,7 +6,6 @@ import (
 	"github.com/eth2030/eth2030/eiptest"
 )
 
-
 // TestEIP7904_GlamsterdamRepricing verifies EIP-7904 repricing through the
 // chain: after Glamsterdan, KECCAK256 costs 30 (was 30 → repriced) and the
 // changed opcode costs are observable via exact gas on identical bytecode
@@ -19,9 +18,9 @@ func TestEIP7904_GlamsterdamRepricing(t *testing.T) {
 	hasher := []byte{
 		0x60, 0x20, // size
 		0x60, 0x00, // offset
-		0x20,  // KECCAK256
+		0x20,       // KECCAK256
 		0x60, 0x00, // slot
-		0x55,  // SSTORE(0, hash) — observable side effect
+		0x55, // SSTORE(0, hash) — observable side effect
 		0x00,
 	}
 	addr := stf.Deploy(s.Alice(), hasher)
@@ -57,4 +56,3 @@ func TestEIP7904_GlamsterdamRepricing(t *testing.T) {
 		t.Fatalf("repricing had no observable effect: pre=%d post=%d (identical)", preGas, postGas)
 	}
 }
-

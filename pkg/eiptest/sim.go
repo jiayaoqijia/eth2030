@@ -12,6 +12,7 @@ import (
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/eiptest/contracts"
 	"github.com/eth2030/eth2030/txpool"
 )
 
@@ -26,18 +27,18 @@ import (
 // chain reader (BlockchainReader.StateAtBlock), so every block executes on the
 // real post-parent state with no manual rebuilds.
 type Sim struct {
-	t      *testing.T
-	cfg    *config.ChainConfig
-	bc     *chain.Blockchain
-	db     rawdb.Database
+	t       *testing.T
+	cfg     *config.ChainConfig
+	bc      *chain.Blockchain
+	db      rawdb.Database
 	builder *block.BlockBuilder
-	pool   *txpool.TxPool
+	pool    *txpool.TxPool
 	genesis *types.Block
 
-	now        uint64 // timestamp of the next block
-	timeStep   uint64
-	beneficiary types.Address
-	keyAccounts []*Account
+	now            uint64 // timestamp of the next block
+	timeStep       uint64
+	beneficiary    types.Address
+	keyAccounts    []*Account
 	scheduledForks map[Fork]uint64 // fork -> genesis-relative offset
 }
 
@@ -151,7 +152,7 @@ func (r *poolStateReader) snapshot() state.StateDB {
 	return st
 }
 
-func (r *poolStateReader) GetNonce(addr types.Address) uint64  { return r.snapshot().GetNonce(addr) }
+func (r *poolStateReader) GetNonce(addr types.Address) uint64 { return r.snapshot().GetNonce(addr) }
 func (r *poolStateReader) GetBalance(addr types.Address) *big.Int {
 	return r.snapshot().GetBalance(addr)
 }
@@ -172,7 +173,7 @@ func (s *Sim) CurrentBlock() *types.Block { return s.bc.CurrentBlock() }
 func (s *Sim) Now() uint64 { return s.nextTime() }
 
 func (s *Sim) nextTime() uint64 {
-	if t := s.bc.CurrentBlock().Time(); t+ s.timeStep > s.now {
+	if t := s.bc.CurrentBlock().Time(); t+s.timeStep > s.now {
 		return t + s.timeStep
 	}
 	return s.now
@@ -358,3 +359,6 @@ func (s *Sim) CommitWithWithdrawals(wds ...*types.Withdrawal) *BlockResult {
 	}
 	return &BlockResult{Sim: s, Block: blk, Receipts: receipts}
 }
+
+// Contracts exposes the solc-compiled scenario contracts (pkg/eiptest/contracts).
+func (s *Sim) Contracts() contracts.Named { return contracts.Named{} }
