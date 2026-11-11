@@ -1,5 +1,12 @@
 # Project Status
 
+## Execution SSZ Specification Review (2026-11-11)
+
+- Replaced the experimental transaction byte layout with the ten EIP-6404 compatible-union variants and typed Merkleization. The current EIP-7932 draft uses secp256k1 selector `0x00`. EIP-155 chain IDs and signature parity round-trip independently of the size of the original RLP `v`, preserving the original bytes and signing hash.
+- Replaced the block serializer with the published EIP-7807 payload and header summary. It retains EIP-2718 transaction and receipt envelopes and RLP withdrawals, and derives the typed Electra requests root. Both SSZ objects commit to the same root. The codec is available to callers with explicit execution inputs. Consensus activation, Engine API versioning and RPC migration remain separate fork work.
+- Corrected the empty EIP-7916 progressive basic list root and tightened canonical container offsets. Reference vectors use the published EIP schemas at `bd93d240b72702450920eeeadc2ce593626bfd8a`, pinned Electra definitions and `ethereum/remerkleable` at `2f0baeef0082d4278acaef7d822deb7009d7db7e`. They cover byte-for-byte encoding and roots for all ten transaction variants, an EIP-155 signed example, a large chain ID, both authorization variants, and an EIP-7807 payload with nonempty transaction, withdrawal and execution request data.
+- Verified deterministic vector regeneration, the uncached default Go suite (138.46 seconds), race checks for `ssz`, `core/types` and `eiptest`, the tagged integration suite, formatting, vet and build. Local verification used Go 1.27.3.
+
 ## EIP Test Framework Completion (2026-11-11)
 
 - The simulator returns the execution results from canonical block insertion. Regressions cover five-block state continuity, scheduled genesis JSON, exact fork timestamps and stable phase views, receipt and log assertions, state diagnostics, historical calls, and negative validation that preserves the head. Pool tests exercise admission, replacement, eviction, nonce ordering, branch rollback, and finalization.

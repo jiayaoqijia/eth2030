@@ -210,9 +210,3 @@ func MustHex(t *testing.T, s string) []byte {
 
 // Hex renders bytes as a 0x-prefixed hex string.
 func Hex(b []byte) string { return "0x" + hex.EncodeToString(b) }
-
-// BlockToSSZ and SSZToBlock expose the types package block SSZ codec to
-// external test packages.
-func BlockToSSZ(b *types.Block) ([]byte, error) { return types.BlockToSSZ(b) }
-
-func SSZToBlock(data []byte) (*types.Block, error) { return types.SSZToBlock(data) }

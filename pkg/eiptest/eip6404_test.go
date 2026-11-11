@@ -2,16 +2,12 @@ package eiptest_test
 
 import (
 	"errors"
-	"math/big"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/eiptest"
 )
 
-// TestEIP6404_SSZTransactions verifies SSZ serialization of typed
-// transactions (EIP-6404): decoding and canonical re-encoding across the envelope types
-// that support it.
 func TestEIP6404_SSZTransactions(t *testing.T) {
 	s := eiptest.New(t)
 	enc := s.Encoding()
@@ -19,24 +15,47 @@ func TestEIP6404_SSZTransactions(t *testing.T) {
 	alice := s.Alice()
 	bob := eiptest.ToPtr(s.Bob().Address)
 
-	cases := map[string]*types.Transaction{
-		"legacy":      eiptest.UnsignedLegacy(alice.Address, 1, bob, big.NewInt(1), nil, 21000, big.NewInt(2_000_000_000)),
-		"access-list": eiptest.UnsignedAccessList(alice.Address, chainID, 2, bob, big.NewInt(1), nil, 21000, big.NewInt(2_000_000_000), big.NewInt(1), nil),
-		"dynamic-fee": eiptest.UnsignedDynamicFee(alice.Address, chainID, 3, bob, big.NewInt(1), nil, 21000, big.NewInt(2_000_000_000), big.NewInt(1)),
-		"blob":        eiptest.UnsignedBlob(alice.Address, chainID, 4, *bob, eiptest.Wei(1), 100_000, bigFeeCap, bigTipCap, bigFeeCap, []types.Hash{eiptest.BlobHash(1)}),
-		"set-code":    eiptest.SetCode(chainID, alice, 5, *bob, 100_000, bigFeeCap, bigTipCap, []types.Authorization{eiptest.Auth(chainID, alice, *bob, 6)}),
+	cases := []struct {
+		name string
+		tx   *types.Transaction
+	}{
+		{"legacy-replayable-call", eiptest.Legacy(0, alice, 1, bob, eiptest.Wei(1), nil, 21_000, bigFeeCap)},
+		{"legacy-replayable-create", eiptest.Legacy(0, alice, 2, nil, nil, []byte{1}, 100_000, bigFeeCap)},
+		{"legacy-eip155-call", eiptest.Legacy(chainID.Uint64(), alice, 3, bob, eiptest.Wei(1), nil, 21_000, bigFeeCap)},
+		{"legacy-eip155-create", eiptest.Legacy(chainID.Uint64(), alice, 4, nil, nil, []byte{1}, 100_000, bigFeeCap)},
+		{"access-list-call", eiptest.AccessList(chainID, alice, 5, bob, eiptest.Wei(1), nil, 21_000, bigFeeCap, nil)},
+		{"access-list-create", eiptest.AccessList(chainID, alice, 6, nil, nil, []byte{1}, 100_000, bigFeeCap, nil)},
+		{"dynamic-fee-call", eiptest.DynamicFee(chainID, alice, 7, bob, eiptest.Wei(1), nil, 21_000, bigFeeCap, bigTipCap)},
+		{"dynamic-fee-create", eiptest.DynamicFee(chainID, alice, 8, nil, nil, []byte{1}, 100_000, bigFeeCap, bigTipCap)},
+		{"blob", eiptest.Blob(chainID, alice, 9, *bob, eiptest.Wei(1), 100_000, bigFeeCap, bigTipCap, bigFeeCap, []types.Hash{eiptest.BlobHash(1)}, nil)},
+		{"set-code", eiptest.SetCode(chainID, alice, 10, *bob, 100_000, bigFeeCap, bigTipCap, []types.Authorization{
+			eiptest.Auth(eiptest.Wei(0), alice, *bob, 11),
+			eiptest.Auth(chainID, alice, *bob, 12),
+		})},
 	}
-	for name, tx := range cases {
-		t.Run(name, func(t *testing.T) {
-			enc.SSZRoundTrip(t, tx)
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc.SSZRoundTrip(t, tc.tx)
+			wire, err := types.TransactionToSSZ(tc.tx)
+			if err != nil || wire[8] != byte(i+1) {
+				t.Fatalf("selector %x: %v", wire, err)
+			}
+			decoded, err := types.SSZToTransaction(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			from, err := types.MakeSigner(decoded.ChainId().Uint64(), decoded.Type()).Sender(decoded)
+			if err != nil || from != alice.Address {
+				t.Fatalf("sender %s: %v", from.Hex(), err)
+			}
 		})
 	}
 }
 
-func TestEIP6404_LegacySignatureOverflow(t *testing.T) {
+func TestEIP6404_RejectsUnsignedTransaction(t *testing.T) {
 	s := eiptest.New(t)
-	legacy := eiptest.Legacy(s.Config().ChainID.Uint64(), s.Alice(), 0, eiptest.ToPtr(s.Bob().Address), nil, nil, 21_000, bigFeeCap)
-	if _, err := types.TransactionToSSZ(legacy); !errors.Is(err, types.ErrSSZLegacySignature) {
-		t.Fatalf("legacy signature with large v: %v", err)
+	unsigned := eiptest.UnsignedLegacy(s.Alice().Address, 1, eiptest.ToPtr(s.Bob().Address), nil, nil, 21_000, bigFeeCap)
+	if _, err := types.TransactionToSSZ(unsigned); !errors.Is(err, types.ErrSSZTransactionSignature) {
+		t.Fatalf("unsigned transaction: %v", err)
 	}
 }

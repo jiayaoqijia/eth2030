@@ -732,7 +732,7 @@ func signingHashLegacy(tx *LegacyTx) Hash {
 	enc(tx.Value)
 	enc(tx.Data)
 
-	if chainID != nil && chainID.Sign() > 0 {
+	if tx.V != nil && tx.V.Cmp(big.NewInt(35)) >= 0 {
 		enc(chainID)
 		enc(uint(0))
 		enc(uint(0))

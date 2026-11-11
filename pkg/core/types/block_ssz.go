@@ -1,429 +1,336 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
-	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/eth2030/eth2030/ssz"
 )
 
-// SSZ encoding limits for blocks.
-const (
-	sszMaxWithdrawals = 1 << 14 // 16384
-	sszMaxExtra       = 1 << 5  // 32 bytes
-)
-
-// SSZ block errors.
-var (
-	ErrSSZBlockEncode  = errors.New("ssz: block encode error")
-	ErrSSZBlockDecode  = errors.New("ssz: block decode error")
-	ErrSSZHeaderDecode = errors.New("ssz: header decode error")
-)
-
-// HeaderToSSZ encodes a block header in SSZ format.
-// Fixed fields are encoded in order; Extra is a variable-length field.
-//
-// Layout:
-//
-//	ParentHash(32) | UncleHash(32) | Coinbase(20) | Root(32) | TxHash(32) |
-//	ReceiptHash(32) | Bloom(256) | Difficulty(32) | Number(32) | GasLimit(8) |
-//	GasUsed(8) | Time(8) | MixDigest(32) | Nonce(8) | BaseFee(32) |
-//	WithdrawalsHash(32) | BlobGasUsed(8) | ExcessBlobGas(8) |
-//	ParentBeaconRoot(32) | RequestsHash(32) | Extra_offset(4)
-func HeaderToSSZ(header *Header) ([]byte, error) {
-	parentHash := header.ParentHash[:]
-	uncleHash := header.UncleHash[:]
-	coinbase := header.Coinbase[:]
-	root := header.Root[:]
-	txHash := header.TxHash[:]
-	receiptHash := header.ReceiptHash[:]
-	bloom := header.Bloom[:]
-	difficulty := bigIntTo32(header.Difficulty)
-	number := bigIntTo32(header.Number)
-	gasLimit := ssz.MarshalUint64(header.GasLimit)
-	gasUsed := ssz.MarshalUint64(header.GasUsed)
-	time := ssz.MarshalUint64(header.Time)
-	mixDigest := header.MixDigest[:]
-	nonce := header.Nonce[:]
-
-	baseFee := bigIntTo32(header.BaseFee)
-
-	var withdrawalsHash []byte
-	if header.WithdrawalsHash != nil {
-		withdrawalsHash = header.WithdrawalsHash[:]
-	} else {
-		withdrawalsHash = make([]byte, 32)
-	}
-
-	var blobGasUsed []byte
-	if header.BlobGasUsed != nil {
-		blobGasUsed = ssz.MarshalUint64(*header.BlobGasUsed)
-	} else {
-		blobGasUsed = make([]byte, 8)
-	}
-
-	var excessBlobGas []byte
-	if header.ExcessBlobGas != nil {
-		excessBlobGas = ssz.MarshalUint64(*header.ExcessBlobGas)
-	} else {
-		excessBlobGas = make([]byte, 8)
-	}
-
-	var parentBeaconRoot []byte
-	if header.ParentBeaconRoot != nil {
-		parentBeaconRoot = header.ParentBeaconRoot[:]
-	} else {
-		parentBeaconRoot = make([]byte, 32)
-	}
-
-	var requestsHash []byte
-	if header.RequestsHash != nil {
-		requestsHash = header.RequestsHash[:]
-	} else {
-		requestsHash = make([]byte, 32)
-	}
-
-	extra := header.Extra
-	if extra == nil {
-		extra = []byte{}
-	}
-
-	// 20 fixed fields + 1 variable (extra)
-	fixedParts := [][]byte{
-		parentHash, uncleHash, coinbase, root, txHash,
-		receiptHash, bloom, difficulty, number, gasLimit,
-		gasUsed, time, mixDigest, nonce, baseFee,
-		withdrawalsHash, blobGasUsed, excessBlobGas, parentBeaconRoot, requestsHash,
-		nil, // extra offset
-	}
-	variableParts := [][]byte{extra}
-	variableIndices := []int{20}
-
-	return ssz.MarshalVariableContainer(fixedParts, variableParts, variableIndices), nil
+// ExecutionGasAmounts and ExecutionBaseFees encode the regular and blob
+// dimensions of the published EIP-7807 ExecutionPayload.
+type ExecutionGasAmounts struct {
+	Regular uint64
+	Blob    uint64
 }
 
-// sszHeaderFixedSize is the fixed portion of an SSZ-encoded header.
-// 32+32+20+32+32+32+256+32+32+8+8+8+32+8+32+32+8+8+32+32+4 = 672
-const sszHeaderFixedSize = 32 + 32 + 20 + 32 + 32 + 32 + 256 + 32 + 32 + 8 + 8 + 8 + 32 + 8 + 32 + 32 + 8 + 8 + 32 + 32 + 4
-
-// SSZToHeader decodes an SSZ-encoded header.
-func SSZToHeader(data []byte) (*Header, error) {
-	if len(data) < sszHeaderFixedSize {
-		return nil, ErrSSZHeaderDecode
-	}
-
-	h := &Header{}
-	off := 0
-
-	copy(h.ParentHash[:], data[off:off+32])
-	off += 32
-	copy(h.UncleHash[:], data[off:off+32])
-	off += 32
-	copy(h.Coinbase[:], data[off:off+20])
-	off += 20
-	copy(h.Root[:], data[off:off+32])
-	off += 32
-	copy(h.TxHash[:], data[off:off+32])
-	off += 32
-	copy(h.ReceiptHash[:], data[off:off+32])
-	off += 32
-	copy(h.Bloom[:], data[off:off+256])
-	off += 256
-	h.Difficulty, off = readBigInt32LE(data, off)
-	h.Number, off = readBigInt32LE(data, off)
-	h.GasLimit, off = readUint64LE(data, off)
-	h.GasUsed, off = readUint64LE(data, off)
-	h.Time, off = readUint64LE(data, off)
-	copy(h.MixDigest[:], data[off:off+32])
-	off += 32
-	copy(h.Nonce[:], data[off:off+8])
-	off += 8
-
-	h.BaseFee, off = readBigInt32LE(data, off)
-
-	var wh Hash
-	copy(wh[:], data[off:off+32])
-	off += 32
-	if wh != (Hash{}) {
-		h.WithdrawalsHash = &wh
-	}
-
-	bgu, _ := readUint64LE(data, off)
-	off += 8
-	if bgu != 0 {
-		h.BlobGasUsed = &bgu
-	}
-
-	ebg, _ := readUint64LE(data, off)
-	off += 8
-	if ebg != 0 {
-		h.ExcessBlobGas = &ebg
-	}
-
-	var pbr Hash
-	copy(pbr[:], data[off:off+32])
-	off += 32
-	if pbr != (Hash{}) {
-		h.ParentBeaconRoot = &pbr
-	}
-
-	var rh Hash
-	copy(rh[:], data[off:off+32])
-	off += 32
-	if rh != (Hash{}) {
-		h.RequestsHash = &rh
-	}
-
-	// Read extra data offset.
-	extraOffset, _ := readUint32LE(data, off)
-	if int(extraOffset) > len(data) {
-		return nil, ErrSSZHeaderDecode
-	}
-	h.Extra = make([]byte, len(data)-int(extraOffset))
-	copy(h.Extra, data[extraOffset:])
-
-	return h, nil
+type ExecutionBaseFees struct {
+	Regular *big.Int
+	Blob    *big.Int
 }
 
-// BlockToSSZ encodes a full block in SSZ format.
-// Layout: header_offset(4) | txs_offset(4) | withdrawals_offset(4) | header | txs | withdrawals
-func BlockToSSZ(block *Block) ([]byte, error) {
-	headerData, err := HeaderToSSZ(block.header)
+// ExecutionSSZFields are shared by the payload and its header summary.
+type ExecutionSSZFields struct {
+	ParentHash            Hash
+	Miner                 Address
+	StateRoot             Hash
+	ReceiptsRoot          Hash
+	Number                uint64
+	GasLimits             ExecutionGasAmounts
+	GasUsed               ExecutionGasAmounts
+	Timestamp             uint64
+	ExtraData             []byte
+	MixHash               Hash
+	BaseFeesPerGas        ExecutionBaseFees
+	ExcessGas             ExecutionGasAmounts
+	ParentBeaconBlockRoot Hash
+	RequestsHash          Hash
+	SlotNumber            uint64
+}
+
+// ExecutionPayloadSSZ is the published EIP-7807 payload. Transactions and
+// withdrawals retain their existing EIP-2718 and RLP element encodings.
+type ExecutionPayloadSSZ struct {
+	ExecutionSSZFields
+	Transactions    [][]byte
+	Withdrawals     [][]byte
+	BlockAccessList []byte
+}
+
+// ExecutionHeaderSSZ is the SSZ summary of an ExecutionPayloadSSZ.
+type ExecutionHeaderSSZ struct {
+	ExecutionSSZFields
+	TransactionsRoot    Hash
+	WithdrawalsRoot     Hash
+	BlockAccessListRoot Hash
+}
+
+// ExecutionSSZContext supplies the EIP-7807 inputs unavailable in an RLP block.
+type ExecutionSSZContext struct {
+	BlobGasLimit     uint64
+	BlobBaseFee      *big.Int
+	ExcessRegularGas uint64
+	Requests         Requests
+	BlockAccessList  []byte
+	SlotNumber       uint64
+}
+
+// NewExecutionPayloadSSZ projects a block and its execution outputs into the
+// EIP-7807 schema. RLP block roots and block IDs remain in their native format.
+func NewExecutionPayloadSSZ(block *Block, receipts []*Receipt, ctx ExecutionSSZContext) (*ExecutionPayloadSSZ, error) {
+	if block == nil {
+		return nil, fmt.Errorf("EIP-7807: missing block")
+	}
+	h := block.Header()
+	if h.Number == nil || !h.Number.IsUint64() || h.BaseFee == nil ||
+		h.BlobGasUsed == nil || h.ExcessBlobGas == nil || h.ParentBeaconRoot == nil ||
+		ctx.BlobBaseFee == nil || len(ctx.BlockAccessList) == 0 || len(block.Uncles()) != 0 {
+		return nil, fmt.Errorf("EIP-7807: missing post-merge execution payload fields")
+	}
+	if len(receipts) != len(block.Transactions()) {
+		return nil, fmt.Errorf("EIP-7807: receipt count %d differs from transaction count %d", len(receipts), len(block.Transactions()))
+	}
+	receiptsRoot, err := ExecutionReceiptsSSZRoot(receipts)
 	if err != nil {
 		return nil, err
 	}
-
-	// Encode transactions: 4-byte count + (4-byte offset per tx) + tx data.
-	txs := block.Transactions()
-	var txsData []byte
-	countBuf := make([]byte, 4)
-	binary.LittleEndian.PutUint32(countBuf, uint32(len(txs)))
-	txsData = append(txsData, countBuf...)
-
-	encodedTxs := make([][]byte, len(txs))
-	for i, tx := range txs {
-		encoded, err := TransactionToSSZ(tx)
+	requestsRoot, err := ExecutionRequestsSSZRoot(ctx.Requests)
+	if err != nil {
+		return nil, err
+	}
+	txs := make([][]byte, len(block.Transactions()))
+	for i, tx := range block.Transactions() {
+		if tx == nil {
+			return nil, fmt.Errorf("EIP-7807: nil transaction %d", i)
+		}
+		txs[i], err = tx.EncodeRLP()
 		if err != nil {
 			return nil, err
 		}
-		encodedTxs[i] = encoded
 	}
-
-	// Offsets start after count(4) + offsets(4*len).
-	txOffsetBase := 4 + 4*len(txs)
-	currentTxOffset := txOffsetBase
-	for _, enc := range encodedTxs {
-		ob := make([]byte, 4)
-		binary.LittleEndian.PutUint32(ob, uint32(currentTxOffset))
-		txsData = append(txsData, ob...)
-		currentTxOffset += len(enc)
+	withdrawals := make([][]byte, len(block.Withdrawals()))
+	for i, w := range block.Withdrawals() {
+		if w == nil {
+			return nil, fmt.Errorf("EIP-7807: nil withdrawal %d", i)
+		}
+		withdrawals[i] = EncodeWithdrawal(w)
 	}
-	for _, enc := range encodedTxs {
-		txsData = append(txsData, enc...)
-	}
-
-	// Encode withdrawals: 4-byte count + withdrawal data.
-	withdrawals := block.Withdrawals()
-	var wdData []byte
-	wdCountBuf := make([]byte, 4)
-	if withdrawals != nil {
-		binary.LittleEndian.PutUint32(wdCountBuf, uint32(len(withdrawals)))
-	}
-	wdData = append(wdData, wdCountBuf...)
-	for _, w := range withdrawals {
-		wdData = append(wdData, ssz.MarshalUint64(w.Index)...)
-		wdData = append(wdData, ssz.MarshalUint64(w.ValidatorIndex)...)
-		wdData = append(wdData, w.Address[:]...)
-		wdData = append(wdData, ssz.MarshalUint64(w.Amount)...)
-	}
-
-	// Container: 3 variable fields.
-	fixedParts := [][]byte{nil, nil, nil}
-	variableParts := [][]byte{headerData, txsData, wdData}
-	variableIndices := []int{0, 1, 2}
-
-	return ssz.MarshalVariableContainer(fixedParts, variableParts, variableIndices), nil
+	return &ExecutionPayloadSSZ{
+		ExecutionSSZFields: ExecutionSSZFields{
+			ParentHash: h.ParentHash, Miner: h.Coinbase, StateRoot: h.Root, ReceiptsRoot: receiptsRoot,
+			Number: h.Number.Uint64(), GasLimits: ExecutionGasAmounts{h.GasLimit, ctx.BlobGasLimit},
+			GasUsed: ExecutionGasAmounts{h.GasUsed, *h.BlobGasUsed}, Timestamp: h.Time,
+			ExtraData: h.Extra, MixHash: h.MixDigest,
+			BaseFeesPerGas:        ExecutionBaseFees{h.BaseFee, new(big.Int).Set(ctx.BlobBaseFee)},
+			ExcessGas:             ExecutionGasAmounts{ctx.ExcessRegularGas, *h.ExcessBlobGas},
+			ParentBeaconBlockRoot: *h.ParentBeaconRoot, RequestsHash: requestsRoot, SlotNumber: ctx.SlotNumber,
+		},
+		Transactions: txs, Withdrawals: withdrawals, BlockAccessList: bytes.Clone(ctx.BlockAccessList),
+	}, nil
 }
 
-// SSZToBlock decodes an SSZ-encoded block.
-func SSZToBlock(data []byte) (*Block, error) {
-	// Minimum: 3 offsets = 12 bytes.
-	if len(data) < 12 {
-		return nil, ErrSSZBlockDecode
+const executionPayloadMask = 1<<18 - 1
+
+var executionPayloadSizes = [...]int{32, 20, 32, 0, 32, 8, 16, 16, 8, 0, 32, 64, 0, 16, 32, 32, 0, 8}
+
+func executionHeaderSizes() [18]int {
+	sizes := executionPayloadSizes
+	sizes[3], sizes[12], sizes[16] = 32, 32, 32
+	return sizes
+}
+
+func encodeExecutionGas(gas ExecutionGasAmounts) []byte {
+	return append(ssz.MarshalUint64(gas.Regular), ssz.MarshalUint64(gas.Blob)...)
+}
+
+func decodeExecutionGas(data []byte) ExecutionGasAmounts {
+	return ExecutionGasAmounts{binary.LittleEndian.Uint64(data), binary.LittleEndian.Uint64(data[8:])}
+}
+
+func (f ExecutionSSZFields) parts() ([18][]byte, error) {
+	if len(f.ExtraData) > 32 {
+		return [18][]byte{}, fmt.Errorf("EIP-7807: extra data exceeds 32 bytes")
 	}
-
-	headerOff := binary.LittleEndian.Uint32(data[0:4])
-	txsOff := binary.LittleEndian.Uint32(data[4:8])
-	wdOff := binary.LittleEndian.Uint32(data[8:12])
-
-	if int(headerOff) > len(data) || int(txsOff) > len(data) || int(wdOff) > len(data) {
-		return nil, ErrSSZBlockDecode
+	regular, err := sszUint256(f.BaseFeesPerGas.Regular)
+	if err != nil {
+		return [18][]byte{}, err
 	}
+	blob, err := sszUint256(f.BaseFeesPerGas.Blob)
+	if err != nil {
+		return [18][]byte{}, err
+	}
+	return [18][]byte{
+		f.ParentHash[:], f.Miner[:], f.StateRoot[:], nil, f.ReceiptsRoot[:],
+		ssz.MarshalUint64(f.Number), encodeExecutionGas(f.GasLimits), encodeExecutionGas(f.GasUsed),
+		ssz.MarshalUint64(f.Timestamp), f.ExtraData, f.MixHash[:], append(regular, blob...), nil,
+		encodeExecutionGas(f.ExcessGas), f.ParentBeaconBlockRoot[:], f.RequestsHash[:], nil,
+		ssz.MarshalUint64(f.SlotNumber),
+	}, nil
+}
 
-	// Decode header.
-	headerData := data[headerOff:txsOff]
-	header, err := SSZToHeader(headerData)
+func decodeExecutionSSZFields(f [][]byte) (ExecutionSSZFields, error) {
+	if len(f[9]) > 32 {
+		return ExecutionSSZFields{}, fmt.Errorf("EIP-7807: extra data exceeds 32 bytes")
+	}
+	return ExecutionSSZFields{
+		ParentHash: BytesToHash(f[0]), Miner: BytesToAddress(f[1]), StateRoot: BytesToHash(f[2]),
+		ReceiptsRoot: BytesToHash(f[4]), Number: binary.LittleEndian.Uint64(f[5]),
+		GasLimits: decodeExecutionGas(f[6]), GasUsed: decodeExecutionGas(f[7]),
+		Timestamp: binary.LittleEndian.Uint64(f[8]), ExtraData: f[9], MixHash: BytesToHash(f[10]),
+		BaseFeesPerGas: ExecutionBaseFees{bigIntFrom32LE(f[11][:32]), bigIntFrom32LE(f[11][32:])},
+		ExcessGas:      decodeExecutionGas(f[13]), ParentBeaconBlockRoot: BytesToHash(f[14]),
+		RequestsHash: BytesToHash(f[15]), SlotNumber: binary.LittleEndian.Uint64(f[17]),
+	}, nil
+}
+
+func (p ExecutionPayloadSSZ) MarshalSSZ() ([]byte, error) {
+	f, err := p.ExecutionSSZFields.parts()
 	if err != nil {
 		return nil, err
 	}
-
-	// Decode transactions.
-	txsData := data[txsOff:wdOff]
-	txs, err := decodeTxsSSZ(txsData)
+	f[3], err = marshalExecutionSSZList(p.Transactions)
 	if err != nil {
 		return nil, err
 	}
-
-	// Decode withdrawals.
-	wdData := data[wdOff:]
-	withdrawals := decodeWithdrawalsSSZ(wdData)
-
-	body := &Body{
-		Transactions: txs,
-		Withdrawals:  withdrawals,
+	f[12], err = marshalExecutionSSZList(p.Withdrawals)
+	if err != nil {
+		return nil, err
 	}
-
-	return NewBlock(header, body), nil
+	f[16] = p.BlockAccessList
+	return marshalExecutionSSZFields(f[:], executionPayloadSizes[:])
 }
 
-// decodeTxsSSZ decodes the transaction section: count(4) | offsets(4*count) | tx_data...
-func decodeTxsSSZ(data []byte) ([]*Transaction, error) {
-	if len(data) < 4 {
-		return nil, ErrSSZBlockDecode
+func (p *ExecutionPayloadSSZ) UnmarshalSSZ(data []byte) error {
+	parts, err := ssz.UnmarshalVariableContainer(data, len(executionPayloadSizes), executionPayloadSizes[:])
+	if err != nil {
+		return err
 	}
-	count := binary.LittleEndian.Uint32(data[0:4])
-	if count == 0 {
-		return nil, nil
+	fields, err := decodeExecutionSSZFields(parts)
+	if err != nil {
+		return err
 	}
+	txs, err := unmarshalExecutionSSZList(parts[3])
+	if err != nil {
+		return err
+	}
+	withdrawals, err := unmarshalExecutionSSZList(parts[12])
+	if err != nil {
+		return err
+	}
+	*p = ExecutionPayloadSSZ{ExecutionSSZFields: fields, Transactions: txs, Withdrawals: withdrawals, BlockAccessList: parts[16]}
+	return nil
+}
 
-	offsetsEnd := 4 + 4*int(count)
-	if offsetsEnd > len(data) {
-		return nil, ErrSSZBlockDecode
+// Header summarizes the payload by replacing the transaction, withdrawal and
+// block access list fields with their tree roots.
+func (p ExecutionPayloadSSZ) Header() ExecutionHeaderSSZ {
+	return ExecutionHeaderSSZ{
+		ExecutionSSZFields:  p.ExecutionSSZFields,
+		TransactionsRoot:    executionEnvelopeRoot(p.Transactions),
+		WithdrawalsRoot:     executionEnvelopeRoot(p.Withdrawals),
+		BlockAccessListRoot: Hash(progressiveBytesRoot(p.BlockAccessList)),
 	}
+}
 
-	offsets := make([]int, count)
-	for i := 0; i < int(count); i++ {
-		offsets[i] = int(binary.LittleEndian.Uint32(data[4+4*i : 4+4*i+4]))
+func (p ExecutionPayloadSSZ) HashTreeRoot() (Hash, error) {
+	return p.Header().HashTreeRoot()
+}
+
+func (h ExecutionHeaderSSZ) parts() ([18][]byte, error) {
+	f, err := h.ExecutionSSZFields.parts()
+	f[3], f[12], f[16] = h.TransactionsRoot[:], h.WithdrawalsRoot[:], h.BlockAccessListRoot[:]
+	return f, err
+}
+
+func (h ExecutionHeaderSSZ) MarshalSSZ() ([]byte, error) {
+	fields, err := h.parts()
+	if err != nil {
+		return nil, err
 	}
+	sizes := executionHeaderSizes()
+	return marshalExecutionSSZFields(fields[:], sizes[:])
+}
 
-	txs := make([]*Transaction, count)
-	for i := 0; i < int(count); i++ {
-		start := offsets[i]
-		var end int
-		if i+1 < int(count) {
-			end = offsets[i+1]
-		} else {
-			end = len(data)
+func (h *ExecutionHeaderSSZ) UnmarshalSSZ(data []byte) error {
+	sizes := executionHeaderSizes()
+	parts, err := ssz.UnmarshalVariableContainer(data, len(sizes), sizes[:])
+	if err != nil {
+		return err
+	}
+	fields, err := decodeExecutionSSZFields(parts)
+	if err != nil {
+		return err
+	}
+	*h = ExecutionHeaderSSZ{fields, BytesToHash(parts[3]), BytesToHash(parts[12]), BytesToHash(parts[16])}
+	return nil
+}
+
+func (h ExecutionHeaderSSZ) HashTreeRoot() (Hash, error) {
+	f, err := h.parts()
+	if err != nil {
+		return Hash{}, err
+	}
+	var roots [18][32]byte
+	for i := range roots {
+		switch i {
+		case 6, 7, 13:
+			amounts := decodeExecutionGas(f[i])
+			roots[i] = executionProgressiveRoot([][32]byte{ssz.HashTreeRootUint64(amounts.Regular), ssz.HashTreeRootUint64(amounts.Blob)}, 3)
+		case 9:
+			roots[i] = ssz.HashTreeRootByteList(f[i], 32)
+		case 11:
+			roots[i] = executionProgressiveRoot(ssz.Pack(f[i]), 3)
+		default:
+			copy(roots[i][:], f[i])
 		}
-		if start > end || end > len(data) {
-			return nil, ErrSSZBlockDecode
+	}
+	return Hash(executionProgressiveRoot(roots[:], executionPayloadMask)), nil
+}
+
+func executionEnvelopeRoot(elements [][]byte) Hash {
+	roots := make([][32]byte, len(elements))
+	for i, raw := range elements {
+		roots[i] = progressiveBytesRoot(raw)
+	}
+	return Hash(ssz.HashTreeRootProgressiveList(roots))
+}
+
+// ExecutionReceiptsSSZRoot computes the EIP-7807 root of existing receipt envelopes.
+func ExecutionReceiptsSSZRoot(receipts []*Receipt) (Hash, error) {
+	elements := make([][]byte, len(receipts))
+	for i, receipt := range receipts {
+		if receipt == nil {
+			return Hash{}, fmt.Errorf("EIP-7807: nil receipt %d", i)
 		}
-		tx, err := SSZToTransaction(data[start:end])
+		raw, err := receipt.EncodeRLP()
 		if err != nil {
-			return nil, err
+			return Hash{}, err
 		}
-		txs[i] = tx
+		elements[i] = raw
 	}
-	return txs, nil
+	return executionEnvelopeRoot(elements), nil
 }
 
-// decodeWithdrawalsSSZ decodes the withdrawals section.
-// Each withdrawal: index(8) | validatorIndex(8) | address(20) | amount(8) = 44 bytes.
-func decodeWithdrawalsSSZ(data []byte) []*Withdrawal {
-	if len(data) < 4 {
-		return nil
-	}
-	count := binary.LittleEndian.Uint32(data[0:4])
-	if count == 0 {
-		return nil
-	}
-
-	const wdSize = 8 + 8 + 20 + 8 // 44
-	off := 4
-	withdrawals := make([]*Withdrawal, 0, count)
-	for i := uint32(0); i < count; i++ {
-		if off+wdSize > len(data) {
-			break
+// ExecutionRequestsSSZRoot is the consensus ExecutionRequests root over the
+// three Electra request lists, reconstructed from EIP-7685 request groups.
+func ExecutionRequestsSSZRoot(requests Requests) (Hash, error) {
+	fieldSizes := [3][]int{{48, 32, 8, 96, 8}, {20, 48, 8}, {20, 48, 48}}
+	elementSizes := [3]int{192, 76, 116}
+	limits := [3]int{8192, 16, 2}
+	var lists [3][][32]byte
+	for _, request := range requests {
+		if request == nil || int(request.Type) >= len(lists) {
+			return Hash{}, fmt.Errorf("EIP-7807: unknown execution request type")
 		}
-		w := &Withdrawal{}
-		w.Index = binary.LittleEndian.Uint64(data[off : off+8])
-		off += 8
-		w.ValidatorIndex = binary.LittleEndian.Uint64(data[off : off+8])
-		off += 8
-		copy(w.Address[:], data[off:off+20])
-		off += 20
-		w.Amount = binary.LittleEndian.Uint64(data[off : off+8])
-		off += 8
-		withdrawals = append(withdrawals, w)
+		i := int(request.Type)
+		size := elementSizes[i]
+		if len(request.Data) == 0 || len(request.Data)%size != 0 || len(lists[i])+len(request.Data)/size > limits[i] {
+			return Hash{}, fmt.Errorf("EIP-7807: invalid execution request data for type %d", i)
+		}
+		for at := 0; at < len(request.Data); {
+			var fields [][32]byte
+			for _, width := range fieldSizes[i] {
+				fields = append(fields, ssz.Merkleize(ssz.Pack(request.Data[at:at+width]), 0))
+				at += width
+			}
+			lists[i] = append(lists[i], ssz.HashTreeRootContainer(fields))
+		}
 	}
-	return withdrawals
-}
-
-// BlockSSZRoot computes the SSZ hash tree root for an entire block.
-func BlockSSZRoot(block *Block) (Hash, error) {
-	// Compute header root.
-	headerSSZ, err := HeaderToSSZ(block.header)
-	if err != nil {
-		return Hash{}, err
+	var roots [3][32]byte
+	for i := range roots {
+		roots[i] = ssz.HashTreeRootList(lists[i], limits[i])
 	}
-	headerChunks := ssz.Pack(headerSSZ)
-	headerRoot := ssz.Merkleize(headerChunks, 0)
-
-	// Compute transactions root.
-	txsRoot, err := TransactionsSSZRoot(block.Transactions())
-	if err != nil {
-		return Hash{}, err
-	}
-
-	// Compute withdrawals root.
-	withdrawals := block.Withdrawals()
-	var wdRoots [][32]byte
-	for _, w := range withdrawals {
-		var buf [44]byte
-		binary.LittleEndian.PutUint64(buf[0:8], w.Index)
-		binary.LittleEndian.PutUint64(buf[8:16], w.ValidatorIndex)
-		copy(buf[16:36], w.Address[:])
-		binary.LittleEndian.PutUint64(buf[36:44], w.Amount)
-		chunks := ssz.Pack(buf[:])
-		root := ssz.Merkleize(chunks, 0)
-		wdRoots = append(wdRoots, root)
-	}
-	wdRoot := ssz.HashTreeRootList(wdRoots, sszMaxWithdrawals)
-
-	// Container root: hash tree root of [headerRoot, txsRoot, wdRoot].
-	var txsRoot32 [32]byte
-	copy(txsRoot32[:], txsRoot[:])
-
-	fieldRoots := [][32]byte{headerRoot, txsRoot32, wdRoot}
-	root := ssz.HashTreeRootContainer(fieldRoots)
-
-	var h Hash
-	copy(h[:], root[:])
-	return h, nil
-}
-
-// HeaderSSZRoot computes the SSZ hash tree root for a header.
-func HeaderSSZRoot(header *Header) (Hash, error) {
-	encoded, err := HeaderToSSZ(header)
-	if err != nil {
-		return Hash{}, err
-	}
-	chunks := ssz.Pack(encoded)
-	root := ssz.Merkleize(chunks, 0)
-	var h Hash
-	copy(h[:], root[:])
-	return h, nil
-}
-
-// bigIntTo32 is defined in tx_ssz.go, reuse it here.
-// bigIntFrom32LE is defined in tx_ssz.go, reuse it here.
-// readUint64LE, readUint32LE, readBigInt32LE are defined in tx_ssz.go.
-
-// headerBigIntField extracts a *big.Int field, returning nil if zero.
-func headerBigIntField(v *big.Int) *big.Int {
-	if v == nil || v.Sign() == 0 {
-		return nil
-	}
-	return new(big.Int).Set(v)
+	return Hash(ssz.HashTreeRootContainer(roots[:])), nil
 }

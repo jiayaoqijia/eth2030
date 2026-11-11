@@ -75,10 +75,13 @@ signing and sender-cache variants. AA and Frame use their protocol-specific
 authorization mechanisms. Local transactions are sender-cached, and EOF
 creation uses an ordinary create envelope with EOF initcode.
 
-The current repository SSZ codec supports the legacy, access-list, dynamic-fee,
-blob, and set-code formats. Its legacy `v` field fits one byte, so encoding a
-larger replay-protected `v` returns an explicit error. Use RLP for that envelope
-until the codec adopts the EIP-6404 signature representation.
+The EIP-6404 probe round-trips all ten normalized transaction variants.
+EIP-155 chain IDs and signature parity are stored separately and converted back
+to the original RLP `v`. The EIP-7807 test builds a real Amsterdam block and
+projects its receipts, requests and access list into the published SSZ payload
+schema. Its header summary and payload produce the same SSZ root. The
+[execution type documentation](../core/types/README.md) describes the draft
+revisions and the available codec entry points.
 
 ## Scenario contracts and fixtures
 

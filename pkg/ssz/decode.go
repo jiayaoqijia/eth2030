@@ -142,16 +142,21 @@ func UnmarshalVariableContainer(data []byte, numFields int, fixedSizes []int) ([
 		}
 	}
 
+	if len(offsets) == 0 && pos != len(data) {
+		return nil, ErrSize
+	}
+	if len(offsets) != 0 && uint64(offsets[0]) != uint64(pos) {
+		return nil, ErrOffset
+	}
+
 	// Decode variable-size fields using the offsets.
 	for i, idx := range offsetFieldIndices {
-		start := int(offsets[i])
-		var end int
+		start := uint64(offsets[i])
+		end := uint64(len(data))
 		if i+1 < len(offsets) {
-			end = int(offsets[i+1])
-		} else {
-			end = len(data)
+			end = uint64(offsets[i+1])
 		}
-		if start > end || end > len(data) {
+		if start > end || end > uint64(len(data)) {
 			return nil, ErrOffset
 		}
 		fields[idx] = make([]byte, end-start)

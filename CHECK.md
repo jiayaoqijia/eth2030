@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Execution SSZ Specification Review
+
+- [x] Compare transaction and block encodings with the pinned and published EIP drafts.
+- [x] Normalize EIP-6404 transaction bytes, signatures, and Merkle roots.
+- [x] Implement the published EIP-7807 payload and header summary codecs.
+- [x] Verify independent vectors and affected suites.
+
 ## EIP Test Framework Completion
 
 - [x] Repair simulator results, fork timing, transaction signing, and failure assertions.

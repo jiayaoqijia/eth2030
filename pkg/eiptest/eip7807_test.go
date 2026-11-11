@@ -1,52 +1,62 @@
 package eiptest_test
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/eiptest"
 )
 
-// TestEIP7807_SSZBlocks verifies SSZ block serialization round-trips at the
-// type level: encode → decode preserves timestamps, gas fields, base fee and
-// the requests hash.
-//
-// KNOWN GAP (documented): SSZToBlock does not restore ParentBeaconRoot, so
-// full block-hash equality does not hold for the decoded header yet. This
-// test asserts the fields the codec round-trips and pins the gap so a codec
-// fix flips the assertion.
-func TestEIP7807_SSZBlocks(t *testing.T) {
-	s := eiptest.New(t)
-	s.Commit()
-	s.Commit()
+func TestEIP7807_ExecutionPayloadAndSummary(t *testing.T) {
+	s := eiptest.New(t, eiptest.ForkAt(eiptest.ForkAmsterdam, 0))
+	tx := eiptest.DynamicFee(s.Config().ChainID, s.Alice(), 0, eiptest.ToPtr(s.Bob().Address), eiptest.Wei(7), nil, 21_000, bigFeeCap, bigTipCap)
+	root := types.Hash{0x42}
+	result := s.CommitWithBeaconRoot(root, tx)
+	eiptest.ExpectSuccess(t, result, 0)
+	access, err := result.BAL.EncodeRLP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := types.NewExecutionPayloadSSZ(result.Block, result.Receipts, types.ExecutionSSZContext{
+		BlobGasLimit: 6 * 131_072, BlobBaseFee: eiptest.Wei(1), SlotNumber: 1,
+		Requests: result.Requests, BlockAccessList: access,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := payload.MarshalSSZ()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded types.ExecutionPayloadSSZ
+	if err := decoded.UnmarshalSSZ(wire); err != nil {
+		t.Fatal(err)
+	}
+	txRLP, err := tx.EncodeRLP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Transactions) != 1 || !bytes.Equal(decoded.Transactions[0], txRLP) ||
+		decoded.ParentBeaconBlockRoot != root || !bytes.Equal(decoded.BlockAccessList, access) || decoded.SlotNumber != 1 {
+		t.Fatal("payload changed execution fields or transaction envelope")
+	}
 
-	for n := uint64(1); n <= 2; n++ {
-		blk := s.Block(n)
-		enc, err := eiptest.BlockToSSZ(blk)
-		if err != nil {
-			t.Fatalf("block %d: BlockToSSZ: %v", n, err)
-		}
-		if len(enc) == 0 {
-			t.Fatalf("block %d: empty SSZ encoding", n)
-		}
-		dec, err := eiptest.SSZToBlock(enc)
-		if err != nil {
-			t.Fatalf("block %d: SSZToBlock: %v", n, err)
-		}
-		h1, h2 := blk.Header(), dec.Header()
-		if h1.Time != h2.Time {
-			t.Fatalf("block %d: time mismatch %d vs %d", n, h1.Time, h2.Time)
-		}
-		if h1.GasUsed != h2.GasUsed || h1.GasLimit != h2.GasLimit {
-			t.Fatalf("block %d: gas mismatch", n)
-		}
-		if h1.BaseFee.Cmp(h2.BaseFee) != 0 {
-			t.Fatalf("block %d: base fee mismatch %v vs %v", n, h1.BaseFee, h2.BaseFee)
-		}
-		if h1.RequestsHash != nil && h2.RequestsHash != nil && *h1.RequestsHash != *h2.RequestsHash {
-			t.Fatalf("block %d: requests hash mismatch", n)
-		}
-		if h1.Root != h2.Root {
-			t.Fatalf("block %d: state root mismatch %s vs %s", n, h1.Root.Hex(), h2.Root.Hex())
-		}
+	h := decoded.Header()
+	summary, err := h.MarshalSSZ()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored types.ExecutionHeaderSSZ
+	if err := restored.UnmarshalSSZ(summary); err != nil {
+		t.Fatal(err)
+	}
+	payloadRoot, err := decoded.HashTreeRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	headerRoot, err := restored.HashTreeRoot()
+	if err != nil || payloadRoot != headerRoot || payloadRoot == result.Block.Hash() {
+		t.Fatalf("payload root %s, header root %s, RLP hash %s: %v", payloadRoot.Hex(), headerRoot.Hex(), result.Block.Hash().Hex(), err)
 	}
 }

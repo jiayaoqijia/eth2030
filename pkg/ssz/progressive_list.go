@@ -217,6 +217,17 @@ func standardMerkleProof(chunks [][32]byte, limit int, target int, gindex uint64
 
 // --- Convenience functions for typed progressive lists ---
 
+// HashTreeRootProgressiveContainer implements EIP-7495. Field roots are
+// positioned by active-field index; inactive positions are zero chunks.
+func HashTreeRootProgressiveContainer(fieldRoots [][32]byte, activeFields [32]byte) [32]byte {
+	return hash(merkleizeProgressive(fieldRoots, 1), activeFields)
+}
+
+// HashTreeRootCompatibleUnion mixes the EIP-8016 selector into its value root.
+func HashTreeRootCompatibleUnion(valueRoot [32]byte, selector uint8) [32]byte {
+	return hash(valueRoot, HashTreeRootUint8(selector))
+}
+
 // HashTreeRootProgressiveList computes the hash tree root of a progressive
 // list where each element is provided as its 32-byte hash tree root.
 func HashTreeRootProgressiveList(elementRoots [][32]byte) [32]byte {
@@ -228,7 +239,10 @@ func HashTreeRootProgressiveList(elementRoots [][32]byte) [32]byte {
 // progressive list of basic type elements. The serialized data is packed
 // into chunks, then progressive-Merkleized and mixed with length.
 func HashTreeRootProgressiveBasicList(serialized []byte, count int) [32]byte {
-	chunks := Pack(serialized)
+	var chunks [][32]byte
+	if len(serialized) != 0 {
+		chunks = Pack(serialized)
+	}
 	root := merkleizeProgressive(chunks, 1)
 	return MixInLength(root, uint64(count))
 }
