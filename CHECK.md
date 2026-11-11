@@ -1,5 +1,56 @@
 # Lean4 Verification Check-list
 
+## Next Phase Planning (2026-11-11)
+
+Baseline: `master` at `137006e` (PR #48, `feat/eiptest-framework` merged). Re-verify each
+gap against current code before starting — parts of the 2026-03 gap analysis are stale
+(BAL header hash and `engine_getInclusionListV1` already exist).
+
+### Track 0 — Housekeeping
+
+- [x] Fast-forward local `master` to `origin/master`.
+- [ ] Delete merged local branch `feat/eiptest-framework` (remote already deleted).
+
+### Track 1 — Glamsterdam / ePBS closure (P0)
+
+- [ ] EIP-7732 ePBS (85%): PTC election/voting wiring into fork-choice (types exist in `pkg/epbs/types.go`); BuilderPendingPayment/Withdrawal payment mechanism; builder registry (balance/deposit/withdrawable epoch); CL integration (payload → SignedBuilderBid in BeaconBlockBody); wire `epbs/bid SubmitBid` to a real builder entry point.
+- [ ] EIP-7975 (ETH/70 partial block receipts) and EIP-8159 (ETH/71 BAL exchange): move from referenced-only (`pkg/eth/protocol.go`, `pkg/p2p/ethproto`) to implemented and tested.
+- [ ] EIP-7928 BAL residual gaps: Engine BAL mismatch must reject (probe currently only logs); verify remaining 10% gap items against the 2026-03 analysis.
+- [ ] EIP-7594 PeerDAS (80%): column subnet gossip, custody, <50% column reconstruction, txpool `cell_proofs`.
+
+### Track 2 — Hegotá closure (P1)
+
+- [ ] EIP-7805 FOCIL (85%): CL P2P inclusion-list gossip validation rules; equivocation (duplicate IL per committee member) evidence handling.
+- [ ] EIP-8141 FrameTx residual: re-verify APPROVE scope semantics (0x0/0x1/0x2) against the current draft; payer gas approval path; frame receipt format.
+- [ ] EIP-7495 SSZ StableContainer: add tests (currently referenced-only).
+- [ ] EIP-8025 Execution Proofs: close out to complete.
+- [ ] SSZ fork activation (EIP-6404/7807/7916): consensus activation, Engine API versioning, RPC migration (explicitly deferred fork work).
+
+### Track 3 — Node fundamentals (cross-cutting)
+
+- [ ] Real snap sync: re-verify stub status of `pkg/sync/statesync` + `pkg/sync/healer` (UNWIRED_CODE.md is dated 2026-03-09); replace stubs if still present so the node can snap-sync from zero.
+- [ ] CL-driven beacon sync loop (`pkg/sync/beacon`).
+- [ ] Wire own consensus components (3SF, quick slots, PQ attestations) into node lifecycle.
+
+### Track 4 — I* / PQ direction
+
+- [ ] PQC suite: real implementations for Dilithium3, Falcon-512, SPHINCS+ (ML-DSA-65 is real).
+- [ ] EIP-7932 PQ registry and EIP-8051 PQ gas costs: add tests.
+- [ ] EIP-7864 Binary Merkle Trie: continue toward complete.
+- [ ] Remaining STARK / lattice / aggregation protocol migrations (CODEBASE_AUDIT §VII).
+
+### Track 5 — eiptest framework (incremental)
+
+- [ ] T5.1: opportunistic migration of `pkg/`-root E2E scenarios as files are touched.
+- [ ] T4.3: post-first-feature ergonomics notes in the framework README.
+
+### Track 6 — Devnet and site
+
+- [ ] Gloas devnet dependency (recorded at `a75a67a`); full-feature devnet run validating ePBS + FOCIL + BAL together.
+- [ ] Site publishing: deployment workflow names `eth2030.com` while GitHub Pages binds `eth2030.altllm.ai`.
+
+Recommended start order: Track 1 (ePBS PTC + fork-choice is the largest single P0), Track 3 snap-sync in parallel, Track 6 devnet as the integration gate.
+
 ## Native Execution Requests and SSZ Integration
 
 - [x] Trace native request collection, block commitment, replay, and Engine API handling against the EIPs.
