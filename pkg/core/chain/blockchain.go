@@ -570,19 +570,9 @@ func (bc *Blockchain) insertBlock(blk *types.Block, inserted **execution.Process
 		return err
 	}
 
-	// EIP-7685: process requests before state root (may modify state).
-	if bc.config != nil && bc.config.IsPrague(header.Time) {
-		requests, err := execution.ProcessRequests(bc.config, statedb, header)
-		if err != nil {
-			blockchainLog.Error("block_requests_fail",
-				"event", "block_requests_fail",
-				"hash", hash.Hex(),
-				"num", num,
-				"error", err,
-			)
-			return fmt.Errorf("process requests block %d: %w", num, err)
-		}
-		result.Requests = requests
+	// EIP-7685: commit only the requests reproduced by execution.
+	if err := bc.validator.ValidateRequests(header, result.Requests); err != nil {
+		return fmt.Errorf("block %d requests: %w", num, err)
 	}
 
 	// Validate state root.

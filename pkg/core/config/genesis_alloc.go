@@ -4,6 +4,10 @@
 package config
 
 import (
+	"bytes"
+	"crypto/sha256"
+	_ "embed"
+	"encoding/binary"
 	"encoding/json"
 	"math/big"
 	"sort"
@@ -11,6 +15,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // System contract addresses not yet in core/types.
@@ -73,49 +78,46 @@ func TestnetGenesisBlock() *Genesis {
 // root contract, EIP-2935 block hash history, and Prague deposit/withdrawal/
 // consolidation request contracts.
 func SystemContractAlloc() GenesisAlloc {
-	alloc := make(GenesisAlloc)
+	alloc := ExecutionRequestContractAlloc()
 
-	// EIP-4788: Beacon Block Root contract (stores parent beacon root).
 	alloc[beaconRootsAddress] = GenesisAccount{
-		Code:    beaconRootStubCode(),
-		Balance: new(big.Int),
-		Nonce:   1,
+		Code: beaconRootStubCode(), Balance: new(big.Int), Nonce: 1,
 	}
-
-	// EIP-2935: Block Hash History contract.
 	alloc[historyStorageAddress] = GenesisAccount{
-		Code:    blockHashStubCode(),
-		Balance: new(big.Int),
-		Nonce:   1,
+		Code: blockHashStubCode(), Balance: new(big.Int), Nonce: 1,
 	}
-
-	// EIP-6110: Deposit Contract.
-	alloc[types.DepositContractAddress] = GenesisAccount{
-		Code:    depositStubCode(),
-		Balance: new(big.Int),
-		Nonce:   1,
-	}
-
-	// EIP-7002: Withdrawal Request Contract.
-	alloc[types.WithdrawalRequestAddress] = GenesisAccount{
-		Code:    withdrawalRequestStubCode(),
-		Balance: new(big.Int),
-		Nonce:   1,
-	}
-
-	// EIP-7251: Consolidation Request Contract.
-	alloc[types.ConsolidationRequestAddress] = GenesisAccount{
-		Code:    consolidationRequestStubCode(),
-		Balance: new(big.Int),
-		Nonce:   1,
-	}
-
 	return alloc
 }
 
-// Stub bytecodes for system contracts. In production these would be the
-// actual deployed bytecode from the EIPs. For now we use simple stubs
-// that mark accounts as having code (non-empty code hash).
+// depositContractCode is the deployed runtime from the pinned execution-specs
+// Prague allocation. The other request runtimes come from the Geth dependency.
+//
+//go:embed contracts/deposit.bin
+var depositContractCode []byte
+
+// ExecutionRequestContractAlloc supplies the Prague request contracts for new
+// test and private chains. Public networks deploy their contracts on-chain.
+func ExecutionRequestContractAlloc() GenesisAlloc {
+	const depth = types.DepositContractTreeDepth
+	storage := make(map[types.Hash]types.Hash, depth-1)
+	next := sha256.Sum256(make([]byte, 64))
+	for i := depth + 2; i <= depth*2; i++ {
+		var slot types.Hash
+		binary.BigEndian.PutUint64(slot[24:], uint64(i))
+		storage[slot] = types.Hash(next)
+		var pair [64]byte
+		copy(pair[:32], next[:])
+		copy(pair[32:], next[:])
+		next = sha256.Sum256(pair[:])
+	}
+	return GenesisAlloc{
+		types.DepositContractAddress:      {Code: bytes.Clone(depositContractCode), Balance: new(big.Int), Nonce: 1, Storage: storage},
+		types.WithdrawalRequestAddress:    {Code: bytes.Clone(params.WithdrawalQueueCode), Balance: new(big.Int), Nonce: 1},
+		types.ConsolidationRequestAddress: {Code: bytes.Clone(params.ConsolidationQueueCode), Balance: new(big.Int), Nonce: 1},
+	}
+}
+
+// Beacon and history stubs accompany the native storage transitions.
 
 func beaconRootStubCode() []byte {
 	// Minimal bytecode: PUSH0 PUSH0 SSTORE STOP (stores 0 at slot 0).
@@ -123,18 +125,6 @@ func beaconRootStubCode() []byte {
 }
 
 func blockHashStubCode() []byte {
-	return []byte{0x5F, 0x5F, 0x55, 0x00}
-}
-
-func depositStubCode() []byte {
-	return []byte{0x5F, 0x5F, 0x55, 0x00}
-}
-
-func withdrawalRequestStubCode() []byte {
-	return []byte{0x5F, 0x5F, 0x55, 0x00}
-}
-
-func consolidationRequestStubCode() []byte {
 	return []byte{0x5F, 0x5F, 0x55, 0x00}
 }
 

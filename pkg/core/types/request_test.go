@@ -540,3 +540,25 @@ func TestComputeRequestsHash_TypeMatters(t *testing.T) {
 		t.Error("different types with same data should produce different hashes")
 	}
 }
+
+func TestEIP7685WireRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		wire  [][]byte
+		valid bool
+	}{
+		{"empty array", [][]byte{}, true},
+		{"sorted groups", [][]byte{{0, 1}, {2, 3}}, true},
+		{"future group", [][]byte{{255, 1}}, true},
+		{"null", nil, false},
+		{"empty data", [][]byte{{0}}, false},
+		{"duplicate type", [][]byte{{0, 1}, {0, 2}}, false},
+		{"descending type", [][]byte{{2, 1}, {0, 2}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateExecutionRequestsWire(tc.wire); (err == nil) != tc.valid {
+				t.Fatalf("wire validation: %v", err)
+			}
+		})
+	}
+}

@@ -77,6 +77,8 @@ type simOptions struct {
 	forkTimes   map[Fork]uint64 // Never = deactivated
 	alloc       config.GenesisAlloc
 	poolConfig  *txpool.Config
+
+	requireRequestPredeploys bool
 }
 
 func defaultSimOptions() *simOptions {
@@ -109,6 +111,17 @@ func Fund(addr types.Address, wei *big.Int) SimOption {
 func FundCode(addr types.Address, wei *big.Int, code []byte, nonce uint64) SimOption {
 	return func(o *simOptions) error {
 		o.alloc[addr] = config.GenesisAccount{Balance: wei, Code: code, Nonce: nonce}
+		return nil
+	}
+}
+
+// WithRequestContracts deploys the Prague request contracts in the genesis state.
+func WithRequestContracts() SimOption {
+	return func(o *simOptions) error {
+		for address, account := range config.ExecutionRequestContractAlloc() {
+			o.alloc[address] = account
+		}
+		o.requireRequestPredeploys = true
 		return nil
 	}
 }
@@ -158,6 +171,8 @@ func WithPoolConfig(cfg txpool.Config) SimOption {
 // ForkAt options (unset forks stay inactive).
 func (o *simOptions) buildChainConfig() (*config.ChainConfig, error) {
 	cfg := &config.ChainConfig{
+		RequireRequestPredeploys: o.requireRequestPredeploys,
+
 		ChainID:                 new(big.Int).SetUint64(o.chainID),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),

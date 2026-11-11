@@ -8,6 +8,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -51,89 +52,69 @@ var (
 	ErrTooManyDeposits     = errors.New("deposit: too many deposits in payload")
 )
 
-// ParseDepositLog extracts a DepositRequest from a deposit contract log.
-// The log must have the correct topic0 and be emitted by the deposit contract.
-//
-// The deposit contract encodes the log data as ABI-encoded dynamic bytes:
-//
-//	offset_pubkey(32) | offset_credentials(32) | offset_amount(32) |
-//	offset_signature(32) | offset_index(32) |
-//	len_pubkey(32) | pubkey(48) | padding(16) |
-//	len_credentials(32) | credentials(32) |
-//	len_amount(32) | amount(8) | padding(24) |
-//	len_signature(32) | signature(96) |
-//	len_index(32) | index(8) | padding(24)
-//
-// Total data length: at least 576 bytes.
+// ParseDepositLog extracts a deposit emitted by the mainnet deposit contract.
 func ParseDepositLog(log *Log) (*DepositRequest, error) {
-	if log == nil {
+	return parseDepositLog(log, DepositContractAddress)
+}
+
+func parseDepositLog(log *Log, address Address) (*DepositRequest, error) {
+	if log == nil || log.Address != address {
 		return nil, ErrDepositLogInvalid
 	}
-
-	// Verify the log source and topic.
-	if log.Address != DepositContractAddress {
-		return nil, fmt.Errorf("%w: wrong address %s", ErrDepositLogInvalid, log.Address.Hex())
-	}
-	if len(log.Topics) < 1 || log.Topics[0] != DepositEventTopic {
+	if len(log.Topics) == 0 || log.Topics[0] != DepositEventTopic {
 		return nil, ErrDepositLogTopic
 	}
-
-	data := log.Data
-	// Minimum length: 5 offsets (160) + 5 lengths (160) + actual data (48+32+8+96+8=192)
-	// plus ABI padding = 576 bytes.
-	const minDataLen = 576
-	if len(data) < minDataLen {
-		return nil, fmt.Errorf("%w: got %d bytes, need >= %d",
-			ErrDepositDataTooShort, len(data), minDataLen)
+	if len(log.Data) < 576 {
+		return nil, fmt.Errorf("%w: got %d bytes, want 576", ErrDepositDataTooShort, len(log.Data))
+	}
+	if len(log.Data) != 576 {
+		return nil, fmt.Errorf("%w: got %d bytes, want 576", ErrDepositLogInvalid, len(log.Data))
 	}
 
-	d := &DepositRequest{}
-
-	// Read ABI-encoded offsets (each is a 32-byte big-endian uint256).
-	pubkeyOffset := readABIOffset(data, 0)
-	credentialsOffset := readABIOffset(data, 32)
-	amountOffset := readABIOffset(data, 64)
-	signatureOffset := readABIOffset(data, 96)
-	indexOffset := readABIOffset(data, 128)
-
-	// Read pubkey: offset -> length(32) -> data(48).
-	if pubkeyOffset+32+48 > len(data) {
-		return nil, ErrDepositDataTooShort
+	// EIP-6110 requires the exact DepositEvent ABI layout, including the
+	// complete 256-bit offset and length words for each dynamic field.
+	offsets := [...]int{160, 256, 320, 384, 512}
+	sizes := [...]int{48, 32, 8, 96, 8}
+	for i, offset := range offsets {
+		var word [32]byte
+		binary.BigEndian.PutUint64(word[24:], uint64(offset))
+		if !bytes.Equal(log.Data[i*32:(i+1)*32], word[:]) {
+			return nil, fmt.Errorf("%w: field %d offset", ErrDepositLogInvalid, i)
+		}
+		binary.BigEndian.PutUint64(word[24:], uint64(sizes[i]))
+		if !bytes.Equal(log.Data[offset:offset+32], word[:]) {
+			return nil, fmt.Errorf("%w: field %d length", ErrDepositLogInvalid, i)
+		}
 	}
-	copy(d.Pubkey[:], data[pubkeyOffset+32:pubkeyOffset+32+48])
-
-	// Read withdrawal credentials: offset -> length(32) -> data(32).
-	if credentialsOffset+32+32 > len(data) {
-		return nil, ErrDepositDataTooShort
+	d := &DepositRequest{
+		Amount: binary.LittleEndian.Uint64(log.Data[352:360]),
+		Index:  binary.LittleEndian.Uint64(log.Data[544:552]),
 	}
-	copy(d.WithdrawalCredentials[:], data[credentialsOffset+32:credentialsOffset+32+32])
-
-	// Read amount: offset -> length(32) -> data(8), little-endian.
-	if amountOffset+32+8 > len(data) {
-		return nil, ErrDepositDataTooShort
-	}
-	d.Amount = binary.LittleEndian.Uint64(data[amountOffset+32 : amountOffset+32+8])
-
-	// Read signature: offset -> length(32) -> data(96).
-	if signatureOffset+32+96 > len(data) {
-		return nil, ErrDepositDataTooShort
-	}
-	copy(d.Signature[:], data[signatureOffset+32:signatureOffset+32+96])
-
-	// Read index: offset -> length(32) -> data(8), little-endian.
-	if indexOffset+32+8 > len(data) {
-		return nil, ErrDepositDataTooShort
-	}
-	d.Index = binary.LittleEndian.Uint64(data[indexOffset+32 : indexOffset+32+8])
-
+	copy(d.Pubkey[:], log.Data[192:240])
+	copy(d.WithdrawalCredentials[:], log.Data[288:320])
+	copy(d.Signature[:], log.Data[416:512])
 	return d, nil
 }
 
-// readABIOffset reads a 32-byte big-endian offset value from ABI-encoded data.
-// In practice, Ethereum ABI offsets fit in a uint32.
-func readABIOffset(data []byte, pos int) int {
-	// The offset is in the last 4 bytes of the 32-byte word (big-endian uint256).
-	return int(binary.BigEndian.Uint32(data[pos+28 : pos+32]))
+// DepositRequestData returns concatenated EIP-6110 records in receipt and log order.
+func DepositRequestData(receipts []*Receipt, address Address) ([]byte, error) {
+	var data []byte
+	for _, receipt := range receipts {
+		if receipt == nil {
+			continue
+		}
+		for _, log := range receipt.Logs {
+			if log == nil || log.Address != address || len(log.Topics) == 0 || log.Topics[0] != DepositEventTopic {
+				continue
+			}
+			deposit, err := parseDepositLog(log, address)
+			if err != nil {
+				return nil, err
+			}
+			data = append(data, deposit.Encode()...)
+		}
+	}
+	return data, nil
 }
 
 // DepositRequestHashTreeRoot computes the SSZ hash tree root of a single
@@ -202,7 +183,7 @@ func ValidateDepositRequest(d *DepositRequest) error {
 func FilterDepositLogs(logs []*Log) []*DepositRequest {
 	var deposits []*DepositRequest
 	for _, log := range logs {
-		if log.Address != DepositContractAddress {
+		if log == nil || log.Address != DepositContractAddress {
 			continue
 		}
 		if len(log.Topics) < 1 || log.Topics[0] != DepositEventTopic {

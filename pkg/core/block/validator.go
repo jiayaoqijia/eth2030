@@ -284,7 +284,10 @@ func (v *BlockValidator) ValidateRequests(header *types.Header, requests types.R
 		return fmt.Errorf("%w: post-Prague block missing requests_hash", ErrInvalidRequestHash)
 	}
 
-	return types.ValidateRequestsHash(header, requests)
+	if err := types.ValidateRequestsHash(header, requests); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequestHash, err)
+	}
+	return nil
 }
 
 // ValidateBlockAccessList verifies the Block Access List (BAL) hash in the

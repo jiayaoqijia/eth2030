@@ -213,7 +213,7 @@ func (api *EngineAPI) NewPayloadV4(
 	}
 
 	// EIP-7685: executionRequests must be provided (can be empty list, not nil).
-	if executionRequests == nil {
+	if err := types.ValidateExecutionRequestsWire(executionRequests); err != nil {
 		return PayloadStatusV1{}, ErrInvalidParams
 	}
 
@@ -257,7 +257,7 @@ func (api *EngineAPI) NewPayloadV5(
 	}
 
 	// EIP-7685: executionRequests must be provided.
-	if executionRequests == nil {
+	if err := types.ValidateExecutionRequestsWire(executionRequests); err != nil {
 		return PayloadStatusV1{}, ErrInvalidParams
 	}
 

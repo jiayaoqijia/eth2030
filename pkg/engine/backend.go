@@ -41,6 +41,7 @@ const (
 type pendingPayload struct {
 	block        *types.Block
 	receipts     []*types.Receipt
+	requests     types.Requests
 	bal          *bal.BlockAccessList // EIP-7928
 	blockValue   *big.Int
 	parentHash   types.Hash
@@ -702,9 +703,9 @@ func (b *EngineBackend) ProcessBlockV4(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (PayloadStatusV1, error) {
-	// Delegate to ProcessBlock for core validation; execution requests are
-	// stored alongside the block but validated at a higher level.
-	return b.ProcessBlock(payload, expectedBlobVersionedHashes, parentBeaconBlockRoot)
+	var extended ExecutionPayloadV5
+	extended.ExecutionPayloadV3 = *payload
+	return b.processRequestPayload(&extended, parentBeaconBlockRoot, executionRequests, false)
 }
 
 // GetHeadTimestamp returns the timestamp of the current head block.
@@ -1106,10 +1107,23 @@ func (b *EngineBackend) ProcessBlockV5(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (PayloadStatusV1, error) {
+	return b.processRequestPayload(payload, parentBeaconBlockRoot, executionRequests, true)
+}
+
+func (b *EngineBackend) processRequestPayload(
+	payload *ExecutionPayloadV5, parentBeaconBlockRoot types.Hash, executionRequests [][]byte, withBAL bool,
+) (PayloadStatusV1, error) {
+	if err := types.ValidateExecutionRequestsWire(executionRequests); err != nil {
+		return PayloadStatusV1{}, ErrInvalidParams
+	}
+	version := "V4"
+	if withBAL {
+		version = "V5"
+	}
 	metrics.EngineNewPayload.Inc()
 	backendLog.Debug("payload_received",
 		"event", "payload_received",
-		"version", "V5",
+		"version", version,
 		"blockHash", payload.BlockHash.Hex(),
 		"blockNum", payload.BlockNumber,
 		"parentHash", payload.ParentHash.Hex(),
@@ -1124,7 +1138,7 @@ func (b *EngineBackend) ProcessBlockV5(
 		errMsg := err.Error()
 		backendLog.Warn("payload_invalid",
 			"event", "payload_invalid",
-			"version", "V5",
+			"version", version,
 			"blockHash", payload.BlockHash.Hex(),
 			"reason", "payload decode failed",
 			"error", errMsg,
@@ -1143,7 +1157,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	if !parentOk {
 		backendLog.Debug("payload_syncing",
 			"event", "payload_syncing",
-			"version", "V5",
+			"version", version,
 			"blockHash", payload.BlockHash.Hex(),
 			"parentHash", parentHash.Hex(),
 		)
@@ -1155,21 +1169,10 @@ func (b *EngineBackend) ProcessBlockV5(
 		header.ParentBeaconRoot = &parentBeaconBlockRoot
 	}
 	if b.config.IsPrague(header.Time) {
-		var requests types.Requests
-		for _, raw := range executionRequests {
-			if len(raw) != 0 {
-				request, err := types.DecodeRequest(raw)
-				if err != nil {
-					message := err.Error()
-					return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
-				}
-				requests = append(requests, request)
-			}
-		}
-		hash := types.ComputeRequestsHash(requests)
+		hash := types.ComputeWireRequestsHash(executionRequests)
 		header.RequestsHash = &hash
 	}
-	if b.config.IsAmsterdam(header.Time) {
+	if withBAL && b.config.IsAmsterdam(header.Time) {
 		hash, err := enginepayload.DecodeBlockAccessList(payload.BlockAccessList)
 		if err != nil {
 			message := err.Error()
@@ -1187,6 +1190,20 @@ func (b *EngineBackend) ProcessBlockV5(
 		blk = restoreCalldataGasFields(blk, parentBlock, payload.BlockHash)
 	}
 
+	if blk.Hash() != payload.BlockHash {
+		message := "payload block hash does not match reconstructed header"
+		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
+	}
+	if _, known := b.getBlock(blk.Hash()); known {
+		hash := blk.Hash()
+		return PayloadStatusV1{Status: StatusValid, LatestValidHash: &hash}, nil
+	}
+
+	if payload.Timestamp <= parentBlock.Time() {
+		message := fmt.Sprintf("invalid timestamp: block %d <= parent %d", payload.Timestamp, parentBlock.Time())
+		return PayloadStatusV1{Status: StatusInvalid, LatestValidHash: &parentHash, ValidationError: &message}, nil
+	}
+
 	// Run through the state processor with BAL computation.
 	stateCopy := b.statedb.Dup()
 	result, err := b.processor.ProcessWithBAL(blk, stateCopy)
@@ -1194,7 +1211,7 @@ func (b *EngineBackend) ProcessBlockV5(
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
 		backendLog.Error("payload_exec_fail",
 			"event", "payload_exec_fail",
-			"version", "V5",
+			"version", version,
 			"blockHash", payload.BlockHash.Hex(),
 			"blockNum", payload.BlockNumber,
 			"error", err,
@@ -1211,9 +1228,9 @@ func (b *EngineBackend) ProcessBlockV5(
 			return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
 		}
 	}
-	if blk.Hash() != payload.BlockHash {
-		message := "payload block hash does not match reconstructed header"
-		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &message}, nil
+	if err := types.ValidateRequestsHash(blk.Header(), result.Requests); err != nil {
+		message := err.Error()
+		return PayloadStatusV1{Status: StatusInvalid, LatestValidHash: &parentHash, ValidationError: &message}, nil
 	}
 
 	// EIP-7805: check IL satisfaction against block and stored ILs.
@@ -1256,7 +1273,7 @@ func (b *EngineBackend) ProcessBlockV5(
 
 	backendLog.Info("payload_valid",
 		"event", "payload_valid",
-		"version", "V5",
+		"version", version,
 		"blockHash", blockHash.Hex(),
 		"blockNum", payload.BlockNumber,
 		"txCount", len(payload.Transactions),
@@ -1325,7 +1342,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		builder.SetState(b.statedb.Dup())
 		parentHeader := parentBlock.Header()
 
-		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
+		blk, built, err := builder.BuildBlockWithResult(parentHeader, &block.BuildBlockAttributes{
 			Timestamp:        attrs.Timestamp,
 			FeeRecipient:     attrs.SuggestedFeeRecipient,
 			Random:           attrs.PrevRandao,
@@ -1338,19 +1355,12 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			return ForkchoiceUpdatedResult{}, fmt.Errorf("payload build failed: %w", err)
 		}
 
-		// Compute BAL for the built block (EIP-7928).
-		var blockBAL *bal.BlockAccessList
-		if b.config.IsAmsterdam(attrs.Timestamp) {
-			stateCopy2 := b.statedb.Dup()
-			balResult, err := b.processor.ProcessWithBAL(blk, stateCopy2)
-			if err == nil && balResult != nil {
-				blockBAL = balResult.BlockAccessList
-			}
-		}
+		receipts, blockBAL := built.Receipts, built.BlockAccessList
 
 		b.storePayload(id, &pendingPayload{
 			block:        blk,
 			receipts:     receipts,
+			requests:     built.Requests,
 			bal:          blockBAL,
 			blockValue:   new(big.Int),
 			parentHash:   fcState.HeadBlockHash,
@@ -1396,7 +1406,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 			ExecutionPayload:  &ep4.ExecutionPayloadV3,
 			BlockValue:        result.BlockValue,
 			BlobsBundle:       collectBlobsBundleV1(result.Block.Transactions()),
-			ExecutionRequests: [][]byte{},
+			ExecutionRequests: result.Requests.Encode(),
 		}, nil
 	}
 
@@ -1411,7 +1421,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 		ExecutionPayload:  &ep4.ExecutionPayloadV3,
 		BlockValue:        new(big.Int).Set(pending.blockValue),
 		BlobsBundle:       collectBlobsBundleV1(pending.block.Transactions()),
-		ExecutionRequests: [][]byte{},
+		ExecutionRequests: pending.requests.Encode(),
 	}, nil
 }
 
@@ -1431,7 +1441,7 @@ func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error
 			BlockValue:        result.BlockValue,
 			BlobsBundle:       collectBlobsBundleV2(result.Block.Transactions()),
 			Override:          false,
-			ExecutionRequests: [][]byte{},
+			ExecutionRequests: result.Requests.Encode(),
 		}, nil
 	}
 
@@ -1447,7 +1457,7 @@ func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error
 		BlockValue:        pending.blockValue,
 		BlobsBundle:       collectBlobsBundleV2(pending.block.Transactions()),
 		Override:          false,
-		ExecutionRequests: [][]byte{},
+		ExecutionRequests: pending.requests.Encode(),
 	}, nil
 }
 
@@ -1467,7 +1477,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 			ExecutionPayload:  ep5,
 			BlockValue:        result.BlockValue,
 			BlobsBundle:       collectBlobsBundle(result.Block.Transactions()),
-			ExecutionRequests: [][]byte{},
+			ExecutionRequests: result.Requests.Encode(),
 		}, nil
 	}
 
@@ -1482,7 +1492,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 		ExecutionPayload:  ep5,
 		BlockValue:        new(big.Int).Set(pending.blockValue),
 		BlobsBundle:       collectBlobsBundle(pending.block.Transactions()),
-		ExecutionRequests: [][]byte{},
+		ExecutionRequests: pending.requests.Encode(),
 	}, nil
 }
 

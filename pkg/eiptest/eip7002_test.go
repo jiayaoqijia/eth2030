@@ -1,39 +1,35 @@
 package eiptest_test
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/eiptest"
 )
 
-// TestEIP7002_WithdrawalRequests verifies EIP-7002 at the request-queue
-// level: the withdrawal request system contract's storage queue drains into
-// typed 0x01 requests through the shared requests processor.
 func TestEIP7002_WithdrawalRequests(t *testing.T) {
-	s := eiptest.New(t)
-	st := s.State()
+	s := eiptest.New(t, eiptest.WithRequestContracts())
+	tx, record := nativeWithdrawal(s, 0)
+	result := s.Commit(tx)
+	eiptest.ExpectSuccess(t, result, 0)
+	if len(result.Requests) != 1 || result.Requests[0].Type != types.WithdrawalRequestType ||
+		!bytes.Equal(result.Requests[0].Data, record) {
+		t.Fatalf("withdrawal request data mismatch: %+v", result.Requests)
+	}
+	if len(s.Commit().Requests) != 0 {
+		t.Fatal("withdrawal queue was not drained")
+	}
+}
 
-	wd := types.WithdrawalRequestAddress
-	st.SetCode(wd, []byte{0x00})
-	st.SetState(wd, types.Hash{}, eiptest.Uint64ToHash(1))
-	// 48-byte pubkey + 8-byte amount is the request payload; the queue packs
-	// one word per request in this layout.
-	var word types.Hash
-	word[0] = types.WithdrawalRequestType
-	word[31] = 42 // amount
-	st.SetState(wd, types.BytesToHash([]byte{0x01}), word)
-
-	header := s.CurrentBlock().Header()
-	requests, err := execution.ProcessRequests(s.Config(), st, header)
-	if err != nil {
-		t.Fatalf("ProcessRequests: %v", err)
+func nativeWithdrawal(s *eiptest.Sim, nonce uint64) (*types.Transaction, []byte) {
+	request := types.WithdrawalRequest{
+		SourceAddress: s.Alice().Address, ValidatorPubkey: [48]byte{0x55}, Amount: 0x0102030405,
 	}
-	if len(requests) != 1 {
-		t.Fatalf("withdrawal requests = %d, want 1", len(requests))
-	}
-	if requests[0].Type != types.WithdrawalRequestType {
-		t.Fatalf("request type = %d, want 0x01 (withdrawal)", requests[0].Type)
-	}
+	var input [56]byte
+	copy(input[:48], request.ValidatorPubkey[:])
+	binary.BigEndian.PutUint64(input[48:], request.Amount)
+	tx := eiptest.DynamicFee(s.Config().ChainID, s.Alice(), nonce, eiptest.ToPtr(types.WithdrawalRequestAddress), eiptest.Wei(1), input[:], 200_000, bigFeeCap, bigTipCap)
+	return tx, request.Encode()
 }

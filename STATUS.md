@@ -1,5 +1,12 @@
 # Project Status
 
+## Native Execution Requests and SSZ Integration (2026-11-11)
+
+- Replaced the 32-byte storage fixture path with canonical native execution. EIP-6110 deposits come from matching receipt logs with the exact ABI layout and produce 192-byte records in log order. The EIP-7002 and EIP-7251 system calls execute the canonical queue contracts and return 76-byte withdrawal and 116-byte consolidation records. The native public-network configurations require queue code. `WithRequestContracts` and `ExecutionRequestContractAlloc` provide the deployed runtimes for new private and test chains. The deposit runtime comes from execution-specs at `c708ab6075973b6b928d17ec073dd43a7fe161b6`.
+- Block builders, replayers, and validators share post-transaction finalization. Header commitments use the requests derived from execution, and the post-execution BAL records queue writes. Engine payload builders return the canonical request groups, including through the asynchronous builder. Prague and Amsterdam payload validation rejects malformed wire ordering and mismatches between supplied and executed requests.
+- Verified two real deposits in one block and all three request types through the native Amsterdam Engine HTTP path, an independent receiver, block replay, and the EIP-7807 projection. A payload with altered requests and a matching advertised header hash was rejected by execution validation. The valid payload produced the expected typed consensus requests root, and the next block emitted no repeated requests.
+- The default Go suite with required EF fixtures passed in 130.82 seconds. Affected race checks, the tagged integration suite, formatting, vet and build passed. The native request integration tests passed 20 repetitions. Four isolated mutations that dropped deposits, withdrawals or async build output, or skipped request-commitment validation, each failed its intended regression. Local verification used Go 1.27.3.
+
 ## Execution SSZ and Framework Test Effectiveness Review (2026-11-11)
 
 - Reviewed the pushed `b3972f0` branch with the CI-shaped default Go suite and required EF fixtures. After the test updates, 19,424 top-level Go tests passed and seven existing top-level skips were reported. All 68 framework tests passed with zero skips. The pinned EF results were 36,264 passes, zero failures or skips, and 20 known legacy outcomes. The default command took 130.74 seconds using Go 1.27.3.

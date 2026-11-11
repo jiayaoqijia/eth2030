@@ -36,6 +36,7 @@ func makeGenesisInteg(gasLimit uint64, baseFee *big.Int) *types.Block {
 	calldataExcessGas := uint64(0)
 	emptyWithdrawalsHash := types.EmptyRootHash
 	emptyRoot := types.EmptyRootHash
+	emptyRequestsHash := types.EmptyRequestsHash
 	header := &types.Header{
 		Number:            big.NewInt(0),
 		GasLimit:          gasLimit,
@@ -48,7 +49,7 @@ func makeGenesisInteg(gasLimit uint64, baseFee *big.Int) *types.Block {
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
 		ParentBeaconRoot:  &emptyRoot,
-		RequestsHash:      &emptyRoot,
+		RequestsHash:      &emptyRequestsHash,
 		CalldataGasUsed:   &calldataGasUsed,
 		CalldataExcessGas: &calldataExcessGas,
 	}
@@ -92,7 +93,7 @@ func makeBlockWithStateInteg(parent *types.Block, txs []*types.Transaction, stat
 
 	emptyWHash := types.EmptyRootHash
 	emptyBeaconRoot := types.EmptyRootHash
-	emptyRequestsHash := types.EmptyRootHash
+	emptyRequestsHash := types.EmptyRequestsHash
 	header := &types.Header{
 		ParentHash:        parent.Hash(),
 		Number:            new(big.Int).Add(parentHeader.Number, big.NewInt(1)),
@@ -647,7 +648,7 @@ func TestReorg_Simple(t *testing.T) {
 	b1Header.ExcessBlobGas = &b1ExcessBlobGas
 	b1BeaconRoot := types.EmptyRootHash
 	b1Header.ParentBeaconRoot = &b1BeaconRoot
-	b1RequestsHash := types.EmptyRootHash
+	b1RequestsHash := types.EmptyRequestsHash
 	b1Header.RequestsHash = &b1RequestsHash
 	b1CalldataGasUsed := uint64(0)
 	var pCalldataExcess, pCalldataUsed uint64

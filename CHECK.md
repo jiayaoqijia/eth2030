@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Native Execution Requests and SSZ Integration
+
+- [x] Trace native request collection, block commitment, replay, and Engine API handling against the EIPs.
+- [x] Collect canonical deposit, withdrawal, and consolidation requests through the native execution paths.
+- [x] Verify nonempty requests through block building, validation, Engine API, and the SSZ projection.
+- [x] Run affected and default suites and record the results.
+
 ## Execution SSZ and Framework Test Effectiveness Review
 
 - [x] Verify the branch and run the default, tagged, and race suites.

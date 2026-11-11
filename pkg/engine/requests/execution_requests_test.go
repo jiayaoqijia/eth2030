@@ -2,7 +2,10 @@ package requests
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"testing"
+
+	"github.com/eth2030/eth2030/core/types"
 )
 
 // makeDepositData creates valid deposit request data of the given item count.
@@ -169,9 +172,8 @@ func TestValidateExecutionRequestList_EmptyData(t *testing.T) {
 }
 
 func TestValidateExecutionRequestList_TooMany(t *testing.T) {
-	// 17 items exceeds MaxExecutionRequestsPerType=16.
 	reqs := []*ExecutionRequest{
-		{Type: ExecReqDepositType, Data: makeDepositData(17)},
+		{Type: ExecReqWithdrawalType, Data: makeWithdrawalReqData(types.MaxWithdrawalRequestsPerPayload + 1)},
 	}
 	err := ValidateExecutionRequestList(reqs)
 	if err == nil {
@@ -212,9 +214,8 @@ func TestExecutionRequest_Encode(t *testing.T) {
 
 func TestExecutionRequestsHash_Empty(t *testing.T) {
 	h := ComputeExecutionRequestsHash(nil)
-	var zero [32]byte
-	if h != zero {
-		t.Errorf("expected zero hash for nil requests, got %x", h)
+	if h != types.EmptyRequestsHash {
+		t.Errorf("empty requests hash = %s", h.Hex())
 	}
 }
 
@@ -223,16 +224,11 @@ func TestExecutionRequestsHash_NonEmpty(t *testing.T) {
 		append([]byte{ExecReqDepositType}, makeDepositData(1)...),
 		append([]byte{ExecReqWithdrawalType}, makeWithdrawalReqData(1)...),
 	}
-	h := ComputeExecutionRequestsHash(raw)
-	var zero [32]byte
-	if h == zero {
-		t.Error("expected non-zero hash for non-empty requests")
-	}
-
-	// Same input should produce same hash.
-	h2 := ComputeExecutionRequestsHash(raw)
-	if h != h2 {
-		t.Error("hash is not deterministic")
+	first := sha256.Sum256(raw[0])
+	second := sha256.Sum256(raw[1])
+	want := types.Hash(sha256.Sum256(append(first[:], second[:]...)))
+	if h := ComputeExecutionRequestsHash(raw); h != want {
+		t.Fatalf("requests hash %s, want %s", h.Hex(), want.Hex())
 	}
 }
 

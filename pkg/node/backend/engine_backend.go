@@ -251,14 +251,10 @@ func (b *EngineBackend) ProcessBlockV4(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (payload.PayloadStatusV1, error) {
-	var reqs types.Requests
-	for _, reqBytes := range executionRequests {
-		if len(reqBytes) == 0 {
-			continue
-		}
-		reqs = append(reqs, &types.Request{Type: reqBytes[0], Data: reqBytes[1:]})
+	if err := types.ValidateExecutionRequestsWire(executionRequests); err != nil {
+		return payload.PayloadStatusV1{}, engine.ErrInvalidParams
 	}
-	rHash := types.ComputeRequestsHash(reqs)
+	rHash := types.ComputeWireRequestsHash(executionRequests)
 	return b.processBlockInternal(p, parentBeaconBlockRoot, &rHash, nil)
 }
 
@@ -269,14 +265,10 @@ func (b *EngineBackend) ProcessBlockV5(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (payload.PayloadStatusV1, error) {
-	var reqs types.Requests
-	for _, reqBytes := range executionRequests {
-		if len(reqBytes) == 0 {
-			continue
-		}
-		reqs = append(reqs, &types.Request{Type: reqBytes[0], Data: reqBytes[1:]})
+	if err := types.ValidateExecutionRequestsWire(executionRequests); err != nil {
+		return payload.PayloadStatusV1{}, engine.ErrInvalidParams
 	}
-	rHash := types.ComputeRequestsHash(reqs)
+	rHash := types.ComputeWireRequestsHash(executionRequests)
 	balHash, err := payload.DecodeBlockAccessList(p.BlockAccessList)
 	if err != nil {
 		message := err.Error()
@@ -302,7 +294,7 @@ func (b *EngineBackend) processBlockInternal(
 	)
 
 	// Short-circuit for already-known blocks.
-	if balHash == nil && bc.HasBlock(p.BlockHash) {
+	if requestsHash == nil && balHash == nil && bc.HasBlock(p.BlockHash) {
 		h := p.BlockHash
 		slog.Debug("engine_newPayload: already known, returning VALID",
 			"blockNumber", p.BlockNumber,
@@ -414,7 +406,7 @@ func (b *EngineBackend) processBlockInternal(
 
 	header.BlockAccessListHash = balHash
 	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
-	if balHash != nil && block.Hash() != p.BlockHash {
+	if (requestsHash != nil || balHash != nil) && block.Hash() != p.BlockHash {
 		message := "payload block hash does not match reconstructed header"
 		return payload.PayloadStatusV1{Status: engine.StatusInvalid, ValidationError: &message}, nil
 	}

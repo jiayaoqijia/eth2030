@@ -307,8 +307,8 @@ func ExecutionReceiptsSSZRoot(receipts []*Receipt) (Hash, error) {
 // three Electra request lists, reconstructed from EIP-7685 request groups.
 func ExecutionRequestsSSZRoot(requests Requests) (Hash, error) {
 	fieldSizes := [3][]int{{48, 32, 8, 96, 8}, {20, 48, 8}, {20, 48, 48}}
-	elementSizes := [3]int{192, 76, 116}
-	limits := [3]int{8192, 16, 2}
+	elementSizes := [3]int{DepositRequestSSZSize, WithdrawalRequestSSZSize, ConsolidationRequestSSZSize}
+	limits := [3]int{MaxDepositsPerPayload, MaxWithdrawalRequestsPerPayload, MaxConsolidationRequestsPerPayload}
 	var lists [3][][32]byte
 	for _, request := range requests {
 		if request == nil || int(request.Type) >= len(lists) {

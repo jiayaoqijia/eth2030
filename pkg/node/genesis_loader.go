@@ -27,6 +27,9 @@ type genesisJSON struct {
 
 // chainConfigJSON is the JSON-decodable form of coreconfig.ChainConfig.
 type chainConfigJSON struct {
+	DepositContractAddress   addressJSON `json:"depositContractAddress"`
+	RequireRequestPredeploys bool        `json:"requireRequestPredeploys"`
+
 	ChainID *bigIntJSON `json:"chainId"`
 
 	HomesteadBlock      *bigIntJSON `json:"homesteadBlock"`
@@ -238,6 +241,8 @@ func loadGenesisFile(cfg *Config) (*coreconfig.Genesis, error) {
 	chainCfg.ShanghaiTime = gj.Config.ShanghaiTime
 	chainCfg.CancunTime = gj.Config.CancunTime
 	chainCfg.PragueTime = gj.Config.PragueTime
+	chainCfg.DepositContractAddress = gj.Config.DepositContractAddress.Address
+	chainCfg.RequireRequestPredeploys = gj.Config.RequireRequestPredeploys
 	chainCfg.AmsterdamTime = gj.Config.AmsterdamTime
 	chainCfg.GlamsterdanTime = gj.Config.GlamsterdanTime
 	chainCfg.HogotaTime = gj.Config.HogotaTime

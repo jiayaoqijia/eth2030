@@ -93,7 +93,7 @@ func (pb *PayloadBuilder) StartBuild(
 		return fmt.Errorf("payload timestamp: %w", err)
 	}
 
-	blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
+	blk, result, err := builder.BuildBlockWithResult(parentHeader, &block.BuildBlockAttributes{
 		Timestamp:    attrs.Timestamp,
 		FeeRecipient: attrs.SuggestedFeeRecipient,
 		Random:       attrs.PrevRandao,
@@ -116,14 +116,15 @@ func (pb *PayloadBuilder) StartBuild(
 	}
 
 	// Calculate block value as the sum of effective tips paid by transactions.
-	blockValue := calcBlockValue(blk, receipts, parentHeader.BaseFee)
+	blockValue := calcBlockValue(blk, result.Receipts, parentHeader.BaseFee)
 
 	pb.payloads[id] = &BuiltPayload{
 		Block:             blk,
-		Receipts:          receipts,
+		Receipts:          result.Receipts,
 		BlockValue:        blockValue,
 		BlobsBundle:       &BlobsBundleV1{},
-		ExecutionRequests: [][]byte{},
+		ExecutionRequests: result.Requests.Encode(),
+		BAL:               result.BlockAccessList,
 	}
 
 	return nil

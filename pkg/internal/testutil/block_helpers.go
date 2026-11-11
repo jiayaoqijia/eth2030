@@ -22,6 +22,7 @@ func MakeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
 	calldataExcessGas := uint64(0)
 	emptyWithdrawalsHash := types.EmptyRootHash
 	emptyRoot := types.EmptyRootHash
+	emptyRequestsHash := types.EmptyRequestsHash
 	header := &types.Header{
 		Number:            big.NewInt(0),
 		GasLimit:          gasLimit,
@@ -34,7 +35,7 @@ func MakeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
 		ParentBeaconRoot:  &emptyRoot,
-		RequestsHash:      &emptyRoot,
+		RequestsHash:      &emptyRequestsHash,
 		CalldataGasUsed:   &calldataGasUsed,
 		CalldataExcessGas: &calldataExcessGas,
 	}
@@ -68,7 +69,7 @@ func MakeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb s
 
 	emptyWHash := types.EmptyRootHash
 	emptyBeaconRoot := types.EmptyRootHash
-	emptyRequestsHash := types.EmptyRootHash
+	emptyRequestsHash := types.EmptyRequestsHash
 	header := &types.Header{
 		ParentHash:        parent.Hash(),
 		Number:            new(big.Int).Add(parentHeader.Number, big.NewInt(1)),

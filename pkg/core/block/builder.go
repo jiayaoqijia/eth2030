@@ -150,6 +150,15 @@ func logBuilderAAPostExecution(header *types.Header, tx *types.Transaction, txIn
 // After all transactions are applied, withdrawals are processed (EIP-4895),
 // requests are accumulated (EIP-7685), and the state root is computed.
 func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttributes) (*types.Block, []*types.Receipt, error) {
+	block, result, err := b.BuildBlockWithResult(parent, attrs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return block, result.Receipts, nil
+}
+
+// BuildBlockWithResult returns the receipts, requests, and BAL from the build.
+func (b *BlockBuilder) BuildBlockWithResult(parent *types.Header, attrs *BuildBlockAttributes) (*types.Block, *execution.ProcessResult, error) {
 	// Determine gas limit: use attributes if provided, otherwise derive from parent.
 	gasLimit := attrs.GasLimit
 	if gasLimit == 0 {
@@ -599,52 +608,26 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	header.TxHash = deriveTxsRoot(txs)
 	header.ReceiptHash = deriveReceiptsRoot(receipts)
 
-	// Compute state root after applying all transactions.
-	header.Root = statedb.GetRoot()
-
-	// Build the block body with withdrawals. Post-Shanghai blocks must always
-	// include withdrawals (even if empty) per consensus rules.
+	// Post-Shanghai blocks include an empty withdrawals list when necessary.
 	withdrawals := attrs.Withdrawals
-	shanghaiActive := b.config != nil && b.config.IsShanghai(header.Time)
-	if withdrawals == nil && shanghaiActive {
-		withdrawals = []*types.Withdrawal{}
-	}
-
-	body := &types.Body{
-		Transactions: txs,
-		Withdrawals:  withdrawals,
-	}
-
-	// EIP-4895: process withdrawals and credit each recipient.
-	if withdrawals != nil {
-		wHash := deriveWithdrawalsRoot(withdrawals)
-		header.WithdrawalsHash = &wHash
-
-		for _, w := range withdrawals {
-			// Withdrawal amount is in Gwei; convert to wei.
-			amount := new(big.Int).SetUint64(w.Amount)
-			amount.Mul(amount, big.NewInt(1_000_000_000)) // Gwei -> wei
-			statedb.AddBalance(w.Address, amount)
+	if b.config != nil && b.config.IsShanghai(header.Time) {
+		if withdrawals == nil {
+			withdrawals = []*types.Withdrawal{}
 		}
-		// Recompute state root after withdrawals.
-		header.Root = statedb.GetRoot()
+		hash := deriveWithdrawalsRoot(withdrawals)
+		header.WithdrawalsHash = &hash
 	}
+	body := &types.Body{Transactions: txs, Withdrawals: withdrawals}
 
-	// EIP-7685: accumulate execution layer requests (Prague+).
+	requests, err := execution.FinalizeBlockExecution(b.config, b.getHashFn(), statedb, header, withdrawals, receipts, blockBAL)
+	if err != nil {
+		return nil, nil, err
+	}
 	if pragueActive {
-		requests, err := execution.ProcessRequests(b.config, statedb, header)
-		if err == nil && requests != nil {
-			rHash := types.ComputeRequestsHash(requests)
-			header.RequestsHash = &rHash
-			// Recompute state root after request processing.
-			header.Root = statedb.GetRoot()
-		} else if err == nil {
-			// No requests: set empty requests hash.
-			emptyReqs := types.Requests{}
-			rHash := types.ComputeRequestsHash(emptyReqs)
-			header.RequestsHash = &rHash
-		}
+		hash := types.ComputeRequestsHash(requests)
+		header.RequestsHash = &hash
 	}
+	header.Root = statedb.GetRoot()
 
 	// Set Block Access List hash (EIP-7928) when Amsterdam is active.
 	// Sort entries into lexicographic order before hashing (EIP-7928 §ordering).
@@ -663,7 +646,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	if err := validateRLPBlockSize(b.config, block); err != nil {
 		return nil, nil, err
 	}
-	return block, receipts, nil
+	return block, &execution.ProcessResult{Receipts: receipts, Requests: requests, BlockAccessList: blockBAL}, nil
 }
 
 func exceedsTxGasCap(cfg *config.ChainConfig, timestamp uint64, tx *types.Transaction) bool {
@@ -918,7 +901,14 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 	header.TxHash = deriveTxsRoot(txs)
 	header.ReceiptHash = deriveReceiptsRoot(receipts)
 
-	// Compute state root.
+	requests, err := execution.FinalizeBlockExecution(b.config, b.getHashFn(), statedb, header, nil, receipts, blockBAL)
+	if err != nil {
+		return nil, nil, err
+	}
+	if b.config != nil && b.config.IsPrague(header.Time) {
+		hash := types.ComputeRequestsHash(requests)
+		header.RequestsHash = &hash
+	}
 	header.Root = statedb.GetRoot()
 
 	// Set Block Access List hash (EIP-7928) when Amsterdam is active.

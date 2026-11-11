@@ -657,42 +657,21 @@ func TestBackend_IsCancun(t *testing.T) {
 }
 
 func TestBackend_ProcessBlockV4(t *testing.T) {
-	statedb := state.NewMemoryStateDB()
-	genesis := makeGenesis()
-	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
-	genesisHash := genesis.Hash()
+	cfg := *coreconfig.TestConfig
+	cfg.AmsterdamTime = nil
+	backend, api := makeE2EBackend(t, &cfg)
+	t.Cleanup(backend.Close)
+	built := buildNextPayload(t, api, backend)
 
-	payload := &ExecutionPayloadV3{
-		ExecutionPayloadV2: ExecutionPayloadV2{
-			ExecutionPayloadV1: ExecutionPayloadV1{
-				ParentHash:    genesisHash,
-				FeeRecipient:  types.HexToAddress("0xfee"),
-				PrevRandao:    types.HexToHash("0xrandao"),
-				BlockNumber:   1,
-				GasLimit:      30_000_000,
-				GasUsed:       0,
-				Timestamp:     1700000012,
-				BaseFeePerGas: big.NewInt(875_000_000),
-				Transactions:  [][]byte{},
-			},
-			Withdrawals: []*Withdrawal{},
-		},
+	status, err := backend.ProcessBlockV4(&built.ExecutionPayloadV3, nil, types.Hash{}, [][]byte{{0, 1}})
+	if err != nil || status.Status != StatusInvalid || status.LatestValidHash != nil {
+		t.Fatalf("payload with a changed requests commitment: %+v: %v", status, err)
 	}
-
-	status, err := b.ProcessBlockV4(payload, nil, types.HexToHash("0xbeacon"), [][]byte{{0x00}})
-	if err != nil {
-		t.Fatalf("ProcessBlockV4 returned error: %v", err)
-	}
-	if status.Status != StatusValid {
-		errMsg := ""
-		if status.ValidationError != nil {
-			errMsg = *status.ValidationError
-		}
-		t.Fatalf("expected VALID status, got %s: %s", status.Status, errMsg)
+	status, err = backend.ProcessBlockV4(&built.ExecutionPayloadV3, nil, types.Hash{}, [][]byte{})
+	if err != nil || status.Status != StatusValid || status.LatestValidHash == nil || *status.LatestValidHash != built.BlockHash {
+		t.Fatalf("valid Prague payload: %+v: %v", status, err)
 	}
 }
-
-// --- ForkchoiceUpdated with real backend timestamp validation ---
 
 func TestForkchoiceUpdated_TimestampValidation_RealBackend(t *testing.T) {
 	statedb := state.NewMemoryStateDB()

@@ -83,6 +83,12 @@ schema. Its header summary and payload produce the same SSZ root. The
 [execution type documentation](../core/types/README.md) describes the draft
 revisions and the available codec entry points.
 
+Use `WithRequestContracts()` for tests that submit deposits or queue validator
+withdrawals and consolidations. It installs the Prague request contracts at
+genesis. `TestEIP7807_NativeRequestsThroughEngine` executes transactions against
+all three contracts and checks the requests through Engine payload validation,
+block replay and SSZ projection.
+
 ## Scenario contracts and fixtures
 
 ```bash

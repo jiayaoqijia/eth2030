@@ -84,7 +84,7 @@ func TestE2E_Engine_ILSatisfaction_NoILsStoredAlwaysValid(t *testing.T) {
 	backend, _ := makeE2EBackend(t, coreconfig.TestConfig)
 
 	payload := buildNextPayload(t, nil, backend)
-	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, nil)
+	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, [][]byte{})
 	if err != nil {
 		t.Fatalf("ProcessBlockV5: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestE2E_Engine_ProcessInclusionList_ThenProcessBlock(t *testing.T) {
 	}
 
 	payload := buildNextPayload(t, nil, backend)
-	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, nil)
+	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, [][]byte{})
 	if err != nil {
 		t.Fatalf("ProcessBlockV5: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestE2E_Engine_BALFeasibility_NormalPayloadProcesses(t *testing.T) {
 
 	payload := buildNextPayload(t, nil, backend)
 
-	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, nil)
+	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, [][]byte{})
 	if err != nil {
 		t.Fatalf("ProcessBlockV5 returned error: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestE2E_Engine_BALStoredAfterProcessBlockV5(t *testing.T) {
 
 	// Build and process a block.
 	payload := buildNextPayload(t, nil, backend)
-	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, nil)
+	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, [][]byte{})
 	if err != nil {
 		t.Fatalf("ProcessBlockV5: %v", err)
 	}

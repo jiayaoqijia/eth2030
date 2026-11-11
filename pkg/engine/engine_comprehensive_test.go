@@ -650,7 +650,7 @@ func TestNewPayloadV5_Valid(t *testing.T) {
 	hashesJSON, _ := json.Marshal([]types.Hash{})
 	beaconRoot := types.HexToHash("0xbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeaconbeac")
 	rootJSON, _ := json.Marshal(beaconRoot)
-	requestsJSON, _ := json.Marshal([]string{"0x00"})
+	requestsJSON, _ := json.Marshal([]string{})
 
 	req := fmt.Sprintf(`{"jsonrpc":"2.0","method":"engine_newPayloadV5","params":[%s,%s,%s,%s],"id":1}`,
 		payloadJSON, hashesJSON, rootJSON, requestsJSON)

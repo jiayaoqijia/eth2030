@@ -1,6 +1,10 @@
 package config
 
-import "math/big"
+import (
+	"math/big"
+
+	"github.com/eth2030/eth2030/core/types"
+)
 
 // ChainConfig holds chain-level configuration for fork scheduling.
 // Pre-merge forks are activated by block number, post-merge by timestamp.
@@ -34,6 +38,13 @@ type ChainConfig struct {
 	GlamsterdanTime *uint64
 	HogotaTime      *uint64
 	IPlusTime       *uint64
+
+	// DepositContractAddress selects the EIP-6110 event emitter. Zero uses
+	// the mainnet deposit contract address.
+	DepositContractAddress types.Address
+	// RequireRequestPredeploys enforces the EIP-7002/7251 code requirement.
+	// Minimal private chains may omit the queue contracts.
+	RequireRequestPredeploys bool
 
 	// LegacyNativeBLSUntil preserves the experimental native precompile
 	// layout before the given timestamp. Nil selects the Ethereum layout.
@@ -354,6 +365,9 @@ var MainnetTerminalTotalDifficulty, _ = new(big.Int).SetString("5875000000000000
 
 // MainnetConfig is the chain config for Ethereum mainnet.
 var MainnetConfig = &ChainConfig{
+	DepositContractAddress:   types.DepositContractAddress,
+	RequireRequestPredeploys: true,
+
 	ChainID:                 big.NewInt(1),
 	HomesteadBlock:          big.NewInt(1_150_000),
 	EIP150Block:             big.NewInt(2_463_000),
@@ -383,6 +397,9 @@ var MainnetConfig = &ChainConfig{
 
 // SepoliaConfig is the chain config for the Sepolia test network.
 var SepoliaConfig = &ChainConfig{
+	DepositContractAddress:   types.HexToAddress("0x7f02c3e3c98b133055b8b348b2ac625669ed295d"),
+	RequireRequestPredeploys: true,
+
 	ChainID:                 big.NewInt(11155111),
 	HomesteadBlock:          big.NewInt(0),
 	EIP150Block:             big.NewInt(0),
@@ -410,6 +427,9 @@ var SepoliaConfig = &ChainConfig{
 
 // HoleskyConfig is the chain config for the Holesky test network.
 var HoleskyConfig = &ChainConfig{
+	DepositContractAddress:   types.HexToAddress("0x4242424242424242424242424242424242424242"),
+	RequireRequestPredeploys: true,
+
 	ChainID:                 big.NewInt(17000),
 	HomesteadBlock:          big.NewInt(0),
 	EIP150Block:             big.NewInt(0),
