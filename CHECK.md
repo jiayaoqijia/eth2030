@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## EIP Test Framework Acceptance Review (2026-11-11)
+
+- [x] Compare the implementation and examples with the plan's acceptance criteria.
+- [x] Run the framework suite, default Go suite, and local CI checks.
+- [x] Verify failure detection and exercise the documented tooling entry points.
+- [x] Record verified results and remaining gaps in `STATUS.md`.
+
 ## Cryptography Regression Fixes
 
 - [x] Wire PQ signature verification through transaction admission and native execution.
