@@ -10,6 +10,12 @@ type ExecutionResult struct {
 	Err             error
 	ReturnData      []byte
 	ContractAddress types.Address // set for contract creation
+
+	// EIP-8141 frame transaction fields: PayerApproved/Payer identify the
+	// gas payer approved via APPROVE(1)/(2), FrameResults the per-frame
+	// outcomes (receipt format [cumulative_gas_used, payer, [frame, ...]]).
+	Payer        types.Address
+	FrameResults []types.FrameResult
 }
 
 // Unwrap returns the execution error, if any.

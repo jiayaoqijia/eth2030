@@ -16,6 +16,12 @@ var EchoRuntime string
 //go:embed FrameApprove.bin-runtime
 var FrameApproveRuntime string
 
+//go:embed FrameApproveExec.bin-runtime
+var FrameApproveExecRuntime string
+
+//go:embed FrameApprovePay.bin-runtime
+var FrameApprovePayRuntime string
+
 //go:embed RollupAnchor.bin-runtime
 var RollupAnchorRuntime string
 
@@ -26,18 +32,20 @@ var SelfDestructRuntime string
 var Storage42Runtime string
 
 var named = map[string]*string{
-	"AAEntrypoint":   &AAEntrypointRuntime,
-	"DelegateCaller": &DelegateCallerRuntime,
-	"Echo":           &EchoRuntime,
-	"FrameApprove":   &FrameApproveRuntime,
-	"RollupAnchor":   &RollupAnchorRuntime,
-	"SelfDestruct":   &SelfDestructRuntime,
-	"Storage42":      &Storage42Runtime,
+	"AAEntrypoint":     &AAEntrypointRuntime,
+	"DelegateCaller":   &DelegateCallerRuntime,
+	"Echo":             &EchoRuntime,
+	"FrameApprove":     &FrameApproveRuntime,
+	"FrameApproveExec": &FrameApproveExecRuntime,
+	"FrameApprovePay":  &FrameApprovePayRuntime,
+	"RollupAnchor":     &RollupAnchorRuntime,
+	"SelfDestruct":     &SelfDestructRuntime,
+	"Storage42":        &Storage42Runtime,
 }
 
 // Names lists the available scenario contracts.
 func Names() []string {
-	return []string{"AAEntrypoint", "DelegateCaller", "Echo", "FrameApprove", "RollupAnchor", "SelfDestruct", "Storage42"}
+	return []string{"AAEntrypoint", "DelegateCaller", "Echo", "FrameApprove", "FrameApproveExec", "FrameApprovePay", "RollupAnchor", "SelfDestruct", "Storage42"}
 }
 
 // AAEntrypoint returns the AAEntrypoint runtime bytecode.
@@ -51,6 +59,12 @@ func (Named) Echo() []byte { return mustRuntime("Echo") }
 
 // FrameApprove returns the FrameApprove runtime bytecode.
 func (Named) FrameApprove() []byte { return mustRuntime("FrameApprove") }
+
+// FrameApproveExec returns the FrameApproveExec runtime bytecode.
+func (Named) FrameApproveExec() []byte { return mustRuntime("FrameApproveExec") }
+
+// FrameApprovePay returns the FrameApprovePay runtime bytecode.
+func (Named) FrameApprovePay() []byte { return mustRuntime("FrameApprovePay") }
 
 // RollupAnchor returns the RollupAnchor runtime bytecode.
 func (Named) RollupAnchor() []byte { return mustRuntime("RollupAnchor") }

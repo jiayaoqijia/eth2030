@@ -86,9 +86,9 @@ func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 		return nil, ErrInvalidApproveScope
 	}
 
-	// Track the APPROVE call for the callFn to read.
-	fc.ApproveCalledThisFrame = true
-	fc.LastApproveScope = uint8(scopeVal)
+	// NOTE: ApproveCalledThisFrame is only set once every check below has
+	// passed — a failed APPROVE must not let the frame-level VERIFY check
+	// count the attempt as an approval.
 
 	// APPROVE must only succeed if the executing contract IS the frame target.
 	if fc.CurrentFrameIndex >= uint64(len(fc.Frames)) {
@@ -103,8 +103,13 @@ func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 		if fc.SenderApproved {
 			return nil, ErrAlreadyApproved
 		}
-		// CALLER must equal tx.sender for execution approval.
-		if contract.CallerAddress != fc.Sender {
+		// CALLER must equal tx.sender for execution approval. The canonical
+		// top-level frame runs with CALLER = ENTRY_POINT (EIP-8141 §Behavior
+		// sets the VERIFY/DEFAULT frame caller to the entry point), so the
+		// direct-sender case and the canonical entry-point case both pass;
+		// sender authorization itself is enforced by frame.target ==
+		// tx.sender at the frame layer.
+		if contract.CallerAddress != fc.Sender && contract.CallerAddress != types.EntryPointAddress {
 			return nil, ErrCallerNotSender
 		}
 		fc.SenderApproved = true
@@ -130,7 +135,9 @@ func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 		if fc.SenderApproved || fc.PayerApproved {
 			return nil, ErrAlreadyApproved
 		}
-		if contract.CallerAddress != fc.Sender {
+		// See scope 0: CALLER is ENTRY_POINT in the canonical top-level
+		// frame; sender authorization is enforced via frame.target == tx.sender.
+		if contract.CallerAddress != fc.Sender && contract.CallerAddress != types.EntryPointAddress {
 			return nil, ErrCallerNotSender
 		}
 		if evm.StateDB != nil {
@@ -142,6 +149,10 @@ func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 		fc.SenderApproved = true
 		fc.PayerApproved = true
 	}
+
+	// All checks passed: record the APPROVE call for the callFn to read.
+	fc.ApproveCalledThisFrame = true
+	fc.LastApproveScope = uint8(scopeVal)
 
 	// Return data from memory at [offset, offset+length), like RETURN.
 	ret := memory.Get(int64(offset.Uint64()), int64(length.Uint64()))
