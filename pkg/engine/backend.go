@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -1494,6 +1495,74 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 		BlobsBundle:       collectBlobsBundle(pending.block.Transactions()),
 		ExecutionRequests: pending.requests.Encode(),
 	}, nil
+}
+
+// GetPayloadV7ByID retrieves a previously built payload for getPayloadV7.
+// When EIP-7807 SSZ blocks are active at the payload timestamp, the response
+// additionally carries the SSZ payload encoding and its hash tree root — the
+// SSZ execution block hash the CL commits to.
+func (b *EngineBackend) GetPayloadV7ByID(id PayloadID) (*GetPayloadV6Response, error) {
+	resp, err := b.GetPayloadV6ByID(id)
+	if err != nil {
+		return nil, err
+	}
+	ep5 := resp.ExecutionPayload
+	if ep5 == nil || !b.config.IsSSZBlock(ep5.Timestamp) {
+		return resp, nil
+	}
+	asyncPending, result, release, err := b.waitAsyncPayload(id, false)
+	if err != nil {
+		return resp, nil // hash unavailable without the built block; hash fields stay unset
+	}
+	if release != nil {
+		defer release()
+	}
+	var block *types.Block
+	var receipts []*types.Receipt
+	var requests types.Requests
+	var balRLP []byte
+	var slot uint64
+	if asyncPending != nil && result != nil {
+		block, receipts, requests, slot = result.Block, result.Receipts, result.Requests, asyncPending.SlotNumber
+		if result.BAL != nil {
+			balRLP, _ = result.BAL.EncodeRLP()
+		}
+	} else if pending, perr := b.getStoredPayload(id); perr == nil {
+		block, receipts, requests, slot = pending.block, pending.receipts, pending.requests, pending.slotNumber
+		if pending.bal != nil {
+			balRLP, _ = pending.bal.EncodeRLP()
+		}
+	}
+	if block == nil || block.Header().BaseFee == nil {
+		return resp, nil
+	}
+	excessRegular := uint64(0)
+	if block.Header().CalldataExcessGas != nil {
+		excessRegular = *block.Header().CalldataExcessGas
+	}
+	ctx := types.ExecutionSSZContext{
+		BlobGasLimit:     gas.FusakaMaxBlobGasPerBlock,
+		BlobBaseFee:      gas.CalcBlobBaseFeeV2(*block.Header().ExcessBlobGas, block.Header().BaseFee),
+		ExcessRegularGas: excessRegular,
+		Requests:         requests,
+		BlockAccessList:  balRLP,
+		SlotNumber:       slot,
+	}
+	payloadSSZ, err := types.NewExecutionPayloadSSZ(block, receipts, ctx)
+	if err != nil {
+		return resp, nil
+	}
+	enc, err := payloadSSZ.MarshalSSZ()
+	if err != nil {
+		return resp, nil
+	}
+	root, err := payloadSSZ.HashTreeRoot()
+	if err != nil {
+		return resp, nil
+	}
+	resp.SSZPayload = json.RawMessage(`"` + "0x" + hex.EncodeToString(enc) + `"`)
+	resp.SSZBlockHash = &root
+	return resp, nil
 }
 
 func collectBlobSidecars(txs []*types.Transaction) (blobs, commitments [][]byte, sidecarBlobs [][]byte) {

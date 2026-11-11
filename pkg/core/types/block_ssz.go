@@ -334,3 +334,62 @@ func ExecutionRequestsSSZRoot(requests Requests) (Hash, error) {
 	}
 	return Hash(ssz.HashTreeRootContainer(roots[:])), nil
 }
+
+// NewExecutionHeaderSSZ projects a header into the EIP-7807 header schema
+// for fork-gated SSZ block hash computation. The transactions, withdrawals,
+// and block access list roots come from the header's own commitments: in the
+// transitional (SSZBlockTime) form the header still commits its native RLP
+// roots, and the SSZ block hash binds them through the header hash tree.
+// Blob gas amounts and the slot number come from the execution context.
+func NewExecutionHeaderSSZ(h *Header, ctx ExecutionSSZContext) (*ExecutionHeaderSSZ, error) {
+	if h == nil || h.Number == nil || !h.Number.IsUint64() || h.BaseFee == nil ||
+		h.BlobGasUsed == nil || h.ExcessBlobGas == nil || h.ParentBeaconRoot == nil {
+		return nil, fmt.Errorf("EIP-7807: missing post-merge execution header fields")
+	}
+	var emptyRoot Hash
+	withdrawalsRoot := h.WithdrawalsHash
+	if withdrawalsRoot == nil {
+		withdrawalsRoot = &emptyRoot
+	}
+	balRoot := h.BlockAccessListHash
+	if balRoot == nil {
+		balRoot = &emptyRoot
+	}
+	return &ExecutionHeaderSSZ{
+		ExecutionSSZFields: ExecutionSSZFields{
+			ParentHash: h.ParentHash, Miner: h.Coinbase, StateRoot: h.Root,
+			ReceiptsRoot: h.ReceiptHash,
+			Number:       h.Number.Uint64(), GasLimits: ExecutionGasAmounts{h.GasLimit, ctx.BlobGasLimit},
+			GasUsed: ExecutionGasAmounts{h.GasUsed, *h.BlobGasUsed}, Timestamp: h.Time,
+			ExtraData: h.Extra, MixHash: h.MixDigest,
+			BaseFeesPerGas:        ExecutionBaseFees{h.BaseFee, new(big.Int).Set(ctx.BlobBaseFee)},
+			ExcessGas:             ExecutionGasAmounts{ctx.ExcessRegularGas, *h.ExcessBlobGas},
+			ParentBeaconBlockRoot: *h.ParentBeaconRoot,
+			RequestsHash:          requestsHashOrEmpty(h),
+			SlotNumber:            ctx.SlotNumber,
+		},
+		TransactionsRoot:    h.TxHash,
+		WithdrawalsRoot:     *withdrawalsRoot,
+		BlockAccessListRoot: *balRoot,
+	}, nil
+}
+
+// SSZBlockHash computes the EIP-7807 execution block hash for fork-gated
+// SSZ activation: hash_tree_root of the SSZ header projection.
+func SSZBlockHash(h *Header, ctx ExecutionSSZContext) (Hash, error) {
+	proj, err := NewExecutionHeaderSSZ(h, ctx)
+	if err != nil {
+		return Hash{}, err
+	}
+	return proj.HashTreeRoot()
+}
+
+
+// requestsHashOrEmpty returns the header's requests hash, or the zero hash
+// when the header predates EIP-7685 commitments.
+func requestsHashOrEmpty(h *Header) Hash {
+	if h.RequestsHash != nil {
+		return *h.RequestsHash
+	}
+	return Hash{}
+}

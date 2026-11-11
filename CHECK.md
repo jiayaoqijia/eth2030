@@ -20,11 +20,11 @@ gap against current code before starting — parts of the 2026-03 gap analysis a
 
 ### Track 2 — Hegotá closure (P1)
 
-- [ ] EIP-7805 FOCIL (85%): CL P2P inclusion-list gossip validation rules; equivocation (duplicate IL per committee member) evidence handling.
-- [ ] EIP-8141 FrameTx residual: re-verify APPROVE scope semantics (0x0/0x1/0x2) against the current draft; payer gas approval path; frame receipt format.
-- [ ] EIP-7495 SSZ StableContainer: add tests (currently referenced-only).
-- [ ] EIP-8025 Execution Proofs: close out to complete.
-- [ ] SSZ fork activation (EIP-6404/7807/7916): consensus activation, Engine API versioning, RPC migration (explicitly deferred fork work).
+- [x] EIP-7805 FOCIL (85%): CL P2P inclusion-list gossip validation rules; equivocation (duplicate IL per committee member) evidence handling.
+- [x] EIP-8141 FrameTx residual: re-verify APPROVE scope semantics (0x0/0x1/0x2) against the current draft; payer gas approval path; frame receipt format. (Payer charging was missing entirely — now collected on APPROVE(1)/(2); receipts carry the payer.)
+- [x] EIP-7495 SSZ StableContainer: add tests (currently referenced-only). (HTR aligned with the EIP-7495 ProgressiveContainer spec form; conformance tests added.)
+- [x] EIP-8025 Execution Proofs: close out to complete. (Proofs now anchored to the real EIP-7928 BAL with header-commitment verification.)
+- [x] SSZ fork activation (EIP-6404/7807/7916): consensus activation, Engine API versioning, RPC migration (explicitly deferred fork work). (SSZBlockTime fork switch; engine_getPayloadV7/newPayloadV7 with SSZ hash binding; transitional header-form block hash.)
 
 ### Track 3 — Node fundamentals (cross-cutting)
 

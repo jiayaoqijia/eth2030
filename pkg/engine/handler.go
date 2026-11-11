@@ -150,6 +150,12 @@ func (api *EngineAPI) dispatch(method string, params []json.RawMessage) (any, *j
 		return api.handleGetPayloadV4(params)
 	case "engine_getPayloadV5", "engine_getPayloadV6":
 		return api.handleGetPayloadV6(params)
+
+	case "engine_getPayloadV7":
+		return api.handleGetPayloadV7(params)
+
+	case "engine_newPayloadV7":
+		return api.handleNewPayloadV7(params)
 	case "engine_exchangeCapabilities":
 		return api.handleExchangeCapabilities(params)
 	case "engine_getClientVersionV1":
@@ -455,6 +461,51 @@ func (api *EngineAPI) handleGetPayloadV6(params []json.RawMessage) (any, *jsonrp
 	}
 	return result, nil
 }
+
+// handleGetPayloadV7 processes an engine_getPayloadV7 request (EIP-7807 SSZ).
+func (api *EngineAPI) handleGetPayloadV7(params []json.RawMessage) (any, *jsonrpcError) {
+	if len(params) != 1 {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
+		}
+	}
+	var payloadID PayloadID
+	if err := json.Unmarshal(params[0], &payloadID); err != nil {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("invalid payload ID: %v", err),
+		}
+	}
+	result, err := api.GetPayloadV7(payloadID)
+	if err != nil {
+		return nil, engineErrorToRPC(err)
+	}
+	return result, nil
+}
+
+// handleNewPayloadV7 processes an engine_newPayloadV7 request (EIP-7807 SSZ).
+func (api *EngineAPI) handleNewPayloadV7(params []json.RawMessage) (any, *jsonrpcError) {
+	if len(params) != 1 {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
+		}
+	}
+	var req NewPayloadV7Request
+	if err := json.Unmarshal(params[0], &req); err != nil {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("invalid newPayloadV7 params: %v", err),
+		}
+	}
+	result, err := api.NewPayloadV7(req)
+	if err != nil {
+		return nil, engineErrorToRPC(err)
+	}
+	return result, nil
+}
+
 
 // handleForkchoiceUpdatedV4 processes an engine_forkchoiceUpdatedV4 request
 // (Amsterdam). Lighthouse >= 8.4 adds an optional third `custodyColumns`

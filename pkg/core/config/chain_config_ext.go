@@ -88,6 +88,7 @@ func (c *ChainConfig) Validate() error {
 		{"Glamsterdan", c.GlamsterdanTime},
 		{"Hogota", c.HogotaTime},
 		{"IPlus", c.IPlusTime},
+		{"SSZBlocks", c.SSZBlockTime},
 	}
 	var lastTime *uint64
 	var lastTimeName string

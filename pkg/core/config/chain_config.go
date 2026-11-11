@@ -38,6 +38,10 @@ type ChainConfig struct {
 	GlamsterdanTime *uint64
 	HogotaTime      *uint64
 	IPlusTime       *uint64
+	// SSZBlockTime activates EIP-7807 SSZ execution blocks: from this time
+	// the Engine API serves and accepts SSZ-encoded payloads with the
+	// SSZ block hash (hash_tree_root of the ExecutionBlockHeader).
+	SSZBlockTime *uint64
 
 	// DepositContractAddress selects the EIP-6110 event emitter. Zero uses
 	// the mainnet deposit contract address.
@@ -177,6 +181,11 @@ func (c *ChainConfig) IsHogota(time uint64) bool {
 // I+ includes NTT precompile (EIP-7885), native rollups, zkVM, proof aggregation.
 func (c *ChainConfig) IsIPlus(time uint64) bool {
 	return isTimestampForked(c.IPlusTime, time)
+}
+
+// IsSSZBlock reports whether EIP-7807 SSZ execution blocks are active.
+func (c *ChainConfig) IsSSZBlock(time uint64) bool {
+	return isTimestampForked(c.SSZBlockTime, time)
 }
 
 // IsEIP7864FinalHash returns whether the binary trie BLAKE3 hash function

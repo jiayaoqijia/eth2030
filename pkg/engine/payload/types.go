@@ -148,6 +148,12 @@ type GetPayloadV6Response struct {
 	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`
 	ExecutionRequests [][]byte            `json:"executionRequests"`
+
+	// EIP-7807 SSZ activation fields (set when SSZ blocks are active):
+	// SSZPayload is the 0x-hex EIP-7807 payload encoding of the block and
+	// SSZBlockHash its hash tree root, the SSZ execution block hash.
+	SSZPayload   json.RawMessage `json:"sszPayload,omitempty"`
+	SSZBlockHash *types.Hash     `json:"sszBlockHash,omitempty"`
 }
 
 // BlobsBundleV1 is the blobs bundle returned by engine_getPayload.
