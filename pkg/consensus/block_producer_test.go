@@ -49,8 +49,12 @@ func TestBlockProducerBasic(t *testing.T) {
 	if block.Body.SyncAggregate == nil {
 		t.Fatal("sync aggregate is nil")
 	}
-	if block.Body.ExecutionPayloadHeader == nil {
-		t.Fatal("execution payload header is nil")
+	if block.Body.SignedExecutionPayloadBid == nil {
+		t.Fatal("signed execution payload bid is nil")
+	}
+	if block.Body.SignedExecutionPayloadBid.Message.BuilderIndex != BuilderIndexSelfBuild {
+		t.Fatalf("expected self-build bid, got builder index %d",
+			block.Body.SignedExecutionPayloadBid.Message.BuilderIndex)
 	}
 }
 
@@ -223,26 +227,48 @@ func TestBlockProducerWithSyncAggregate(t *testing.T) {
 	}
 }
 
-func TestBlockProducerWithExecutionHeader(t *testing.T) {
-	hdr := &ExecutionPayloadHeader{
-		BlockHash:     types.Hash{0xDE, 0xAD},
-		GasLimit:      30_000_000,
-		GasUsed:       15_000_000,
-		BaseFeePerGas: 1_000_000_000,
-		Timestamp:     1700000000,
+func TestBlockProducerWithExecutionBid(t *testing.T) {
+	bid := &SignedExecutionPayloadBid{
+		Message: ExecutionPayloadBid{
+			BlockHash: types.Hash{0xDE, 0xAD},
+			GasLimit:  30_000_000,
+			Slot:      1,
+		},
 	}
-	cfg := &BlockProducerConfig{DefaultExecutionHeader: hdr}
+	cfg := &BlockProducerConfig{DefaultBid: bid}
 	bp := NewBlockProducer(cfg, nil)
 
 	block, err := bp.ProduceBlock(1, 0, testParentRoot(), types.Hash{0x01}, testRandaoReveal())
 	if err != nil {
 		t.Fatalf("ProduceBlock failed: %v", err)
 	}
-	if block.Body.ExecutionPayloadHeader.GasLimit != 30_000_000 {
-		t.Fatalf("expected gas limit 30M, got %d", block.Body.ExecutionPayloadHeader.GasLimit)
+	if block.Body.SignedExecutionPayloadBid == nil {
+		t.Fatal("signed execution payload bid is nil")
 	}
-	if block.Body.ExecutionPayloadHeader.BaseFeePerGas != 1_000_000_000 {
-		t.Fatal("base fee mismatch")
+	if block.Body.SignedExecutionPayloadBid.Message.GasLimit != 30_000_000 {
+		t.Fatalf("expected gas limit 30M, got %d",
+			block.Body.SignedExecutionPayloadBid.Message.GasLimit)
+	}
+	if block.Body.SignedExecutionPayloadBid.Message.BlockHash != (types.Hash{0xDE, 0xAD}) {
+		t.Fatal("block hash mismatch")
+	}
+}
+
+func TestBlockProducerPayloadAttestationsCap(t *testing.T) {
+	atts := make([]*PayloadAttestation, MaxPayloadAttestations+3)
+	for i := range atts {
+		atts[i] = &PayloadAttestation{Data: PayloadAttestationData{Slot: uint64(i)}}
+	}
+	pools := &OperationPools{PayloadAttestations: atts}
+	bp := NewBlockProducer(nil, pools)
+
+	block, err := bp.ProduceBlock(1, 0, testParentRoot(), types.Hash{0x01}, testRandaoReveal())
+	if err != nil {
+		t.Fatalf("ProduceBlock failed: %v", err)
+	}
+	if len(block.Body.PayloadAttestations) != MaxPayloadAttestations {
+		t.Fatalf("expected %d payload attestations, got %d",
+			MaxPayloadAttestations, len(block.Body.PayloadAttestations))
 	}
 }
 

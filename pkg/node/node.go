@@ -871,6 +871,31 @@ func New(config *Config) (*Node, error) {
 	// Initialize Engine API server.
 	n.engBackend = nodebackend.NewEngineBackend(toNodeDeps(n))
 	n.engineServer = engine.NewEngineAPI(n.engBackend)
+	// Feed accepted builder bids into the node-side ePBS auction engine
+	// (EIP-7732): each bid opens (or joins) its slot's auction round.
+	n.engineServer.SetBidObserver(func(signed *engine.SignedExecutionPayloadBid) error {
+		if n.epbsAuction == nil || signed == nil {
+			return nil
+		}
+		bid := signed.Message
+		if n.epbsAuction.CurrentSlot() != bid.Slot {
+			if err := n.epbsAuction.OpenAuction(bid.Slot); err != nil {
+				return err
+			}
+		}
+		pubkey := [48]byte{}
+		if builder, err := n.engineServer.GetBuilderByIndex(bid.BuilderIndex); err == nil && builder != nil {
+			pubkey = [48]byte(builder.Pubkey)
+		}
+		return n.epbsAuction.SubmitBid(&epbsauction.AuctionBid{
+			BuilderPubkey: pubkey,
+			Slot:          bid.Slot,
+			Value:         new(big.Int).Mul(big.NewInt(int64(bid.Value)), big.NewInt(1_000_000_000)),
+			PayloadHash:   bid.BlockHash,
+			Timestamp:     time.Now(),
+			Signature:     [96]byte(signed.Signature),
+		})
+	})
 	// Forward eth_/web3_/net_/admin_ methods on the engine port to the RPC handler.
 	n.engineServer.SetEthHandler(n.rpcHandler.Handler())
 	n.engineServer.SetMaxRequestSize(config.EngineMaxRequestSize)

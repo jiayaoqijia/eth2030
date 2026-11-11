@@ -86,20 +86,6 @@ type VoluntaryExit struct {
 	Signature      [96]byte
 }
 
-// ExecutionPayloadHeader is a summary of the execution payload.
-type ExecutionPayloadHeader struct {
-	BlockHash     types.Hash
-	ParentHash    types.Hash
-	FeeRecipient  types.Address
-	StateRoot     types.Hash
-	ReceiptsRoot  types.Hash
-	LogsBloom     [LogsBloomLength]byte
-	GasLimit      uint64
-	GasUsed       uint64
-	Timestamp     uint64
-	BaseFeePerGas uint64
-}
-
 // Eth1Data represents an ETH1 deposit data reference for block production.
 type Eth1Data struct {
 	DepositRoot  types.Hash
@@ -107,18 +93,23 @@ type Eth1Data struct {
 	BlockHash    types.Hash
 }
 
-// BeaconBlockBody contains the body of a beacon block.
+// BeaconBlockBody contains the body of a beacon block, in the Gloas
+// (EIP-7732) shape: the execution payload is committed to via a signed
+// execution payload bid and PTC payload attestations reference the
+// previous slot's payload, replacing the former inline execution payload
+// header.
 type BeaconBlockBody struct {
-	RandaoReveal           [96]byte
-	Eth1Data               Eth1Data
-	Graffiti               [GraffitiLength]byte
-	ProposerSlashings      []ProposerSlashing
-	AttesterSlashings      []AttesterSlashing
-	Attestations           []*PoolAttestation
-	Deposits               []Deposit
-	VoluntaryExits         []VoluntaryExit
-	SyncAggregate          *SyncAggregate
-	ExecutionPayloadHeader *ExecutionPayloadHeader
+	RandaoReveal             [96]byte
+	Eth1Data                 Eth1Data
+	Graffiti                 [GraffitiLength]byte
+	ProposerSlashings        []ProposerSlashing
+	AttesterSlashings        []AttesterSlashing
+	Attestations             []*PoolAttestation
+	Deposits                 []Deposit
+	VoluntaryExits           []VoluntaryExit
+	SyncAggregate            *SyncAggregate
+	SignedExecutionPayloadBid *SignedExecutionPayloadBid
+	PayloadAttestations      []*PayloadAttestation
 }
 
 // BeaconBlockV2 represents a full beacon block for production.
@@ -159,9 +150,23 @@ func computeBodyRoot(body *BeaconBlockBody) types.Hash {
 	binary.LittleEndian.PutUint64(countBuf[:], uint64(len(body.Attestations)))
 	data = append(data, countBuf[:]...)
 
-	// Include execution payload header hash if present.
-	if body.ExecutionPayloadHeader != nil {
-		data = append(data, body.ExecutionPayloadHeader.BlockHash[:]...)
+	// Include the committed execution payload bid (Gloas/EIP-7732).
+	if body.SignedExecutionPayloadBid != nil {
+		bidRoot := body.SignedExecutionPayloadBid.Message.HashTreeRoot()
+		data = append(data, bidRoot[:]...)
+	}
+
+	// Include PTC payload attestation data roots.
+	var ptcCountBuf [8]byte
+	binary.LittleEndian.PutUint64(ptcCountBuf[:], uint64(len(body.PayloadAttestations)))
+	data = append(data, ptcCountBuf[:]...)
+	for _, att := range body.PayloadAttestations {
+		if att == nil {
+			continue
+		}
+		dataRoot := att.Data.HashTreeRoot()
+		data = append(data, dataRoot[:]...)
+		data = append(data, att.AggregationBits[:]...)
 	}
 
 	return crypto.Keccak256Hash(data)
@@ -170,20 +175,23 @@ func computeBodyRoot(body *BeaconBlockBody) types.Hash {
 // OperationPools aggregates the pools from which the block producer draws
 // operations for block assembly.
 type OperationPools struct {
-	Attestations      *AttestationPool
-	ProposerSlashings []ProposerSlashing
-	AttesterSlashings []AttesterSlashing
-	Deposits          []Deposit
-	VoluntaryExits    []VoluntaryExit
-	SyncAggregate     *SyncAggregate
+	Attestations        *AttestationPool
+	ProposerSlashings   []ProposerSlashing
+	AttesterSlashings   []AttesterSlashing
+	Deposits            []Deposit
+	VoluntaryExits      []VoluntaryExit
+	SyncAggregate       *SyncAggregate
+	PayloadAttestations []*PayloadAttestation
 }
 
 // BlockProducerConfig configures the block producer.
 type BlockProducerConfig struct {
-	Graffiti               [GraffitiLength]byte
-	DefaultFeeRecipient    types.Address
-	DefaultExecutionHeader *ExecutionPayloadHeader
-	Eth1Data               Eth1Data
+	Graffiti            [GraffitiLength]byte
+	DefaultFeeRecipient types.Address
+	// DefaultBid is the signed execution payload bid to commit to. When nil
+	// the producer emits a zero-value self-build bid (BUILDER_INDEX_SELF_BUILD).
+	DefaultBid *SignedExecutionPayloadBid
+	Eth1Data   Eth1Data
 }
 
 // BlockProducer assembles beacon blocks for a given slot. Thread-safe.
@@ -273,13 +281,21 @@ func (bp *BlockProducer) ProduceBlock(
 		body.SyncAggregate = &SyncAggregate{}
 	}
 
-	// Attach execution payload header.
-	if bp.config.DefaultExecutionHeader != nil {
-		hdr := *bp.config.DefaultExecutionHeader
-		body.ExecutionPayloadHeader = &hdr
+	// Collect PTC payload attestations for the previous slot.
+	body.PayloadAttestations = bp.collectPayloadAttestations()
+
+	// Attach the signed execution payload bid. A nil configured bid produces
+	// a self-build commitment (zero value, no payment).
+	if bp.config.DefaultBid != nil {
+		bid := *bp.config.DefaultBid
+		body.SignedExecutionPayloadBid = &bid
 	} else {
-		body.ExecutionPayloadHeader = &ExecutionPayloadHeader{
-			FeeRecipient: bp.config.DefaultFeeRecipient,
+		body.SignedExecutionPayloadBid = &SignedExecutionPayloadBid{
+			Message: ExecutionPayloadBid{
+				BuilderIndex: BuilderIndexSelfBuild,
+				FeeRecipient: bp.config.DefaultFeeRecipient,
+				Slot:         uint64(slot),
+			},
 		}
 	}
 
@@ -305,6 +321,22 @@ func (bp *BlockProducer) collectAttestations(slot Slot) []*PoolAttestation {
 		return nil
 	}
 	return bp.pools.Attestations.GetForBlock(slot)
+}
+
+// collectPayloadAttestations returns up to MaxPayloadAttestations PTC
+// payload attestations for inclusion in the block body.
+func (bp *BlockProducer) collectPayloadAttestations() []*PayloadAttestation {
+	available := bp.pools.PayloadAttestations
+	if len(available) == 0 {
+		return nil
+	}
+	count := len(available)
+	if count > MaxPayloadAttestations {
+		count = MaxPayloadAttestations
+	}
+	result := make([]*PayloadAttestation, count)
+	copy(result, available[:count])
+	return result
 }
 
 // collectProposerSlashings returns up to MaxProposerSlashings slashings.
