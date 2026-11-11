@@ -9,14 +9,14 @@ gap against current code before starting — parts of the 2026-03 gap analysis a
 ### Track 0 — Housekeeping
 
 - [x] Fast-forward local `master` to `origin/master`.
-- [ ] Delete merged local branch `feat/eiptest-framework` (remote already deleted).
+- [x] Delete merged local branch `feat/eiptest-framework` (remote already deleted).
 
 ### Track 1 — Glamsterdam / ePBS closure (P0)
 
-- [ ] EIP-7732 ePBS (85%): PTC election/voting wiring into fork-choice (types exist in `pkg/epbs/types.go`); BuilderPendingPayment/Withdrawal payment mechanism; builder registry (balance/deposit/withdrawable epoch); CL integration (payload → SignedBuilderBid in BeaconBlockBody); wire `epbs/bid SubmitBid` to a real builder entry point.
-- [ ] EIP-7975 (ETH/70 partial block receipts) and EIP-8159 (ETH/71 BAL exchange): move from referenced-only (`pkg/eth/protocol.go`, `pkg/p2p/ethproto`) to implemented and tested.
-- [ ] EIP-7928 BAL residual gaps: Engine BAL mismatch must reject (probe currently only logs); verify remaining 10% gap items against the 2026-03 analysis.
-- [ ] EIP-7594 PeerDAS (80%): column subnet gossip, custody, <50% column reconstruction, txpool `cell_proofs`.
+- [x] EIP-7732 ePBS (85%): PTC election/voting wiring into fork-choice (types exist in `pkg/epbs/types.go`); BuilderPendingPayment/Withdrawal payment mechanism; builder registry (balance/deposit/withdrawable epoch); CL integration (payload → SignedBuilderBid in BeaconBlockBody); wire `epbs/bid SubmitBid` to a real builder entry point.
+- [x] EIP-7975 (ETH/70 partial block receipts) and EIP-8159 (ETH/71 BAL exchange): move from referenced-only (`pkg/eth/protocol.go`, `pkg/p2p/ethproto`) to implemented and tested.
+- [x] EIP-7928 BAL residual gaps: Engine BAL mismatch must reject (probe currently only logs); verify remaining 10% gap items against the 2026-03 analysis. (Rejection already enforced; nil BAL hash now rejected post-Amsterdam.)
+- [x] EIP-7594 PeerDAS (80%): column subnet gossip, custody, <50% column reconstruction, txpool `cell_proofs`. (Canonical `data_column_sidecar_<subnet>` topics + SignedBlockHeader added; custody/reconstruction/cell_proofs were already in place.)
 
 ### Track 2 — Hegotá closure (P1)
 
