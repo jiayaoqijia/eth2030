@@ -260,6 +260,18 @@ func BuildDataColumnSidecar(
 	commitments []dastypes.KZGCommitment,
 	proofs []dastypes.KZGProof,
 ) (*dastypes.DataColumnSidecar, error) {
+	return BuildDataColumnSidecarWithHeader(columnIndex, cells, commitments, proofs, nil)
+}
+
+// BuildDataColumnSidecarWithHeader constructs a DataColumnSidecar carrying
+// the signed beacon block header per EIP-7594.
+func BuildDataColumnSidecarWithHeader(
+	columnIndex dastypes.ColumnIndex,
+	cells []dastypes.Cell,
+	commitments []dastypes.KZGCommitment,
+	proofs []dastypes.KZGProof,
+	header *dastypes.SignedBeaconBlockHeader,
+) (*dastypes.DataColumnSidecar, error) {
 	if len(cells) == 0 {
 		return nil, ErrSidecarBuildNoCells
 	}
@@ -275,11 +287,12 @@ func BuildDataColumnSidecar(
 	inclusionProof := buildCommitmentInclusionProof(commitments, uint64(columnIndex))
 
 	return &dastypes.DataColumnSidecar{
-		Index:          columnIndex,
-		Column:         cells,
-		KZGCommitments: commitments,
-		KZGProofs:      proofs,
-		InclusionProof: inclusionProof,
+		Index:             columnIndex,
+		Column:            cells,
+		KZGCommitments:    commitments,
+		KZGProofs:         proofs,
+		SignedBlockHeader: header,
+		InclusionProof:    inclusionProof,
 	}, nil
 }
 

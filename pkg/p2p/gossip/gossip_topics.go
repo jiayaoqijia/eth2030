@@ -4,6 +4,7 @@
 package gossip
 
 import (
+	"strings"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -27,6 +28,9 @@ const (
 	AttesterSlashing
 	// BlobSidecar propagates blob sidecars (EIP-4844+).
 	BlobSidecar
+	// DataColumnSidecar propagates data column sidecars (EIP-7594/Fulu),
+	// one gossipsub topic per subnet: data_column_sidecar_<subnet_id>.
+	DataColumnSidecar
 	// SyncCommitteeContribution propagates sync committee contributions.
 	SyncCommitteeContribution
 	// STARKMempoolTick propagates recursive STARK mempool aggregation ticks.
@@ -55,6 +59,7 @@ var gossipTopicNames = map[GossipTopic]string{
 	ProposerSlashing:          "proposer_slashing",
 	AttesterSlashing:          "attester_slashing",
 	BlobSidecar:               "blob_sidecar",
+	DataColumnSidecar:         "data_column_sidecar",
 	SyncCommitteeContribution: "sync_committee_contribution",
 	STARKMempoolTick:          "stark_mempool_tick",
 	PQAggRequest:              "pq_agg_request",
@@ -76,6 +81,50 @@ func (t GossipTopic) TopicString(forkDigest string) string {
 	return fmt.Sprintf("/eth2/%s/%s/ssz_snappy", forkDigest, t.String())
 }
 
+// DataColumnSidecarsSubnetCount is DATA_COLUMN_SIDECARS_SUBNET_COUNT from
+// the Fulu preset (EIP-7594).
+const DataColumnSidecarsSubnetCount = 64
+
+// ComputeSubnetForDataColumnSidecar returns the gossip subnet for a column
+// index, per the Fulu p2p spec: column_index mod DATA_COLUMN_SIDECARS_
+// SUBNET_COUNT.
+func ComputeSubnetForDataColumnSidecar(columnIndex uint64) uint64 {
+	return columnIndex % DataColumnSidecarsSubnetCount
+}
+
+// DataColumnSidecarTopicString builds the canonical Fulu topic for a
+// data column sidecar subnet:
+// /eth2/<fork_digest>/data_column_sidecar_<subnet_id>/ssz_snappy
+func DataColumnSidecarTopicString(forkDigest string, subnetID uint64) string {
+	return fmt.Sprintf("/eth2/%s/data_column_sidecar_%d/ssz_snappy", forkDigest, subnetID)
+}
+
+// ParseDataColumnSidecarTopic parses a data_column_sidecar_<subnet_id>
+// topic string and returns the subnet ID.
+func ParseDataColumnSidecarTopic(topic string) (uint64, error) {
+	// /eth2/<fork_digest>/data_column_sidecar_<subnet_id>/ssz_snappy
+	parts := splitTopicComponents(topic)
+	if len(parts) != 4 || len(parts[2]) <= len("data_column_sidecar_") ||
+		parts[2][:len("data_column_sidecar_")] != "data_column_sidecar_" {
+		return 0, fmt.Errorf("gossip: not a data_column_sidecar topic %q", topic)
+	}
+	subnet := 0
+	for _, c := range parts[2][len("data_column_sidecar_"):] {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("gossip: invalid subnet id in topic %q", topic)
+		}
+		subnet = subnet*10 + int(c-'0')
+	}
+	return uint64(subnet), nil
+}
+
+// splitTopicComponents splits an /eth2/<digest>/<name>/ssz_snappy topic
+// into its three inner components.
+func splitTopicComponents(topic string) []string {
+	trimmed := strings.Trim(topic, "/")
+	return strings.Split(trimmed, "/")
+}
+
 // ParseGossipTopic converts a topic name string to a GossipTopic.
 // Returns an error if the name is not recognized.
 func ParseGossipTopic(name string) (GossipTopic, error) {
@@ -83,6 +132,10 @@ func ParseGossipTopic(name string) (GossipTopic, error) {
 		if n == name {
 			return topic, nil
 		}
+	}
+	// data_column_sidecar_<subnet_id> maps to the DataColumnSidecar topic.
+	if _, err := ParseDataColumnSidecarTopic("/eth2/x/" + name + "/ssz_snappy"); err == nil {
+		return DataColumnSidecar, nil
 	}
 	return 0, fmt.Errorf("gossip: unknown topic name %q", name)
 }
