@@ -1,5 +1,11 @@
 # Project Status
 
+## PR #47 Merge Resolution
+
+- Merged upstream `master` at `d610385` into the audit follow-up branch and retained both sets of status entries.
+- Preserved the refreshed Strawmap and linked its seven milestone cards to the corresponding EIP tracker sections.
+- Passed the Go module build and focused BAL, ePBS, FOCIL, core EIP, PQ, and rollup tests. The site build, static export assertions, and EIP tracker file checks also passed.
+
 ## Cryptography Regression Fixes (2026-11-10)
 
 - Authenticated native PQ execution and transaction admission with a shared typed signing digest and the existing transaction wire format.
@@ -110,6 +116,21 @@ The devnet EL runs eth2030-geth (ethereum-package's geth launcher hardcodes the 
 - `cd ../lighthouse && cargo check --workspace`
 - `cd pkg/devnet/kurtosis && ./scripts/cleanup.sh && ./scripts/run-devnet.sh full-feature`
 - `cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)` -> advancing
+
+## Website Strawmap Refresh (2026-11-05)
+
+### Current Status: LOCAL UPDATE COMPLETE; FURTHER AUDIT AND DEPLOYMENT PENDING
+
+Updated the site against the EF Strawmap drawing dated 2026-11-02, separating proposed Ethereum milestones from selected ETH2030 code evidence. Replaced unsupported completion claims with links to code, tests, specifications, and known limits. Reviewed selected EIPs and implementation paths at repository revision `14497b5`; this is not a full EIP-by-EIP conformance or cross-client interoperability audit. In particular, PQ registration verification uses a stub and ePBS bid validation has a zero-signature testing path.
+
+Verification: `cd site && npm run build && node scripts/check-export.mjs`; desktop and mobile browser previews; `cd pkg && env -u GOROOT go test ./bal ./epbs ./focil ./core/eips ./crypto/pqc ./rollup/...` (run as two commands). Publishing remains pending; the deployment workflow still names `eth2030.com`, while GitHub Pages currently binds `eth2030.altllm.ai`.
+
+
+## Website Domain Recovery (2026-11-05)
+
+### Current Status: BLOCKED ON REPOSITORY ADMIN
+
+GitHub Pages is configured for GitHub Actions but currently binds `eth2030.altllm.ai`, while the website and deployment workflow specify `eth2030.com`. The latter resolves to GitHub Pages and returns 404. A repository administrator must change the Pages custom domain to `eth2030.com` and verify DNS and HTTPS; this replaces the existing custom-domain binding. The privacy page now identifies GitHub Pages as the hosting provider.
 
 ## Full-Feature Devnet Bring-Up (2026-03-25)
 
