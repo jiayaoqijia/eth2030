@@ -22,8 +22,10 @@ const MaxHeaders = 1024
 // MaxBodies is the maximum number of block bodies returned in a single response.
 const MaxBodies = 512
 
-// MaxPartialReceipts is the maximum number of receipt indices per partial request.
-const MaxPartialReceipts = 256
+// MaxReceiptsResponseSize is the soft byte budget for one Receipts (0x10)
+// response (EIP-7975 pagination). Blocks exceeding the budget are served
+// across messages with lastBlockIncomplete set.
+const MaxReceiptsResponseSize = 10 << 20
 
 // MaxAccessLists is the maximum number of block access lists returned in a single response.
 const MaxAccessLists = 64
@@ -45,21 +47,19 @@ type TxPool interface {
 	Pending() map[types.Address][]*types.Transaction
 }
 
-// ReceiptProvider provides receipt data for partial receipt requests (eth/70).
+// ReceiptProvider provides receipt data for eth/70 receipt requests
+// (EIP-7975). Implementations back the paginated Receipts (0x10) response.
 type ReceiptProvider interface {
 	GetReceipts(blockHash types.Hash) []*types.Receipt
 }
 
-// AccessListProvider provides block access list data for BAL exchange (eth/71).
+// AccessListProvider provides RLP-encoded block access list data for
+// eth/71 BAL exchange (EIP-8159). The returned bytes are the canonical
+// EIP-7928 BAL encoding; ok is false when the BAL is unavailable
+// (pre-activation or pruned), in which case the handler serves the empty
+// list per the spec.
 type AccessListProvider interface {
-	GetBlockAccessList(blockHash types.Hash) []AccessListEntry
-}
-
-// AccessListEntry is a simplified BAL entry for the protocol layer.
-type AccessListEntry struct {
-	Address     types.Address
-	AccessIndex uint64
-	StorageKeys []types.Hash
+	GetBlockAccessListRLP(blockHash types.Hash) (bal []byte, ok bool)
 }
 
 // StatusInfo holds the local chain status for handshake exchange.

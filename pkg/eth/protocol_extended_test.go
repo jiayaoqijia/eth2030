@@ -418,20 +418,15 @@ func TestGetBlockAccessListsMessage(t *testing.T) {
 
 func TestBlockAccessListsMessage(t *testing.T) {
 	hash := types.Hash{0xef}
-	entry := AccessListEntry{
-		Address:     types.Address{0x01},
-		AccessIndex: 42,
-		StorageKeys: []types.Hash{{0x10}},
-	}
 	msg := BlockAccessListsMessage{
-		BlockHash:   hash,
-		AccessLists: []AccessListEntry{entry},
+		Hashes:      []types.Hash{hash},
+		AccessLists: [][]byte{{0xc1, 0xaa}},
 	}
-	if msg.BlockHash != hash {
-		t.Error("BlockHash mismatch")
+	if len(msg.Hashes) != 1 || msg.Hashes[0] != hash {
+		t.Error("Hash mismatch")
 	}
 	if len(msg.AccessLists) != 1 {
-		t.Errorf("expected 1 access list entry, got %d", len(msg.AccessLists))
+		t.Errorf("expected 1 RLP-encoded access list, got %d", len(msg.AccessLists))
 	}
 }
 

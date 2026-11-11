@@ -119,7 +119,6 @@ func TestValidateMessageCode(t *testing.T) {
 		NewBlockMsg, NewPooledTransactionHashesMsg,
 		GetPooledTransactionsMsg, PooledTransactionsMsg,
 		GetReceiptsMsg, ReceiptsMsg,
-		GetPartialReceiptsMsg, PartialReceiptsMsg,
 		GetBlockAccessListsMsg, BlockAccessListsMsg,
 	}
 	for _, code := range validCodes {
