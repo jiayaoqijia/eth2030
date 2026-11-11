@@ -2,6 +2,7 @@
 
 ## Native Execution Requests and SSZ Integration (2026-11-11)
 
+- Merged upstream master at `677bbb8` for PR preparation and retained both sets of status and checklist entries.
 - Replaced the 32-byte storage fixture path with canonical native execution. EIP-6110 deposits come from matching receipt logs with the exact ABI layout and produce 192-byte records in log order. The EIP-7002 and EIP-7251 system calls execute the canonical queue contracts and return 76-byte withdrawal and 116-byte consolidation records. The native public-network configurations require queue code. `WithRequestContracts` and `ExecutionRequestContractAlloc` provide the deployed runtimes for new private and test chains. The deposit runtime comes from execution-specs at `c708ab6075973b6b928d17ec073dd43a7fe161b6`.
 - Block builders, replayers, and validators share post-transaction finalization. Header commitments use the requests derived from execution, and the post-execution BAL records queue writes. Engine payload builders return the canonical request groups, including through the asynchronous builder. Prague and Amsterdam payload validation rejects malformed wire ordering and mismatches between supplied and executed requests.
 - Verified two real deposits in one block and all three request types through the native Amsterdam Engine HTTP path, an independent receiver, block replay, and the EIP-7807 projection. A payload with altered requests and a matching advertised header hash was rejected by execution validation. The valid payload produced the expected typed consensus requests root, and the next block emitted no repeated requests.
@@ -61,6 +62,11 @@ Reviewed `feat/eiptest-framework` at `4610eac` against the [framework plan](docs
 - Authored the `eiptest` framework design and phased task plan at [docs/plans/eiptest-framework-plan.md](docs/plans/eiptest-framework-plan.md): an in-process integration test base for future EIP development, with seven surface probes (STF, pool, fork gating, encoding, RPC, engine payload flow, geth differential), an EIP coverage registry gate, and a test scaffold generator.
 - Plan targets: single-EIP test iteration under 1 second, full framework suite under 2 minutes, no build tags, default `go test ./...` inclusion. Devnet stays responsible for multi-node surfaces only.
 - Baselines recorded on the dev host: `-short` full suite 37.3s, `go vet` 5.7s, single-client devnet boot to block 10 ~50s; the git history review (288 fix commits) shows engine/RPC/txpool surfaces carry the most recurring fixes, which sets the probe priorities.
+## PR #47 Merge Resolution
+
+- Merged upstream `master` at `d610385` into the audit follow-up branch and retained both sets of status entries.
+- Preserved the refreshed Strawmap and linked its seven milestone cards to the corresponding EIP tracker sections.
+- Passed the Go module build and focused BAL, ePBS, FOCIL, core EIP, PQ, and rollup tests. The site build, static export assertions, and EIP tracker file checks also passed.
 
 ## Cryptography Regression Fixes (2026-11-10)
 
@@ -172,6 +178,21 @@ The devnet EL runs eth2030-geth (ethereum-package's geth launcher hardcodes the 
 - `cd ../lighthouse && cargo check --workspace`
 - `cd pkg/devnet/kurtosis && ./scripts/cleanup.sh && ./scripts/run-devnet.sh full-feature`
 - `cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)` -> advancing
+
+## Website Strawmap Refresh (2026-11-05)
+
+### Current Status: LOCAL UPDATE COMPLETE; FURTHER AUDIT AND DEPLOYMENT PENDING
+
+Updated the site against the EF Strawmap drawing dated 2026-11-02, separating proposed Ethereum milestones from selected ETH2030 code evidence. Replaced unsupported completion claims with links to code, tests, specifications, and known limits. Reviewed selected EIPs and implementation paths at repository revision `14497b5`; this is not a full EIP-by-EIP conformance or cross-client interoperability audit. In particular, PQ registration verification uses a stub and ePBS bid validation has a zero-signature testing path.
+
+Verification: `cd site && npm run build && node scripts/check-export.mjs`; desktop and mobile browser previews; `cd pkg && env -u GOROOT go test ./bal ./epbs ./focil ./core/eips ./crypto/pqc ./rollup/...` (run as two commands). Publishing remains pending; the deployment workflow still names `eth2030.com`, while GitHub Pages currently binds `eth2030.altllm.ai`.
+
+
+## Website Domain Recovery (2026-11-05)
+
+### Current Status: BLOCKED ON REPOSITORY ADMIN
+
+GitHub Pages is configured for GitHub Actions but currently binds `eth2030.altllm.ai`, while the website and deployment workflow specify `eth2030.com`. The latter resolves to GitHub Pages and returns 404. A repository administrator must change the Pages custom domain to `eth2030.com` and verify DNS and HTTPS; this replaces the existing custom-domain binding. The privacy page now identifies GitHub Pages as the hosting provider.
 
 ## Full-Feature Devnet Bring-Up (2026-03-25)
 

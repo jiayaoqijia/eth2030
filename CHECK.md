@@ -36,6 +36,13 @@
 - [x] Run the framework suite, default Go suite, and local CI checks.
 - [x] Verify failure detection and exercise the documented tooling entry points.
 - [x] Record verified results and remaining gaps in `STATUS.md`.
+## PR #47 Merge Resolution
+
+- [x] Confirm the pull request head and fetch the current upstream base.
+- [x] Create an isolated worktree for the merge.
+- [x] Reconcile the status entries and preserve the roadmap and tracker navigation.
+- [x] Build the site and Go module, and verify the static export and selected Go packages.
+- [x] Scope all merge and staging operations to the isolated worktree.
 
 ## Cryptography Regression Fixes
 
@@ -159,3 +166,12 @@
   - then lift jump semantics from op-index simulation to byte-offset simulation,
   - prove end-to-end `compile`→`run` correctness against bytecode semantics,
   - begin RISC-V interpreter/simulation proof chain once VM core stabilizes.
+
+## Website Strawmap refresh (2026-11-05)
+
+- [x] Inspect the latest EF Strawmap and selected EIPs; distinguish draft milestones from network activation.
+- [x] Inspect selected implementation and test evidence; record gaps and limits.
+- [x] Replace outdated roadmap and unsupported promotional claims with sourced, reviewable content.
+- [x] Verify site build, evidence paths and responsive presentation; update STATUS.md.
+- [x] Commit only files changed for this task.
+- [ ] Complete a full current-spec conformance and cross-client audit before claiming broader coverage.

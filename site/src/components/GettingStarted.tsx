@@ -8,14 +8,14 @@ export default function GettingStarted() {
     <section id="getting-started" className="py-20 md:py-28 px-4 bg-eth-surface/30">
       <SectionHeading
         title="Getting Started"
-        subtitle="Clone, build, and sync in minutes"
+        subtitle="Build and explore the code"
       />
 
       <div className="max-w-3xl mx-auto">
         <TerminalBlock commands={gettingStartedCommands} />
 
         <div className="mt-8 text-center text-sm text-eth-dim">
-          Requires Go 1.23+. For testnet sync, pair with a consensus client (e.g., Lighthouse).
+          Requires Go 1.25+. Running an Ethereum node also requires a compatible consensus client; see the project documentation for configuration and current limitations.
         </div>
       </div>
     </section>

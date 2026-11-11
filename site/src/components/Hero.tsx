@@ -50,12 +50,9 @@ export default function Hero() {
           transition={{ duration: 0.6, delay: 0.5 }}
           className="mt-6 text-lg sm:text-xl md:text-2xl text-eth-dim max-w-2xl mx-auto leading-relaxed"
         >
-          Targeting the{' '}
-          <a href="https://strawmap.org/" target="_blank" rel="noopener noreferrer" className="underline decoration-eth-purple/50 hover:decoration-eth-purple">L1 Strawmap</a>.{' '}
-          <span className="text-eth-purple">48 packages</span>,{' '}
-          <span className="text-eth-pink">20,900+ tests</span>,{' '}
-          <span className="text-eth-teal">58 EIPs</span>.{' '}
-          Built in Go.
+          An experimental Ethereum execution client in Go, exploring the{' '}
+          <a href="https://strawmap.org/" target="_blank" rel="noopener noreferrer" className="underline decoration-eth-purple/50 hover:decoration-eth-purple">L1 Strawmap</a>{' '}
+          through open code, tests and protocol research.
         </motion.p>
 
         <motion.div
@@ -94,7 +91,7 @@ export default function Hero() {
           transition={{ duration: 0.6, delay: 1.1 }}
           className="mt-8 text-eth-dim text-sm"
         >
-          go-ethereum v1.17.0 backend | Go 1.23 | Live on Sepolia & Mainnet
+          Experimental research software · not production-ready · Go 1.25+
         </motion.div>
       </div>
 
