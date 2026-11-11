@@ -5,9 +5,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"os"
 	"testing"
+
+	"github.com/eth2030/eth2030/ssz"
 )
 
 type executionSSZVector struct {
@@ -25,7 +28,7 @@ type executionSSZVectors struct {
 	Payload          executionSSZVector
 	Summary          executionSSZVector
 	Requests         []string
-	Receipt          string
+	Receipts         []string
 }
 
 func loadExecutionSSZVectors(t *testing.T) executionSSZVectors {
@@ -117,6 +120,76 @@ func TestEIP6404RejectsNoncanonicalContainer(t *testing.T) {
 	}
 }
 
+func TestEIP6404RejectsHighSSignature(t *testing.T) {
+	vector := loadExecutionSSZVectors(t).Transactions[2]
+	tx, err := DecodeTxRLP(executionVectorBytes(t, vector.RLP))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The alternate EIP-155 signature recovers the same key with the
+	// opposite parity and a high S. EIP-7932 requires the low-S form.
+	legacy := tx.Inner().copy().(*LegacyTx)
+	legacy.S.Sub(secp256k1NCopy, legacy.S)
+	legacy.V.Add(legacy.V, big.NewInt(1))
+	if _, err := TransactionToSSZ(NewTransaction(legacy)); !errors.Is(err, ErrSSZTransactionSignature) {
+		t.Fatalf("encode high-S transaction: got %v, want signature error", err)
+	}
+
+	wire := executionVectorBytes(t, vector.SSZ)
+	offset := int(binary.LittleEndian.Uint32(wire[4:8]))
+	legacy.S.FillBytes(wire[offset+33 : offset+65])
+	wire[offset+65] ^= 1
+	if _, err := SSZToTransaction(wire); !errors.Is(err, ErrSSZTransactionSignature) {
+		t.Fatalf("decode high-S transaction: got %v, want signature error", err)
+	}
+}
+
+func TestEIP6404RejectsPaddingBeforePayload(t *testing.T) {
+	vector := loadExecutionSSZVectors(t).Transactions[2]
+	wire := executionVectorBytes(t, vector.SSZ)
+	// Preserve both fields and shift both offsets so that only the
+	// unreferenced byte between the fixed section and payload is invalid.
+	padded := append(bytes.Clone(wire[:8]), 0)
+	padded = append(padded, wire[8:]...)
+	for _, start := range []int{0, 4} {
+		binary.LittleEndian.PutUint32(padded[start:], binary.LittleEndian.Uint32(wire[start:])+1)
+	}
+	if _, err := SSZToTransaction(padded); !errors.Is(err, ssz.ErrOffset) {
+		t.Fatalf("decode padded transaction: got %v, want offset error", err)
+	}
+}
+
+func referenceExecutionRequests(t *testing.T, vectors executionSSZVectors) Requests {
+	t.Helper()
+	if len(vectors.Requests) != 3 {
+		t.Fatalf("fixture has %d request types, want 3", len(vectors.Requests))
+	}
+	requests := make(Requests, len(vectors.Requests))
+	for i, raw := range vectors.Requests {
+		requests[i] = NewRequest(byte(i), executionVectorBytes(t, raw))
+	}
+	return requests
+}
+
+func referenceExecutionReceipts(t *testing.T, vectors executionSSZVectors) []*Receipt {
+	t.Helper()
+	txTypes := []byte{DynamicFeeTxType, BlobTxType}
+	if len(vectors.Receipts) != len(txTypes) {
+		t.Fatalf("fixture has %d receipts, want %d", len(vectors.Receipts), len(txTypes))
+	}
+	receipts := make([]*Receipt, len(txTypes))
+	for i, txType := range txTypes {
+		receipt := NewReceipt(ReceiptStatusSuccessful, uint64(i+1)*21_000)
+		receipt.Type = txType
+		wire, err := receipt.EncodeRLP()
+		if err != nil || !bytes.Equal(wire, executionVectorBytes(t, vectors.Receipts[i])) {
+			t.Fatalf("receipt %d envelope %x: %v", i, wire, err)
+		}
+		receipts[i] = receipt
+	}
+	return receipts
+}
+
 func TestEIP7807ReferenceVectors(t *testing.T) {
 	vectors := loadExecutionSSZVectors(t)
 	wire := executionVectorBytes(t, vectors.Payload.SSZ)
@@ -155,23 +228,84 @@ func TestEIP7807ReferenceVectors(t *testing.T) {
 		t.Fatalf("payload root %s, summary root %s: %v", payloadRoot.Hex(), headerRoot.Hex(), err)
 	}
 
-	var requests Requests
-	for i, raw := range vectors.Requests {
-		requests = append(requests, NewRequest(byte(i), executionVectorBytes(t, raw)))
-	}
-	root, err := ExecutionRequestsSSZRoot(requests)
+	root, err := ExecutionRequestsSSZRoot(referenceExecutionRequests(t, vectors))
 	if err != nil || root != payload.RequestsHash {
 		t.Fatalf("execution requests root %s, want %s: %v", root.Hex(), payload.RequestsHash.Hex(), err)
 	}
-	receipt := NewReceipt(ReceiptStatusSuccessful, 21000)
-	receipt.Type = DynamicFeeTxType
-	receiptWire, err := receipt.EncodeRLP()
-	if err != nil || !bytes.Equal(receiptWire, executionVectorBytes(t, vectors.Receipt)) {
-		t.Fatalf("receipt envelope %x: %v", receiptWire, err)
-	}
-	root, err = ExecutionReceiptsSSZRoot([]*Receipt{receipt})
+	root, err = ExecutionReceiptsSSZRoot(referenceExecutionReceipts(t, vectors))
 	if err != nil || root != payload.ReceiptsRoot {
 		t.Fatalf("receipt root %s, want %s: %v", root.Hex(), payload.ReceiptsRoot.Hex(), err)
+	}
+}
+
+func TestEIP7807ProjectionMatchesReference(t *testing.T) {
+	vectors := loadExecutionSSZVectors(t)
+	wire := executionVectorBytes(t, vectors.Payload.SSZ)
+	var reference ExecutionPayloadSSZ
+	if err := reference.UnmarshalSSZ(wire); err != nil {
+		t.Fatal(err)
+	}
+	txs := make([]*Transaction, len(reference.Transactions))
+	for i, raw := range reference.Transactions {
+		tx, err := DecodeTxRLP(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		txs[i] = tx
+	}
+	withdrawals := make([]*Withdrawal, len(reference.Withdrawals))
+	for i, raw := range reference.Withdrawals {
+		w, err := DecodeWithdrawal(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		withdrawals[i] = w
+	}
+
+	// Supply the legacy block fields and execution inputs separately. Its
+	// RLP commitments are deliberately distinct from the SSZ fixture roots.
+	legacyRequestsHash := Hash{1}
+	block := NewBlock(&Header{
+		ParentHash: reference.ParentHash, Coinbase: reference.Miner, Root: reference.StateRoot,
+		ReceiptHash: Hash{2}, RequestsHash: &legacyRequestsHash,
+		Number: new(big.Int).SetUint64(reference.Number), GasLimit: reference.GasLimits.Regular,
+		GasUsed: reference.GasUsed.Regular, Time: reference.Timestamp, Extra: reference.ExtraData,
+		MixDigest: reference.MixHash, BaseFee: reference.BaseFeesPerGas.Regular,
+		BlobGasUsed: &reference.GasUsed.Blob, ExcessBlobGas: &reference.ExcessGas.Blob,
+		ParentBeaconRoot: &reference.ParentBeaconBlockRoot,
+	}, &Body{Transactions: txs, Withdrawals: withdrawals})
+	payload, err := NewExecutionPayloadSSZ(block, referenceExecutionReceipts(t, vectors), ExecutionSSZContext{
+		BlobGasLimit: reference.GasLimits.Blob, BlobBaseFee: reference.BaseFeesPerGas.Blob,
+		ExcessRegularGas: reference.ExcessGas.Regular, Requests: referenceExecutionRequests(t, vectors),
+		BlockAccessList: reference.BlockAccessList, SlotNumber: reference.SlotNumber,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.RequestsHash != reference.RequestsHash || payload.ReceiptsRoot != reference.ReceiptsRoot {
+		t.Fatalf("projected requests root %s, receipts root %s", payload.RequestsHash.Hex(), payload.ReceiptsRoot.Hex())
+	}
+	if len(payload.Withdrawals) != len(withdrawals) || payload.GasLimits != reference.GasLimits {
+		t.Fatalf("projected %d withdrawals and gas limits %+v", len(payload.Withdrawals), payload.GasLimits)
+	}
+	got, err := payload.MarshalSSZ()
+	if err != nil || !bytes.Equal(got, wire) {
+		t.Fatalf("projected payload encoding differs from reference: %v", err)
+	}
+	root, err := payload.HashTreeRoot()
+	if err != nil || root != HexToHash(vectors.Payload.Root) {
+		t.Fatalf("projected payload root %s: %v", root.Hex(), err)
+	}
+}
+
+func TestEIP7807WithdrawalRequestLimit(t *testing.T) {
+	vectors := loadExecutionSSZVectors(t)
+	data := referenceExecutionRequests(t, vectors)[WithdrawalRequestType].Data
+	for _, count := range []int{16, 17} {
+		request := NewRequest(WithdrawalRequestType, bytes.Repeat(data, count))
+		if _, err := ExecutionRequestsSSZRoot(Requests{request}); (err != nil) != (count == 17) {
+			t.Fatalf("%d withdrawal requests: %v", count, err)
+		}
 	}
 }
 

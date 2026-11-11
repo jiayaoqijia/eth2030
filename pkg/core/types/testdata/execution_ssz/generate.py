@@ -174,13 +174,16 @@ def main(tx_spec, block_spec, electra_spec):
     requests = scope["ExecutionRequests"](
         deposits=[deposit], withdrawals=[withdrawal_request], consolidations=[consolidation],
     )
-    receipt = bytes([2]) + rlp([1, 21000, bytes(256), []])
+    receipts = [
+        bytes([tx_type]) + rlp([1, cumulative_gas, bytes(256), []])
+        for tx_type, cumulative_gas in ((2, 21_000), (3, 42_000))
+    ]
     block_fields = dict(
         parent_hash=b"\x11" * 32, miner=to, state_root=b"\x12" * 32,
         transactions=[raws[6], raws[8]],
-        receipts_root=ProgressiveList[ProgressiveByteList]([receipt]).hash_tree_root(),
+        receipts_root=ProgressiveList[ProgressiveByteList](receipts).hash_tree_root(),
         number=23, gas_limits=scope["GasAmounts"](regular=30_000_000, blob=786432),
-        gas_used=scope["GasAmounts"](regular=21000, blob=131072), timestamp=1234,
+        gas_used=scope["GasAmounts"](regular=42000, blob=131072), timestamp=1234,
         extra_data=b"example", mix_hash=b"\x13" * 32,
         base_fees_per_gas=scope["BlobFeesPerGas"](regular=7, blob=2**100), withdrawals=[rlp([7, 9, to, 11])],
         excess_gas=scope["GasAmounts"](regular=27, blob=131072), parent_beacon_block_root=b"\x14" * 32,
@@ -204,7 +207,7 @@ def main(tx_spec, block_spec, electra_spec):
         "payload": vector(payload),
         "summary": vector(summary),
         "requests": [item.encode_bytes().hex() for item in (deposit, withdrawal_request, consolidation)],
-        "receipt": receipt.hex(),
+        "receipts": [receipt.hex() for receipt in receipts],
     }
     print(json.dumps(output, indent=2))
 

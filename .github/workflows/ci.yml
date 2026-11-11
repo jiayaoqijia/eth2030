@@ -95,7 +95,7 @@ jobs:
           - variant: goethkzg
             args: -tags goethkzg ./crypto/bls ./core/vm
           - variant: race
-            args: -race ./consensus ./focil ./das/custody
+            args: -race ./consensus ./focil ./das/custody ./ssz ./core/types ./eiptest/...
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

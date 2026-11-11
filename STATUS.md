@@ -1,5 +1,13 @@
 # Project Status
 
+## Execution SSZ and Framework Test Effectiveness Review (2026-11-11)
+
+- Reviewed the pushed `b3972f0` branch with the CI-shaped default Go suite and required EF fixtures. After the test updates, 19,424 top-level Go tests passed and seven existing top-level skips were reported. All 68 framework tests passed with zero skips. The pinned EF results were 36,264 passes, zero failures or skips, and 20 known legacy outcomes. The default command took 130.74 seconds using Go 1.27.3.
+- Ran 18 isolated behavior mutations using Go overlays. Initially, 11 failed a targeted assertion and seven passed the selected tests. After adding assertions, the same 18 mutations each failed the intended tests. This covered EIP-6404 signature encoding and decoding, full-width chain IDs, compatible-union roots, the empty progressive list, canonical offsets, EIP-7807 payload construction and roots, Engine BAL and hash validation, pool selection, Geth receipt comparison, and the registry gate.
+- Added specific rejection assertions for high-S encoding and decoding and for a container with padding between otherwise valid fields. Regenerated the independent EIP-7807 fixture with two transactions and two receipts, then verified that the block projection reproduces its bytes and root with nonempty requests and withdrawals and distinct blob gas limit and usage. The Engine BAL case now verifies the execution validation reason and the unchanged receiver head.
+- Ran the targeted suites 20 times. Formatting, vet, build, the integration, blst and goethkzg tagged suites, CI and extended race coverage, and the EEST generation-to-execution smoke test passed. CI race coverage now includes `ssz`, `core/types` and `eiptest`.
+- The EIP-7807 projection regression uses valid nonempty reference requests. A separate probe confirmed that the current native EIP-6110 storage queue fixture emits 32-byte deposit request data, which the consensus request root rejects. The test coverage therefore establishes the projection contract for valid requests and the current queue behavior. Native production of canonical nonempty requests and SSZ fork activation remain open.
+
 ## Execution SSZ Specification Review (2026-11-11)
 
 - Replaced the experimental transaction byte layout with the ten EIP-6404 compatible-union variants and typed Merkleization. The current EIP-7932 draft uses secp256k1 selector `0x00`. EIP-155 chain IDs and signature parity round-trip independently of the size of the original RLP `v`, preserving the original bytes and signing hash.

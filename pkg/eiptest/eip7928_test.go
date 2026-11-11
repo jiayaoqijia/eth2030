@@ -1,6 +1,7 @@
 package eiptest_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
@@ -68,8 +69,15 @@ func TestEIP7928_EngineRejectsInconsistentBAL(t *testing.T) {
 	altered := *resp.ExecutionPayload
 	altered.BlockAccessList = []byte(`"0xc0"`)
 	status, err := p.Process(&altered)
-	if err != nil || status.Status != engine.StatusInvalid || p.HeadHash() != head {
-		t.Fatalf("modified BAL: status %s, head %s, error %v", status.Status, p.HeadHash().Hex(), err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != engine.StatusInvalid ||
+		status.ValidationError == nil || !strings.Contains(*status.ValidationError, "invalid block access list hash") {
+		t.Fatalf("modified BAL was not rejected by execution validation: %+v", status)
+	}
+	if status.LatestValidHash == nil || *status.LatestValidHash != head || p.HeadHash() != head {
+		t.Fatalf("invalid BAL changed the receiver's validated head: %s", p.HeadHash().Hex())
 	}
 	status, err = p.Process(resp.ExecutionPayload)
 	if err != nil {

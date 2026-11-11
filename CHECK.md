@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Execution SSZ and Framework Test Effectiveness Review
+
+- [x] Verify the branch and run the default, tagged, and race suites.
+- [x] Measure whether targeted behavior changes fail their intended tests.
+- [x] Close demonstrated assertion gaps and repeat the targeted checks.
+- [x] Record the results in `STATUS.md`.
+
 ## Execution SSZ Specification Review
 
 - [x] Compare transaction and block encodings with the pinned and published EIP drafts.
