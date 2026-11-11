@@ -122,7 +122,7 @@ export default function PrivacyPage() {
                   <td className="py-2">Per GitHub&apos;s privacy policy</td>
                 </tr>
                 <tr className="border-b border-eth-purple/5">
-                  <td className="py-2 pr-4">Vercel</td>
+                  <td className="py-2 pr-4">GitHub Pages</td>
                   <td className="py-2 pr-4">Website hosting</td>
                   <td className="py-2">Server access logs (IP, user agent)</td>
                 </tr>
@@ -138,7 +138,7 @@ export default function PrivacyPage() {
             <p>
               Google Analytics data is retained according to Google&apos;s default retention settings (typically 14 months).
               We do not maintain any separate databases of user information. Server access logs from our hosting
-              provider (Vercel) are retained per their standard policy.
+              provider (GitHub Pages) are retained per their standard policy.
             </p>
           </section>
 
@@ -167,7 +167,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-lg font-semibold text-eth-text mb-3">10. International Users</h2>
             <p>
-              Our website is hosted globally via Vercel&apos;s CDN. Analytics data may be processed in the United States
+              Our website is hosted globally via GitHub Pages. Analytics data may be processed in the United States
               by Google. By using our website, you acknowledge that your data may be transferred to and processed in
               countries outside your own.
             </p>

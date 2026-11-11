@@ -1,157 +1,24 @@
-'use client';
-import { motion } from 'framer-motion';
 import Link from 'next/link';
 import SectionHeading from '@/components/ui/SectionHeading';
 import { roadmapPhases } from '@/lib/data';
-import { useInView } from '@/hooks/useInView';
-
-const phaseColors = [
-  { border: 'border-eth-purple/40', bg: 'bg-eth-purple/10', dot: 'bg-eth-purple', text: 'text-eth-purple' },
-  { border: 'border-eth-teal/40', bg: 'bg-eth-teal/10', dot: 'bg-eth-teal', text: 'text-eth-teal' },
-  { border: 'border-eth-blue/40', bg: 'bg-eth-blue/10', dot: 'bg-eth-blue', text: 'text-eth-blue' },
-  { border: 'border-eth-pink/40', bg: 'bg-eth-pink/10', dot: 'bg-eth-pink', text: 'text-eth-pink' },
-  { border: 'border-eth-purple/40', bg: 'bg-eth-purple/10', dot: 'bg-eth-purple', text: 'text-eth-purple' },
-  { border: 'border-eth-teal/40', bg: 'bg-eth-teal/10', dot: 'bg-eth-teal', text: 'text-eth-teal' },
-  { border: 'border-eth-blue/40', bg: 'bg-eth-blue/10', dot: 'bg-eth-blue', text: 'text-eth-blue' },
-  { border: 'border-eth-pink/40', bg: 'bg-eth-pink/10', dot: 'bg-eth-pink', text: 'text-eth-pink' },
-];
 
 export default function RoadmapTimeline() {
-  const { ref, isInView } = useInView();
-
   return (
     <section id="roadmap" className="py-20 md:py-28 px-4 bg-eth-surface/30">
-      <SectionHeading
-        title="L1 Strawmap"
-        subtitle={
-          <>
-            Based on the official{' '}
-            <a
-              href="https://strawmap.org/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-eth-purple hover:underline"
-            >
-              strawmap.org
-            </a>{' '}
-            — EF Architecture team&apos;s Ethereum protocol roadmap
-          </>
-        }
-      />
-
-      <div ref={ref} className="max-w-5xl mx-auto">
-        {/* Five North Stars */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.5 }}
-          className="mb-12 flex flex-wrap justify-center gap-3"
-        >
-          {[
-            { label: 'Fast L1', desc: 'Finality in seconds' },
-            { label: 'Gigagas L1', desc: '1 Ggas/sec' },
-            { label: 'Teragas L2', desc: '1 Gbyte/sec' },
-            { label: 'PQ L1', desc: 'Quantum-resistant' },
-            { label: 'Private L1', desc: 'Shielded transfers' },
-          ].map((star) => (
-            <span
-              key={star.label}
-              className="px-4 py-2 rounded-lg border border-eth-purple/20 bg-eth-purple/5 text-sm"
-              title={star.desc}
-            >
-              <span className="text-eth-purple font-semibold">{star.label}</span>
-              <span className="text-eth-dim ml-2 hidden sm:inline">{star.desc}</span>
-            </span>
-          ))}
-        </motion.div>
-
-        {/* Timeline */}
-        <div className="relative">
-          {/* Vertical line */}
-          <div className="absolute left-4 md:left-1/2 md:-translate-x-px top-0 bottom-0 w-0.5 bg-gradient-to-b from-eth-purple/40 via-eth-teal/40 to-eth-blue/40" />
-
-          {roadmapPhases.map((phase, i) => {
-            const color = phaseColors[i % phaseColors.length];
-            const isLeft = i % 2 === 0;
-
-            return (
-              <motion.div
-                key={phase.name}
-                initial={{ opacity: 0, x: isLeft ? -30 : 30 }}
-                animate={isInView ? { opacity: 1, x: 0 } : {}}
-                transition={{ duration: 0.5, delay: i * 0.1 }}
-                className={`relative flex items-start mb-8 md:mb-10 ${
-                  isLeft ? 'md:flex-row' : 'md:flex-row-reverse'
-                }`}
-              >
-                {/* Dot */}
-                <div className="absolute left-4 md:left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-eth-bg z-10 mt-5">
-                  <div className={`w-full h-full rounded-full ${color.dot}`} />
-                </div>
-
-                {/* Card */}
-                <div
-                  className={`ml-10 md:ml-0 md:w-[calc(50%-2rem)] ${
-                    isLeft ? 'md:mr-auto md:pr-8' : 'md:ml-auto md:pl-8'
-                  }`}
-                >
-                  <div
-                    className={`rounded-xl border ${color.border} ${color.bg} backdrop-blur-sm p-5`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className={`text-lg font-bold ${color.text}`}>{phase.name}</h3>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-eth-dim">{phase.year}</span>
-                        <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-eth-teal/10 text-eth-teal border border-eth-teal/20">
-                          {phase.coverage}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {phase.highlights.map((item) => (
-                        <span
-                          key={item}
-                          className="text-xs px-2 py-0.5 rounded bg-eth-deep/20 text-eth-dim border border-eth-deep/20"
-                        >
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
+      <SectionHeading title="The L1 Strawmap" subtitle="A living draft for Ethereum’s future, not a release schedule" />
+      <div className="max-w-5xl mx-auto">
+        <p className="text-eth-text/80 text-sm leading-7 mb-6">Selected milestones from the EF Architecture Strawmap dated November 2, 2026. Scope, ordering and dates can change through research and community coordination. These milestones describe Ethereum proposals; they do not indicate ETH2030 implementation status.</p>
+        <div className="flex flex-wrap gap-3 mb-10 text-xs text-eth-teal">
+          {['Fast L1', 'Gigagas L1', 'Teragas L2', 'Post-quantum L1', 'Private L1'].map(x => <span key={x} className="border border-eth-teal/30 rounded-full px-3 py-2">{x}</span>)}
         </div>
-
-        {/* Summary */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.5, delay: 0.9 }}
-          className="mt-8 text-center text-sm text-eth-dim"
-        >
-          <span className="text-eth-teal font-semibold">65/65</span> strawmap items implemented across{' '}
-          <span className="text-eth-purple font-semibold">8 upgrade phases</span> &middot;{' '}
-          <span className="text-eth-pink font-semibold">30 devnet tests</span> passing
-        </motion.div>
-
-        {/* PQ Roadmap link */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.5, delay: 1.0 }}
-          className="mt-6 text-center"
-        >
-          <Link
-            href="/pq-roadmap"
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-eth-pink/10 border border-eth-pink/30
-                       text-eth-pink font-semibold hover:bg-eth-pink/20
-                       hover:shadow-[0_0_20px_#ff6b9d33] transition-all duration-300 text-sm"
-          >
-            Post-Quantum Roadmap &rarr;
-          </Link>
-        </motion.div>
+        <div className="grid md:grid-cols-2 gap-4">
+          {roadmapPhases.map(phase => <article key={phase.name} className="rounded-xl border border-eth-purple/25 bg-eth-surface/60 p-6">
+            <h3 className="text-lg font-bold text-eth-purple mb-3">{phase.name}</h3>
+            <p className="text-eth-text text-sm leading-6">{phase.highlights.join(' · ')}</p>
+            <p className="text-eth-dim text-xs mt-4 leading-5">{phase.note}</p>
+          </article>)}
+        </div>
+        <p className="mt-8 text-sm text-eth-dim leading-7">The five north stars are long-term goals. I*–L* are placeholders, not finalized fork names. <a className="text-eth-teal underline" href="https://strawmap.org/">View the current Strawmap</a> · <a className="text-eth-teal underline" href="https://blog.ethereum.org/2026/10/22/glamsterdam-hoodi-delay">Hoodi update</a> · <Link className="text-eth-teal underline" href="/pq-roadmap/">Post-quantum research notes</Link></p>
       </div>
     </section>
   );
