@@ -762,6 +762,18 @@ func TestValidatePartialReceipts(t *testing.T) {
 		t.Fatal("oversized receipt must be rejected")
 	}
 
+	// Total size beyond the block gas limit (1 byte per gas): a tiny block
+	// gas limit with receipts that individually fit their transaction bounds
+	// still exceeds the block allowance.
+	tinyHeader := &types.Header{
+		Number:   new(big.Int).SetUint64(2),
+		GasLimit: 100,
+	}
+	tinyBlock := types.NewBlock(tinyHeader, &types.Body{Transactions: []*types.Transaction{tx1, tx2}})
+	if err := ValidatePartialReceipts(tinyBlock, []*types.Receipt{r1, r2}); err == nil {
+		t.Fatal("receipts exceeding the block gas limit must be rejected")
+	}
+
 	// Unknown block.
 	if err := ValidatePartialReceipts(nil, []*types.Receipt{r1, r2}); err == nil {
 		t.Fatal("unknown block must be rejected")

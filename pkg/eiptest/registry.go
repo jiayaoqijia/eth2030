@@ -91,7 +91,7 @@ var Registry = []EIPEntry{
 	{7480, "EOF data section", TierC, nil, "", "covered by core/vm EOF opcode unit tests"},
 	{7547, "inclusion list transactions", TierB, []Surface{SurfaceSTF}, "eip7547_test.go", ""},
 	{7549, "attestation committee index (CL)", TierE, nil, "", "consensus-layer aggregation; covered by consensus tests"},
-	{7594, "PeerDAS sampling", TierD, nil, "", "multi-node sampling; math covered by das/ unit tests, protocol by devnet peerdas-throughput feature"},
+	{7594, "PeerDAS sampling (column subnets, sidecar gossip rules, reconstruction)", TierC, []Surface{SurfaceEncoding}, "eip7594_test.go", ""},
 	{7620, "EOF create", TierC, nil, "", "covered by core/vm EOF opcode unit tests"},
 	{7685, "execution requests", TierB, []Surface{SurfaceSTF}, "eip7685_test.go", ""},
 	{7691, "blob throughput schedule", TierA, []Surface{SurfaceFork}, "eip7691_test.go", ""},
@@ -113,12 +113,14 @@ var Registry = []EIPEntry{
 	{7928, "block access lists", TierB, []Surface{SurfaceSTF, SurfaceEngine}, "eip7928_test.go", ""},
 	{7934, "RLP execution block size limit", TierA, []Surface{SurfaceSTF, SurfaceFork}, "eip7934_test.go", ""},
 	{7939, "count leading zeros", TierA, []Surface{SurfaceSTF, SurfaceEncoding}, "eip7939_test.go", ""},
+	{7975, "eth/70 partial block receipt lists", TierB, []Surface{SurfaceEncoding}, "eip7975_test.go", ""},
 	{8024, "DUPN/SWAPN/EXCHANGE", TierA, []Surface{SurfaceSTF}, "eip8024_test.go", ""},
 	{8025, "execution witness", TierB, []Surface{SurfaceSTF}, "eip8025_test.go", ""},
 	{8070, "sparse blobpool", TierB, []Surface{SurfacePool}, "eip8070_test.go", ""},
 	{8077, "announce nonce (ETH/72)", TierD, nil, "", "p2p protocol message; covered by eth/announce_nonce tests and devnet"},
 	{8079, "native rollups EXECUTE", TierA, nil, "", "draft leaves the EVM address and ABI TBD; eip8079_test.go verifies the rollup component"},
 	{8141, "frame transactions", TierB, []Surface{SurfaceSTF, SurfacePool}, "eip8141_test.go", ""},
+	{8159, "eth/71 block access list exchange", TierB, []Surface{SurfaceEncoding}, "eip8159_test.go", ""},
 }
 
 // Lookup returns the registry entry for an EIP number.

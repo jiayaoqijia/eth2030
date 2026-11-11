@@ -225,7 +225,10 @@ func GetIndexedPayloadAttestation(
 	if ptc == nil {
 		return nil, ErrEPBSNilState
 	}
-	indexed := &IndexedPayloadAttestation{Data: attestation.Data}
+	indexed := &IndexedPayloadAttestation{
+		Data:      attestation.Data,
+		Signature: attestation.Signature,
+	}
 	for i, member := range ptc {
 		byteIdx := i / 8
 		bitIdx := i % 8

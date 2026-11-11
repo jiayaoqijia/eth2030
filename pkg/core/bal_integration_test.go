@@ -4,6 +4,7 @@ package core
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
@@ -318,9 +319,9 @@ func TestValidator_RejectsBALMismatch(t *testing.T) {
 	}
 }
 
-// TestValidator_AcceptsMissingBALHashForCLCompatibility covers the legacy
-// payload path where the EL computes the BAL and the CL omits its hash.
-func TestValidator_AcceptsMissingBALHashForCLCompatibility(t *testing.T) {
+// TestValidator_RejectsMissingBALHashPostAmsterdam verifies the EIP-7928
+// rule that post-Amsterdam headers must carry block-access-list-hash.
+func TestValidator_RejectsMissingBALHashPostAmsterdam(t *testing.T) {
 	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	header := &types.Header{
@@ -330,8 +331,11 @@ func TestValidator_AcceptsMissingBALHashForCLCompatibility(t *testing.T) {
 
 	computedHash := types.HexToHash("0xcafebabe")
 	err := v.ValidateBlockAccessList(header, &computedHash)
-	if err != nil {
-		t.Fatalf("legacy payload with a computed BAL was rejected: %v", err)
+	if err == nil {
+		t.Fatal("post-Amsterdam block without a BAL hash must be rejected")
+	}
+	if !strings.Contains(err.Error(), "missing block_access_list_hash") {
+		t.Fatalf("unexpected rejection reason: %v", err)
 	}
 }
 

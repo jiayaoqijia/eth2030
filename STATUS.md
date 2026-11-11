@@ -1,5 +1,17 @@
 # Project Status
 
+## EIP Integration Test Coverage for Track 1 (2026-11-12)
+
+Added EIP-standard integration tests for the Glamsterdam Track 1 work on `feat/track1-glamsterdam`.
+
+- **EIP-7732**: `TestEIP7732_BuilderPaymentLifecycle` walks the payment state machine over the consensus state with real BLS-signed bids (bid → pending payment → payload envelope → withdrawal queue; attest-backed quorum flush across two epoch boundaries). `TestEIP7732_PTCAttestationBlockFlow` aggregates 257 real PTC member signatures over a 16384-validator state, validates through `process_payload_attestation`, includes the attestation in a produced block body (MAX_PAYLOAD_ATTESTATIONS cap), and confirms fork-choice timeliness. `TestEIP7732_ForkChoiceHeadRespectsPayloadStatus` drives head eligibility between payload-building and empty-building children.
+- **Integration test found a real bug**: `GetIndexedPayloadAttestation` dropped the aggregated `Signature` field, so every aggregated payload-attestation verification checked a zero signature. Fixed in `consensus/epbs_state.go`; the new tests pin the behavior.
+- **EIP-7975**: `TestEIP7975_ReceiptsPaginationOverRealChain` paginates real Sim-chain receipts through the eth handler over a message pipe (`firstBlockReceiptIndex` slicing, request-order pages, no false incomplete flag); `TestEIP7975_ValidatePartialReceipts` covers the three spec sanity checks against a real block (count match, receipt size vs gasLimit/8, unknown block) plus the block-gas-limit total check; `TestEIP7975_LastBlockIncompleteTruncation` drives serving-side truncation across the 10 MiB budget with `lastBlockIncomplete` set.
+- **EIP-8159**: `TestEIP8159_BALEndToEnd` ties the Sim's BAL RLP encoding to the header `block-access-list-hash` commitment and validates served wire bytes against real headers, with 0xc0 for unavailable blocks; `TestEIP8159_RejectsTamperedBAL` enforces the client-side tamper rejection and the empty/non-empty rules for headers with and without the field.
+- **EIP-7594**: canonical `data_column_sidecar_<subnet>` topic round-trips for all 128 columns, custody-manager assignments validated against canonical subnets, sidecar gossip REJECT/IGNORE rules (subnet, future slot, finalized slot) on builder-built sidecars with signed headers, and reconstruction from one column per subnet meeting the 64-column threshold.
+- **Registry**: EIP-7975 and EIP-8159 added to the coverage registry (TierB/Encoding) and to the IFLOW.md implementation list (Substantial); EIP-7594 upgraded from the TierD exemption to TierC with in-process coverage. The inverted `integration`-tagged BAL test (`TestValidator_RejectsMissingBALHashPostAmsterdam`) plus a block-gas-limit total-size case keep the tagged CI suite aligned with the strict post-Amsterdam rule.
+- Verification: full uncached `go test ./...` green (207 packages), `go vet ./...` clean, integration-tagged core suite green, eiptest suite 68+ tests green in ~2.5 s.
+
 ## Glamsterdam Track 1: ePBS, eth/70-71, BAL, PeerDAS (2026-11-12)
 
 Implemented the Track 1 closure items on `feat/track1-glamsterdam` (base: `master` at `137006e`, PR #48 merged; merged branch `feat/eiptest-framework` deleted locally).
