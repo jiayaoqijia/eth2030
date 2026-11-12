@@ -28,7 +28,10 @@ by hashing the address or slot and applies a journalled native-state overlay.
 Within one download attempt, requests can fail over to another connected snap
 peer without discarding completed ranges. Storage roots are shared between
 these peers only after an account-range proof authenticates them against the
-same pivot. A failed attempt or process restart still discards range progress.
+same pivot. Partial range progress is still discarded on restart. A completely
+downloaded snapshot that was persisted before pivot adoption can be revalidated
+and reused after restart, including offline when the required ancestry and trie
+nodes are present locally.
 The authenticated trie healer follows parent hash references, includes storage
 tries, and rejects unrequested or mismatched node bytes. Exhausted downloads
 and healing tasks fail rather than reporting completion.

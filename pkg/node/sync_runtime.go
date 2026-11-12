@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -81,20 +82,29 @@ func (n *Node) syncFinalizedPivot(ctx context.Context, pivot *types.Block) (bool
 			clients = append(clients, client)
 		}
 	}
-	if len(clients) == 0 {
-		return false, fmt.Errorf("snap: no connected peers")
-	}
 	peer := &snapFailoverPeer{ctx: ctx}
 	for _, verified := range p2psnap.VerifiedPeers(ctx, clients) {
 		peer.peers = append(peer.peers, verified)
 	}
-	writer := statesync.NewSnapshotWriter(n.db)
-	scheduler := statesync.NewStateSyncScheduler(writer, nil)
-	if err := scheduler.SetPivot(pivot.Header()); err != nil {
-		return false, err
-	}
-	if err := scheduler.RunContext(ctx, peer); err != nil {
-		return false, err
+	// A complete snapshot may have been persisted before a crash or before
+	// the finalized pivot could be adopted. Revalidate it against this exact
+	// CL-selected root before reusing it; the healer below still checks nodes.
+	_, snapshotErr := state.LoadStateSnapshot(n.db, pivot.Header().Root)
+	if snapshotErr != nil {
+		if !errors.Is(snapshotErr, rawdb.ErrNotFound) {
+			return false, fmt.Errorf("snap: persisted snapshot: %w", snapshotErr)
+		}
+		if len(clients) == 0 {
+			return false, fmt.Errorf("snap: no connected peers")
+		}
+		writer := statesync.NewSnapshotWriter(n.db)
+		scheduler := statesync.NewStateSyncScheduler(writer, nil)
+		if err := scheduler.SetPivot(pivot.Header()); err != nil {
+			return false, err
+		}
+		if err := scheduler.RunContext(ctx, peer); err != nil {
+			return false, err
+		}
 	}
 	// Audit reconstructed trie nodes through the same authenticated healer
 	// used to repair missing nodes. A fixed pivot normally has no gaps.

@@ -2,6 +2,7 @@ package node
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"net"
@@ -20,6 +21,8 @@ import (
 	"github.com/eth2030/eth2030/engine/payload"
 	nodebackend "github.com/eth2030/eth2030/node/backend"
 	"github.com/eth2030/eth2030/rpc"
+	syncbeacon "github.com/eth2030/eth2030/sync/beacon"
+	"github.com/eth2030/eth2030/sync/statesync"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
@@ -27,6 +30,95 @@ import (
 	gethtrie "github.com/ethereum/go-ethereum/trie"
 	"github.com/golang-jwt/jwt/v4"
 )
+
+func TestNodeResumesCompleteUnadoptedSnapshot(t *testing.T) {
+	for _, test := range []string{"complete", "corrupt", "missing-node"} {
+		t.Run(test, func(t *testing.T) {
+			var genesis map[string]any
+			if err := json.Unmarshal(minimalGenesisJSON(1337), &genesis); err != nil {
+				t.Fatal(err)
+			}
+			address := types.HexToAddress("0x0000000000000000000000000000000000001234")
+			genesis["alloc"].(map[string]any)[address.Hex()] = map[string]any{"balance": "1000", "code": "0x600160005500", "storage": map[string]string{"0x00": "0x80"}}
+			data, _ := json.Marshal(genesis)
+			path := filepath.Join(t.TempDir(), "genesis.json")
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			sourceCfg := makeTestConfig(t)
+			sourceCfg.GenesisPath = path
+			source := newTestNode(t, &sourceCfg)
+			targetCfg := makeTestConfig(t)
+			targetCfg.GenesisPath, targetCfg.SyncMode = path, "snap"
+			target := newTestNode(t, &targetCfg)
+			builder := coreblock.NewBlockBuilder(source.blockchain.Config(), source.blockchain, nil)
+			beaconRoot := types.Hash{}
+			pivot, _, err := builder.BuildBlock(source.blockchain.Genesis().Header(), &coreblock.BuildBlockAttributes{Timestamp: 12, GasLimit: 30_000_000, BeaconRoot: &beaconRoot, Withdrawals: []*types.Withdrawal{{Index: 1, Address: address, Amount: 1}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := source.blockchain.InsertBlock(pivot); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := state.ExportStateSnapshot(source.blockchain.State())
+			if err != nil {
+				t.Fatal(err)
+			}
+			writer := statesync.NewSnapshotWriter(target.db)
+			var accountHash types.Hash
+			for hash, body := range snapshot.Accounts {
+				accountHash = hash
+				var account gethtypes.StateAccount
+				if err := gethrlp.DecodeBytes(body, &account); err != nil {
+					t.Fatal(err)
+				}
+				if err := writer.WriteAccount(hash, statesync.AccountData{Balance: account.Balance.ToBig(), Nonce: account.Nonce, Root: types.Hash(account.Root), CodeHash: types.BytesToHash(account.CodeHash)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for account, slots := range snapshot.Storage {
+				for slot, value := range slots {
+					if err := writer.WriteStorage(account, slot, value); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			for hash, code := range snapshot.Codes {
+				if err := writer.WriteBytecode(hash, code); err != nil {
+					t.Fatal(err)
+				}
+			}
+			root := pivot.Header().Root
+			if err := writer.Finalize(root); err != nil {
+				t.Fatal(err)
+			}
+			if test == "corrupt" {
+				key := append(append(append([]byte("snap-state/"), root[:]...), 'a'), accountHash[:]...)
+				if err := target.db.Put(key, []byte{0xc0}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test == "missing-node" {
+				if err := target.db.Delete(append([]byte("t"), root[:]...)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := target.Stop(); err != nil {
+				t.Fatal(err)
+			}
+			target = newTestNode(t, &targetCfg)
+			target.executionSync.Request(syncbeacon.ExecutionTarget{Head: pivot.Hash(), Finalized: pivot.Hash()})
+			adopted, err := target.syncFinalizedPivot(context.Background(), pivot)
+			if test != "complete" {
+				if err == nil || adopted || target.blockchain.CurrentBlock().NumberU64() != 0 {
+					t.Fatalf("corrupt snapshot adopted: adopted=%t err=%v", adopted, err)
+				}
+			} else if err != nil || !adopted || target.blockchain.State().GetRoot() != root {
+				t.Fatalf("offline recovery failed: adopted=%t err=%v", adopted, err)
+			}
+		})
+	}
+}
 
 func connectSyncNodes(t *testing.T, a, b *Node) {
 	t.Helper()

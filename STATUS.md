@@ -1,5 +1,10 @@
 # Project Status
 
+## Track 3 Completed Snapshot Recovery (2026-11-12)
+
+- A CL-selected pivot can reuse a completely downloaded snapshot persisted before a crash or interrupted adoption. The node revalidates the account/storage roots and code, heals trie nodes, and checks the current finalized target before adoption. Offline restart succeeds when the required ancestry and trie nodes are available; corrupted leaves and missing trie nodes without peers are rejected.
+- This recovers complete snapshots only. Interrupted range progress is not durable and moving-pivot continuation remains open.
+
 ## Track 3 Snapshot Assembly Follow-up (2026-11-12)
 
 - Snapshot validation and trie-node reconstruction now use a streaming trie; node and snapshot writes flush in bounded batches, and the completion marker remains last. Tests compare trie roots with the native MPT and inject failures after partial writes.
