@@ -38,8 +38,10 @@ type Handler struct {
 	networkID uint64
 	peers     *p2p.PeerSet
 
-	ethPeersMu sync.RWMutex
-	ethPeers   map[string]*EthPeer // peer ID → EthPeer, for tx broadcast
+	ethPeersMu   sync.RWMutex
+	ethPeers     map[string]*EthPeer // peer ID → EthPeer, for tx broadcast
+	syncMu       sync.Mutex
+	syncRequests map[syncRequestKey]*syncRequest
 
 	// Optional sync notifier triggered by NewBlock messages.
 	syncNotifier SyncNotifier
@@ -357,7 +359,7 @@ func (h *Handler) handleBlockHeaders(ep *EthPeer, msg p2p.Msg) error {
 	if err := decodeMsg(msg, &pkt); err != nil {
 		return err
 	}
-	// For now, just log receipt. A sync manager would process these.
+	h.deliverSyncResponse(ep.ID(), pkt.RequestID, p2p.BlockHeadersMsg, syncResponse{headers: pkt.Headers})
 	log.Printf("eth: received %d headers from %s (req %d)", len(pkt.Headers), ep.ID(), pkt.RequestID)
 	return nil
 }
@@ -396,6 +398,7 @@ func (h *Handler) handleBlockBodies(ep *EthPeer, msg p2p.Msg) error {
 		return err
 	}
 	log.Printf("eth: received %d bodies from %s (req %d)", len(pkt.Bodies), ep.ID(), pkt.RequestID)
+	h.deliverSyncResponse(ep.ID(), pkt.RequestID, p2p.BlockBodiesMsg, syncResponse{bodies: pkt.Bodies})
 	return nil
 }
 

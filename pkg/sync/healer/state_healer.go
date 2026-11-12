@@ -321,6 +321,9 @@ func (h *StateHealer) Run(peer SnapPeer) error {
 			return err
 		}
 		if n == 0 && h.PendingCount() == 0 {
+			if h.FailedCount() > 0 {
+				return ErrHealNodeInvalid
+			}
 			h.mu.Lock()
 			h.progress.Complete = true
 			h.mu.Unlock()
@@ -333,6 +336,9 @@ func (h *StateHealer) Run(peer SnapPeer) error {
 			return err
 		}
 		if len(tasks) == 0 {
+			if h.FailedCount() > 0 {
+				return ErrHealNodeInvalid
+			}
 			h.mu.Lock()
 			h.progress.Complete = true
 			h.mu.Unlock()

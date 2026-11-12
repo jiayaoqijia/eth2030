@@ -15,7 +15,13 @@ type Message struct {
 
 // EncodeMessage encodes a value into a Message with the given message code.
 func EncodeMessage(code uint64, val interface{}) (Message, error) {
-	payload, err := rlp.EncodeToBytes(val)
+	var payload []byte
+	var err error
+	if encoder, ok := val.(interface{ EncodeRLP() ([]byte, error) }); ok {
+		payload, err = encoder.EncodeRLP()
+	} else {
+		payload, err = rlp.EncodeToBytes(val)
+	}
 	if err != nil {
 		return Message{}, fmt.Errorf("p2p/wire: failed to encode message 0x%02x: %w", code, err)
 	}
@@ -31,6 +37,9 @@ func EncodeMessage(code uint64, val interface{}) (Message, error) {
 
 // DecodeMessage decodes a Message's payload into the provided value.
 func DecodeMessage(msg Message, val interface{}) error {
+	if decoder, ok := val.(interface{ DecodeRLP([]byte) error }); ok {
+		return decoder.DecodeRLP(msg.Payload)
+	}
 	if err := rlp.DecodeBytes(msg.Payload, val); err != nil {
 		return fmt.Errorf("%w: code 0x%02x: %v", ErrDecode, msg.Code, err)
 	}

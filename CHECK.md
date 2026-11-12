@@ -4,12 +4,16 @@
 
 Base: `origin/master` at `9fde8aa` (PR #50 merged), branch `feat/track3-node`.
 
-- [ ] Trace current snap serving, download, proof verification, persistence, pivot adoption, and restart paths against the pinned specifications.
-- [ ] Replace node snap-sync no-op writers with verified persistent state and trie healing; test sync from an empty database and execution after pivot adoption.
-- [ ] Connect unknown Engine forkchoice heads to a cancellable CL-driven beacon sync loop with peer download, validated ancestry, retries, and shutdown coverage.
-- [ ] Connect 3SF, quick-slot scheduling, and PQ attestation components to an explicitly configured node lifecycle and verify their event consumers and shutdown.
-- [ ] Run meaningful negative-path tests, affected race tests, integration tests, full Go tests, vet, formatting, and local builds.
-- [ ] Update `STATUS.md` and the Track 3 completion record with implementation and verification evidence; commit scoped changes.
+- [x] Trace current snap serving, download, proof verification, persistence, pivot adoption, and restart paths against the pinned specifications.
+- [x] Replace node snap-sync no-op writers with verified persistent state and trie healing; test sync from an empty database and execution after pivot adoption.
+- [x] Connect unknown Engine forkchoice heads to a cancellable CL-driven beacon sync loop with peer download, validated ancestry, retries, and shutdown coverage.
+- [x] Connect 3SF, quick-slot scheduling, and PQ attestation components to an explicitly configured node lifecycle and verify their event consumers and shutdown.
+- [x] Run meaningful negative-path tests, affected race tests, integration tests, full Go tests, vet, formatting, and local builds.
+- [x] Update `STATUS.md` and the Track 3 completion record with implementation and verification evidence; commit scoped changes.
+
+Functional scope and evidence: [Track 3 node integration](docs/track3-node.md).
+Production qualification remains separate: moving-pivot range reuse, bounded-memory
+mainnet-scale snapshot assembly, snap/2, and native-consensus validator/proposer tooling.
 
 ## Next Phase Planning (2026-11-11)
 
@@ -39,9 +43,9 @@ gap against current code before starting — parts of the 2026-03 gap analysis a
 
 ### Track 3 — Node fundamentals (cross-cutting)
 
-- [ ] Real snap sync: re-verify stub status of `pkg/sync/statesync` + `pkg/sync/healer` (UNWIRED_CODE.md is dated 2026-03-09); replace stubs if still present so the node can snap-sync from zero.
-- [ ] CL-driven beacon sync loop (`pkg/sync/beacon`).
-- [ ] Wire own consensus components (3SF, quick slots, PQ attestations) into node lifecycle.
+- [x] Real snap sync: replaced node no-op writers with proof-verified account/storage/code download, authenticated trie healing, persistent hashed state, finalized-pivot adoption, subsequent execution and restart readback; verified from genesis over TCP. Fixed-pivot/in-memory scope is documented in `docs/track3-node.md`.
+- [x] CL-driven beacon sync loop (`pkg/sync/beacon`): authenticated Engine request → hash-bound `eth` download → staged execution → atomic forkchoice publication; retries, target replacement, cancellation and `eth_syncing` are wired.
+- [x] Wire own consensus components (3SF, quick slots, PQ attestations) into node lifecycle: explicit native configuration, registered ML-DSA validators, TCP vote delivery, source finalization, execution checkpoint updates and joined shutdown; default external CL mode preserved.
 
 ### Track 4 — I* / PQ direction
 

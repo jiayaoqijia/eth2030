@@ -592,6 +592,7 @@ func (s *MemoryStateDB) Copy() *MemoryStateDB {
 			dirtyStorage:     make(map[types.Hash]types.Hash, len(obj.dirtyStorage)),
 			committedStorage: make(map[types.Hash]types.Hash, len(obj.committedStorage)),
 			selfDestructed:   obj.selfDestructed,
+			dbStorageRoot:    obj.dbStorageRoot,
 		}
 		copy(newObj.account.CodeHash, obj.account.CodeHash)
 		copy(newObj.code, obj.code)

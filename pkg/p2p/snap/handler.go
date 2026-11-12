@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
@@ -57,11 +58,13 @@ type StateBackend interface {
 // requests from a StateBackend.
 type ServerHandler struct {
 	backend StateBackend
+	mu      sync.Mutex
+	clients map[string]*Client
 }
 
 // NewServerHandler creates a new snap protocol server handler.
 func NewServerHandler(backend StateBackend) *ServerHandler {
-	return &ServerHandler{backend: backend}
+	return &ServerHandler{backend: backend, clients: make(map[string]*Client)}
 }
 
 // HandleGetAccountRange iterates accounts in hash-sorted order within the
@@ -83,7 +86,7 @@ func (h *ServerHandler) HandleGetAccountRange(req *GetAccountRangePacket) (*Acco
 
 	err := h.backend.AccountIterator(req.Root, req.Origin, func(hash types.Hash, body []byte) bool {
 		// Stop if past the limit hash.
-		if bytes.Compare(hash[:], req.Limit[:]) > 0 {
+		if len(accounts) > 0 && bytes.Compare(accounts[len(accounts)-1].Hash[:], req.Limit[:]) >= 0 {
 			return false
 		}
 		// Stop if we hit the account count cap.
@@ -108,19 +111,23 @@ func (h *ServerHandler) HandleGetAccountRange(req *GetAccountRangePacket) (*Acco
 		return true
 	})
 	if err != nil {
+		if errors.Is(err, ErrMissingRoot) {
+			return &AccountRangePacket{ID: req.ID}, nil
+		}
 		return nil, err
 	}
 
 	// Generate boundary proofs if we have accounts.
 	var proof [][]byte
-	if len(accounts) > 0 {
+	{
 		// Proof for the first account (origin side).
-		originProof, err := h.backend.AccountProof(req.Root, accounts[0].Hash)
-		if err == nil {
-			proof = append(proof, originProof...)
+		originProof, err := h.backend.AccountProof(req.Root, req.Origin)
+		if err != nil {
+			return nil, err
 		}
+		proof = append(proof, originProof...)
 		// Proof for the last account (limit side), if different from origin.
-		if len(accounts) > 1 {
+		if len(accounts) > 0 {
 			lastProof, err := h.backend.AccountProof(req.Root, accounts[len(accounts)-1].Hash)
 			if err == nil {
 				proof = append(proof, lastProof...)
@@ -193,18 +200,28 @@ func (h *ServerHandler) HandleGetStorageRanges(req *GetStorageRangesPacket) (*St
 			return true
 		})
 		if err != nil {
+			if errors.Is(err, ErrMissingRoot) {
+				return &StorageRangesPacket{ID: req.ID}, nil
+			}
 			return nil, err
 		}
 
 		allSlots = append(allSlots, slots)
 
-		// If we exhausted the soft limit mid-account, generate a proof
-		// for the last served storage slot so the client can resume.
-		if totalSize >= softLimit && len(slots) > 0 {
-			lastSlot := slots[len(slots)-1].Hash
-			slotProof, err := h.backend.StorageProof(req.Root, account, lastSlot)
-			if err == nil {
-				proof = append(proof, slotProof...)
+		// Prove both the requested origin (including absence) and the last
+		// slot. A count-limited response needs the same proof as a byte cap.
+		if totalSize >= softLimit || len(slots) >= MaxStorageRangeCount || len(req.Origin) > 0 {
+			originProof, err := h.backend.StorageProof(req.Root, account, types.BytesToHash(iterOrigin))
+			if err != nil {
+				return nil, err
+			}
+			proof = append(proof, originProof...)
+			if len(slots) > 0 {
+				lastSlot := slots[len(slots)-1].Hash
+				slotProof, err := h.backend.StorageProof(req.Root, account, lastSlot)
+				if err == nil {
+					proof = append(proof, slotProof...)
+				}
 			}
 			break
 		}
@@ -277,32 +294,29 @@ func (h *ServerHandler) HandleGetTrieNodes(req *GetTrieNodesPacket) (*TrieNodesP
 	var totalSize uint64
 
 	for _, pathSet := range req.Paths {
-		if len(nodes) >= MaxTrieNodeCount {
-			break
+		if len(pathSet) == 0 {
+			return nil, ErrInvalidRange
 		}
-		if totalSize >= HardResponseLimit {
-			break
+		paths := pathSet
+		if len(pathSet) > 1 {
+			if len(pathSet[0]) != types.HashLength {
+				return nil, ErrInvalidRange
+			}
+			paths = make([][]byte, 0, len(pathSet)-1)
+			for _, storagePath := range pathSet[1:] {
+				paths = append(paths, append(append([]byte{}, pathSet[0]...), storagePath...))
+			}
 		}
-
-		// The path set encodes either an account trie path (single element)
-		// or a storage trie path (account hash + storage path).
-		var path []byte
-		for _, p := range pathSet {
-			path = append(path, p...)
-		}
-
-		data, err := h.backend.TrieNode(req.Root, path)
-		if err != nil {
-			// Skip missing nodes.
-			nodes = append(nodes, nil)
-			continue
-		}
-
-		nodes = append(nodes, data)
-		totalSize += uint64(len(data))
-
-		if totalSize >= softLimit {
-			break
+		for _, path := range paths {
+			if len(nodes) >= MaxTrieNodeCount || totalSize >= softLimit {
+				return &TrieNodesPacket{ID: req.ID, Nodes: nodes}, nil
+			}
+			data, err := h.backend.TrieNode(req.Root, path)
+			if err != nil || len(data) == 0 {
+				return &TrieNodesPacket{ID: req.ID}, nil
+			}
+			nodes = append(nodes, data)
+			totalSize += uint64(len(data))
 		}
 	}
 
@@ -327,11 +341,22 @@ func (h *ServerHandler) Protocol() p2p.Protocol {
 // that negotiates the snap sub-protocol. It dispatches Get* requests to the
 // appropriate Handle* method and writes the response back. The loop exits when
 // the transport is closed or an unrecoverable error occurs.
-func (h *ServerHandler) runPeer(_ *peermgr.Peer, t wire.Transport) error {
+func (h *ServerHandler) runPeer(peer *peermgr.Peer, t wire.Transport) error {
+	client := &Client{id: peer.ID(), transport: t, pending: make(map[uint64]pendingResponse)}
+	h.mu.Lock()
+	h.clients[peer.ID()] = client
+	h.mu.Unlock()
+	defer func() { h.mu.Lock(); delete(h.clients, peer.ID()); h.mu.Unlock() }()
 	for {
 		msg, err := t.ReadMsg()
 		if err != nil {
 			return err
+		}
+		if msg.Code%2 == 1 && msg.Code <= TrieNodesMsg {
+			if err := client.deliver(msg); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := h.handleSnapMsg(t, msg); err != nil {
 			return err

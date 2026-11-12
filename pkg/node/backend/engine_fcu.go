@@ -26,6 +26,9 @@ func (b *EngineBackend) forkchoiceUpdated(
 	inclusionListTxs [][]byte,
 	slot uint64,
 ) (payload.ForkchoiceUpdatedResult, error) {
+	if mode, ok := b.node.(interface{ ExternalForkchoiceAllowed() bool }); ok && !mode.ExternalForkchoiceAllowed() {
+		return payload.ForkchoiceUpdatedResult{}, fmt.Errorf("%w: native consensus mode", engine.ErrInvalidForkchoiceState)
+	}
 	bc := b.node.Blockchain()
 
 	slog.Debug("engine_forkchoiceUpdated",
@@ -37,6 +40,11 @@ func (b *EngineBackend) forkchoiceUpdated(
 	)
 
 	// Step 1: look up the forkchoice head block.
+	if syncer, ok := b.node.(interface {
+		RequestExecutionSync(payload.ForkchoiceStateV1)
+	}); ok {
+		syncer.RequestExecutionSync(fcState)
+	}
 	headBlock := bc.GetBlock(fcState.HeadBlockHash)
 	if headBlock == nil {
 		slog.Warn("engine_forkchoiceUpdated: unknown head block, returning SYNCING",

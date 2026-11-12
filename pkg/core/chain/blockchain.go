@@ -293,7 +293,7 @@ func (bc *Blockchain) InsertBlockWithResult(blk *types.Block) (*execution.Proces
 	bc.insertMu.Lock()
 	defer bc.insertMu.Unlock()
 	var result *execution.ProcessResult
-	err := bc.insertBlock(blk, &result)
+	err := bc.insertBlock(blk, &result, false)
 	return result, err
 }
 
@@ -360,7 +360,7 @@ func (bc *Blockchain) collectAncestorsLocked(target *types.Block) ([]*types.Bloc
 }
 
 // insertBlock is the internal three-phase insert. Caller must hold bc.insertMu.
-func (bc *Blockchain) insertBlock(blk *types.Block, inserted **execution.ProcessResult) error {
+func (bc *Blockchain) insertBlock(blk *types.Block, inserted **execution.ProcessResult, staged bool) error {
 	hash := blk.Hash()
 	num := blk.NumberU64()
 	header := blk.Header()
@@ -635,7 +635,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block, inserted **execution.Process
 	// ── Phase 2b: persist results outside bc.mu to minimise lock hold time ─
 	// insertMu guarantees only one goroutine is here at a time, so headNum
 	// captured in Phase 1 is still valid for the canonical check below.
-	isCanonical := num > headNum
+	isCanonical := !staged && num > headNum
 	if isCanonical {
 		// Commit state to backing store: flushes dirty accounts/storage to DB
 		// and clears the in-memory dirty layer. Expensive with many dirty

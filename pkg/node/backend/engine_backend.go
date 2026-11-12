@@ -85,6 +85,8 @@ type EngineBackend struct {
 
 	processCh chan blockProcReq
 	stopCh    chan struct{}
+	closeOnce sync.Once
+	workers   sync.WaitGroup
 
 	fcuCache   [fcuCacheSize]fcuCacheEntry
 	fcuCacheWr int
@@ -124,8 +126,9 @@ func NewEngineBackend(node NodeDeps) *EngineBackend {
 		postFCUCh:   make(chan postFCUWork, 1),
 		blobCache:   make(map[types.Hash][]byte),
 	}
-	go b.processLoop()
-	go b.postFCULoop()
+	b.workers.Add(2)
+	go func() { defer b.workers.Done(); b.processLoop() }()
+	go func() { defer b.workers.Done(); b.postFCULoop() }()
 	return b
 }
 
@@ -144,7 +147,8 @@ func (b *EngineBackend) processLoop() {
 
 // Close stops the backend.
 func (b *EngineBackend) Close() {
-	close(b.stopCh)
+	b.closeOnce.Do(func() { close(b.stopCh) })
+	b.workers.Wait()
 }
 
 // GetHeadHash returns the current head block hash.

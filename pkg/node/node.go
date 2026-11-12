@@ -20,6 +20,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/eth2030/eth2030/consensus"
 	"github.com/eth2030/eth2030/consensus/vdf"
 	"github.com/eth2030/eth2030/core/chain"
 	coreconfig "github.com/eth2030/eth2030/core/config"
@@ -47,7 +48,6 @@ import (
 	"github.com/eth2030/eth2030/rpc"
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
 	rpcmiddleware "github.com/eth2030/eth2030/rpc/middleware"
-	ethsync "github.com/eth2030/eth2030/sync"
 	syncbeam "github.com/eth2030/eth2030/sync/beam"
 	synccheckpoint "github.com/eth2030/eth2030/sync/checkpoint"
 	syncchecksync "github.com/eth2030/eth2030/sync/checksync"
@@ -94,8 +94,6 @@ import (
 	p2preqresp "github.com/eth2030/eth2030/p2p/reqresp"
 	p2psnap "github.com/eth2030/eth2030/p2p/snap"
 	syncbeacon "github.com/eth2030/eth2030/sync/beacon"
-	synchealer "github.com/eth2030/eth2030/sync/healer"
-	syncstatesync "github.com/eth2030/eth2030/sync/statesync"
 	"github.com/eth2030/eth2030/trie/migrate"
 	"github.com/eth2030/eth2030/trie/mpt"
 	"github.com/eth2030/eth2030/txpool/shared"
@@ -121,7 +119,6 @@ type Node struct {
 	ethHandler *eth.Handler
 
 	// Sync engine for downloading blocks from peers.
-	syncer *ethsync.Downloader
 
 	// Gas oracle for EIP-1559-aware gas price suggestions.
 	gasOracle *gasrpc.GasOracle
@@ -215,10 +212,6 @@ type Node struct {
 	// Tx pool shared mempool abstraction.
 	sharedPool *shared.SharedMempool
 
-	// Snap sync: state healer and state sync scheduler.
-	stateHealer    *synchealer.StateHealer
-	stateSyncSched *syncstatesync.StateSyncScheduler
-
 	// Portal network content DB and DHT router.
 	portalDB     *p2pportal.ContentDB
 	portalRouter *p2pportal.DHTRouter
@@ -231,8 +224,10 @@ type Node struct {
 	discV5 *discv5.DiscV5
 
 	// Beacon sync manager and blob recovery.
-	beaconSyncer *syncbeacon.BeaconSyncer
-	blobSyncMgr  *syncbeacon.BlobSyncManager
+	executionSync   *syncbeacon.ExecutionSyncer
+	nativeConsensus *consensus.NodeRuntime
+	nativePeers     *nativeConsensusPeers
+	blobSyncMgr     *syncbeacon.BlobSyncManager
 
 	// Engine payload chunker (streaming large payloads to CL).
 	payloadChunker *enginechunking.PayloadChunker
@@ -376,7 +371,13 @@ func New(config *Config) (*Node, error) {
 			return nil, fmt.Errorf("commit genesis state: %w", err)
 		}
 	}
+	if err := bc.RestoreSnapPivot(); err != nil {
+		return nil, fmt.Errorf("restore snap pivot: %w", err)
+	}
 	n.blockchain = bc
+	if err := n.initNativeConsensus(); err != nil {
+		return nil, fmt.Errorf("init native consensus: %w", err)
+	}
 
 	// Wire the ancient store (freezer) for finalized block cold storage.
 	// Only opened when a persistent data directory is configured, because the
@@ -585,21 +586,14 @@ func New(config *Config) (*Node, error) {
 	}
 	if snapDB, ok := n.db.(snapshot.SnapshotDB); ok {
 		n.snapshotTree = snapshot.NewTree(snapDB, genesisRoot)
-		n.snapHandler = p2psnap.NewServerHandler(newSnapStateBackend(n.snapshotTree, n.db))
+		n.snapHandler = p2psnap.NewServerHandler(newSnapStateBackend(bc, n.db))
 	} else {
-		n.snapHandler = p2psnap.NewServerHandler(&stubSnapStateBackend{})
+		n.snapHandler = p2psnap.NewServerHandler(newSnapStateBackend(bc, n.db))
 	}
 
 	// Initialize ETH/68 protocol handler for block and transaction exchange.
 	n.ethHandler = eth.NewHandler(bc, n.txPool, config.NetworkID)
 
-	// Initialize sync downloader and wire it with the eth handler.
-	n.syncer = ethsync.NewDownloader(nil) // nil uses DefaultDownloaderConfig
-	fetcher := eth.NewPeerFetcher(bc)
-	n.syncer.SetFetchers(fetcher, fetcher, bc)
-	// Wire the sync notifier so new block announcements trigger sync.
-	n.ethHandler.SetSyncNotifier(&nodeSyncTrigger{dl: n.syncer})
-	n.ethHandler.SetDownloader(n.syncer)
 	// Reset the tx pool after P2P block insertion to evict confirmed txs.
 	n.ethHandler.SetOnBlockInserted(func() {
 		n.txPool.SetForkRules(n.blockchain.Config(), n.blockchain.CurrentBlock().Time())
@@ -615,6 +609,9 @@ func New(config *Config) (*Node, error) {
 		DiscoveryPort:  config.EffectiveDiscoveryPort(),
 		NAT:            config.NAT,
 		Protocols:      []p2p.Protocol{n.ethHandler.Protocol(), n.snapHandler.Protocol()},
+	}
+	if n.nativeConsensus != nil {
+		p2pCfg.Protocols = append(p2pCfg.Protocols, n.nativeProtocol())
 	}
 	// Resolve external IP from --nat=extip:<ip> so NodeInfo enode is reachable.
 	if strings.HasPrefix(config.NAT, "extip:") {
@@ -771,7 +768,10 @@ func New(config *Config) (*Node, error) {
 	}
 
 	// Initialize beacon syncer and blob sync manager.
-	n.beaconSyncer = syncbeacon.NewBeaconSyncer(syncbeacon.DefaultBeaconSyncConfig())
+	n.executionSync = syncbeacon.NewExecutionSyncer(bc, n.ethHandler, n.applyExecutionTarget)
+	if config.SyncMode == "snap" {
+		n.executionSync.SetPivotSync(n.syncFinalizedPivot)
+	}
 	n.blobSyncMgr = syncbeacon.NewBlobSyncManager(syncbeacon.DefaultBlobSyncConfig())
 
 	// Initialize P2P sub-systems: NAT traversal, message dispatch, nonce
@@ -795,10 +795,6 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize shared mempool abstraction (MineableSet interface).
 	n.sharedPool = shared.NewSharedMempool(shared.DefaultSharedMempoolConfig())
-
-	// Initialize snap sync state healer and state sync scheduler (stub writer).
-	n.stateHealer = synchealer.NewStateHealer(types.Hash{}, &stubStateWriter{})
-	n.stateSyncSched = syncstatesync.NewStateSyncScheduler(&stubStateSyncWriter{}, nil)
 
 	// Initialize engine EL-side builder auction.
 	n.engineAuction = engineauction.NewBuilderAuction(engineauction.DefaultAuctionConfig())
@@ -992,9 +988,11 @@ func (n *Node) Start() error {
 		slog.Warn("NAT manager start failed", "err", err)
 	}
 
-	// Wire beacon syncer fetcher (marks it active; full fetcher set by sync coordinator).
-	if n.beaconSyncer != nil {
-		n.beaconSyncer.SetFetcher(nil)
+	// Start the CL-driven execution sync worker.
+	if n.nativeConsensus != nil {
+		n.nativeConsensus.Start()
+	} else {
+		n.executionSync.Start()
 	}
 
 	// Bootstrap peers from DNS discovery (EIP-1459) if configured.
@@ -1064,8 +1062,17 @@ func (n *Node) Start() error {
 func (n *Node) Stop() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if n.executionSync != nil {
+		n.executionSync.Stop()
+	}
+	if n.nativeConsensus != nil {
+		n.nativeConsensus.Stop()
+	}
 
 	if !n.running {
+		if n.engBackend != nil {
+			n.engBackend.Close()
+		}
 		if n.db != nil {
 			if err := n.db.Close(); err != nil {
 				slog.Warn("database close error", "err", err)
@@ -1495,101 +1502,6 @@ func (s *stubBeamFetcher) FetchAccount(_ types.Address) (*syncbeam.BeamAccountDa
 
 func (s *stubBeamFetcher) FetchStorage(_ types.Address, _ types.Hash) (types.Hash, error) {
 	return types.Hash{}, errors.New("beam: no network fetcher wired")
-}
-
-// snapStateBackend implements p2psnap.StateBackend using the snapshot.Tree
-// for account/storage iteration and rawdb for code lookups.
-type snapStateBackend struct {
-	tree *snapshot.Tree
-	db   rawdb.Database
-}
-
-func newSnapStateBackend(tree *snapshot.Tree, db rawdb.Database) *snapStateBackend {
-	return &snapStateBackend{tree: tree, db: db}
-}
-
-func (b *snapStateBackend) AccountIterator(root, origin types.Hash, fn func(types.Hash, []byte) bool) error {
-	return b.tree.IterateAccounts(root, origin, fn)
-}
-
-func (b *snapStateBackend) StorageIterator(root, account types.Hash, origin []byte, fn func(types.Hash, []byte) bool) error {
-	return b.tree.IterateStorage(root, account, origin, fn)
-}
-
-// Code retrieves contract bytecode from the key-value store by code hash.
-// The code is stored under the "code:" prefix key by SetCode in MemoryStateDB.
-func (b *snapStateBackend) Code(hash types.Hash) ([]byte, error) {
-	key := append([]byte("code:"), hash[:]...)
-	data, err := b.db.Get(key)
-	if err != nil {
-		return nil, nil // not found — return nil without error
-	}
-	return data, nil
-}
-
-// TrieNode returns a trie node by path. Full proof generation requires the
-// underlying MPT; this returns nil until the MPT backend is wired.
-func (b *snapStateBackend) TrieNode(_ types.Hash, _ []byte) ([]byte, error) { return nil, nil }
-
-// AccountProof returns a Merkle proof for an account. Requires the MPT backend.
-func (b *snapStateBackend) AccountProof(_, _ types.Hash) ([][]byte, error) { return nil, nil }
-
-// StorageProof returns a Merkle proof for a storage slot. Requires the MPT backend.
-func (b *snapStateBackend) StorageProof(_, _, _ types.Hash) ([][]byte, error) { return nil, nil }
-
-// stubSnapStateBackend is a no-op fallback used when the database does not
-// implement snapshot.SnapshotDB (e.g. a minimal read-only adapter).
-type stubSnapStateBackend struct{}
-
-func (s *stubSnapStateBackend) AccountIterator(_ types.Hash, _ types.Hash, _ func(types.Hash, []byte) bool) error {
-	return nil
-}
-func (s *stubSnapStateBackend) StorageIterator(_ types.Hash, _ types.Hash, _ []byte, _ func(types.Hash, []byte) bool) error {
-	return nil
-}
-func (s *stubSnapStateBackend) Code(_ types.Hash) ([]byte, error)                 { return nil, nil }
-func (s *stubSnapStateBackend) TrieNode(_ types.Hash, _ []byte) ([]byte, error)   { return nil, nil }
-func (s *stubSnapStateBackend) AccountProof(_, _ types.Hash) ([][]byte, error)    { return nil, nil }
-func (s *stubSnapStateBackend) StorageProof(_, _, _ types.Hash) ([][]byte, error) { return nil, nil }
-
-// stubStateWriter is a no-op synchealer.StateWriter used until a real trie
-// database is wired as the state healer write target.
-type stubStateWriter struct{}
-
-func (s *stubStateWriter) WriteAccount(_ types.Hash, _ synchealer.AccountData) error { return nil }
-func (s *stubStateWriter) WriteStorage(_, _ types.Hash, _ []byte) error              { return nil }
-func (s *stubStateWriter) WriteBytecode(_ types.Hash, _ []byte) error                { return nil }
-func (s *stubStateWriter) WriteTrieNode(_ []byte, _ []byte) error                    { return nil }
-func (s *stubStateWriter) HasBytecode(_ types.Hash) bool                             { return false }
-func (s *stubStateWriter) HasTrieNode(_ []byte) bool                                 { return false }
-func (s *stubStateWriter) MissingTrieNodes(_ types.Hash, _ int) [][]byte             { return nil }
-
-// stubStateSyncWriter is a no-op syncstatesync.StateWriter used until the real
-// snap-sync state write target is wired.
-type stubStateSyncWriter struct{}
-
-func (s *stubStateSyncWriter) WriteAccount(_ types.Hash, _ syncstatesync.AccountData) error {
-	return nil
-}
-func (s *stubStateSyncWriter) WriteStorage(_, _ types.Hash, _ []byte) error  { return nil }
-func (s *stubStateSyncWriter) WriteBytecode(_ types.Hash, _ []byte) error    { return nil }
-func (s *stubStateSyncWriter) WriteTrieNode(_ []byte, _ []byte) error        { return nil }
-func (s *stubStateSyncWriter) HasBytecode(_ types.Hash) bool                 { return false }
-func (s *stubStateSyncWriter) HasTrieNode(_ []byte) bool                     { return false }
-func (s *stubStateSyncWriter) MissingTrieNodes(_ types.Hash, _ int) [][]byte { return nil }
-
-// nodeSyncTrigger adapts the sync.Downloader to the eth.SyncNotifier interface.
-// It starts a sync goroutine when a new block is announced by a peer.
-type nodeSyncTrigger struct {
-	dl *ethsync.Downloader
-}
-
-func (s *nodeSyncTrigger) OnNewBlock(peerID string, blockNum uint64) {
-	go func() {
-		if err := s.dl.Start(blockNum); err != nil {
-			slog.Debug("sync trigger failed", "peer", peerID, "block", blockNum, "err", err)
-		}
-	}()
 }
 
 // slashingEngineAdapter adapts epbsslash.SlashingEngine to the

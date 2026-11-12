@@ -24,6 +24,15 @@ func NewRPCBackend(node NodeDeps, engine *EngineBackend) rpc.Backend {
 	return &RPCBackend{node: node, engine: engine}
 }
 
+func (b *RPCBackend) SyncProgress() (bool, uint64, uint64, uint64) {
+	if source, ok := b.node.(interface {
+		SyncProgress() (bool, uint64, uint64, uint64)
+	}); ok {
+		return source.SyncProgress()
+	}
+	return false, 0, 0, 0
+}
+
 func (b *RPCBackend) HeaderByNumber(number rpc.BlockNumber) *types.Header {
 	bc := b.node.Blockchain()
 	if bc == nil {

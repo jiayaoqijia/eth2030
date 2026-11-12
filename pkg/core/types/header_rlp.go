@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/eth2030/eth2030/rlp"
@@ -101,6 +102,7 @@ func (h *Header) EncodeRLP() ([]byte, error) {
 	hasExcessBlobGas := h.ExcessBlobGas != nil
 	hasBeaconRoot := h.ParentBeaconRoot != nil
 	hasRequestsHash := h.RequestsHash != nil
+	hasBALHash := h.BlockAccessListHash != nil
 	hasCalldataUsed := EIP7706HashFields && h.CalldataGasUsed != nil
 	hasCalldataExcess := EIP7706HashFields && h.CalldataExcessGas != nil
 
@@ -108,7 +110,8 @@ func (h *Header) EncodeRLP() ([]byte, error) {
 	// This mirrors go-ethereum's generated encoder logic.
 	anyFromCalldataExcess := hasCalldataExcess
 	anyFromCalldataUsed := hasCalldataUsed || anyFromCalldataExcess
-	anyFromRequests := hasRequestsHash || anyFromCalldataUsed
+	anyFromBAL := hasBALHash || anyFromCalldataUsed
+	anyFromRequests := hasRequestsHash || anyFromBAL
 	anyFromBeacon := hasBeaconRoot || anyFromRequests
 	anyFromExcessBlob := hasExcessBlobGas || anyFromBeacon
 	anyFromBlobUsed := hasBlobGasUsed || anyFromExcessBlob
@@ -182,6 +185,17 @@ func (h *Header) EncodeRLP() ([]byte, error) {
 	// EIP-7685: RequestsHash
 	if hasRequestsHash {
 		if err := appendItem(*h.RequestsHash); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromBAL {
+		return rlp.WrapList(payload), nil
+	}
+	// EIP-7928: block_access_list_hash follows requests_hash.
+	if hasBALHash {
+		if err := appendItem(*h.BlockAccessListHash); err != nil {
 			return nil, err
 		}
 	} else {
@@ -360,6 +374,20 @@ func DecodeHeaderRLP(data []byte) (*Header, error) {
 	if len(rhBytes) == HashLength {
 		rh := BytesToHash(rhBytes)
 		h.RequestsHash = &rh
+	}
+
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	balBytes, err := s.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if len(balBytes) == HashLength {
+		hash := BytesToHash(balBytes)
+		h.BlockAccessListHash = &hash
+	} else if len(balBytes) != 0 {
+		return nil, fmt.Errorf("header: invalid BAL hash length %d", len(balBytes))
 	}
 
 	// EIP-7706: CalldataGasUsed / CalldataExcessGas — only decoded when the

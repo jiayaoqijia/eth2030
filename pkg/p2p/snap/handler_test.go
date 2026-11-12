@@ -668,15 +668,9 @@ func TestHandleGetTrieNodes_MissingNode(t *testing.T) {
 		t.Fatalf("HandleGetTrieNodes: %v", err)
 	}
 
-	if len(resp.Nodes) != 2 {
-		t.Fatalf("nodes: want 2, got %d", len(resp.Nodes))
-	}
-	if !bytes.Equal(resp.Nodes[0], []byte{0xaa}) {
-		t.Errorf("node[0] mismatch")
-	}
-	// Missing node should be nil.
-	if resp.Nodes[1] != nil {
-		t.Errorf("node[1] should be nil for missing node")
+	// snap/1 requires an empty reply if any requested path is unavailable.
+	if len(resp.Nodes) != 0 || resp.ID != req.ID {
+		t.Fatalf("want correlated empty response, got %+v", resp)
 	}
 }
 
@@ -826,9 +820,9 @@ func TestHandleGetAccountRange_UnknownRoot(t *testing.T) {
 		Bytes:  SoftResponseLimit,
 	}
 
-	_, err := handler.HandleGetAccountRange(req)
-	if !errors.Is(err, ErrMissingRoot) {
-		t.Fatalf("expected ErrMissingRoot, got %v", err)
+	resp, err := handler.HandleGetAccountRange(req)
+	if err != nil || resp.ID != req.ID || len(resp.Accounts) != 0 || len(resp.Proof) != 0 {
+		t.Fatalf("unknown root must return a correlated empty response: %+v %v", resp, err)
 	}
 }
 
