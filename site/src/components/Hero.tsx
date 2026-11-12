@@ -4,6 +4,7 @@ import GlitchText from '@/components/ui/GlitchText';
 import MatrixRain from '@/components/ui/MatrixRain';
 import { motion } from 'framer-motion';
 import { GITHUB_URL, DOCS_URL } from '@/lib/constants';
+import styles from './HeroActions.module.css';
 
 export default function Hero() {
   return (
@@ -60,38 +61,38 @@ export default function Hero() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.8 }}
-          className="mt-10 flex flex-col sm:flex-row gap-4 justify-center"
+          className={styles.actions}
         >
           <Link
             href="/roadmap/"
-            className="px-8 py-3 rounded-lg bg-eth-teal/10 border border-eth-teal/50
-                       text-eth-teal font-semibold hover:bg-eth-teal/20
-                       hover:shadow-[0_0_20px_#2de2e633] transition-all duration-300
-                       text-center"
+            className={`${styles.action} ${styles.roadmap}`}
+            data-hero-action="roadmap"
           >
-            Roadmap
+            <span className={styles.icon} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 17.5V6.5L9 4l6 3 5-2.5v11L15 18l-6-3-5 2.5Zm5-13.2v10.4m6-7.4v10.4" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg></span>
+            <span className={styles.label}><strong>Roadmap</strong><small>Explore our progress</small></span>
+            <span className={styles.arrow} aria-hidden="true">→</span>
           </Link>
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-8 py-3 rounded-lg bg-eth-purple/10 border border-eth-purple/50
-                       text-eth-purple font-semibold hover:bg-eth-purple/20
-                       hover:shadow-[0_0_20px_#8c8dfc33] transition-all duration-300
-                       text-center"
+            className={`${styles.action} ${styles.github}`}
+            data-hero-action="github"
           >
-            View on GitHub
+            <span className={styles.icon} aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.21.68-.48v-1.7c-2.78.61-3.37-1.18-3.37-1.18-.45-1.14-1.1-1.45-1.1-1.45-.9-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.82.09-.64.35-1.08.63-1.33-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.11-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.99c.85 0 1.71.12 2.51.34 1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.21 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.35 4.69-4.58 4.94.36.31.68.92.68 1.86v2.57c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg></span>
+            <span className={styles.label}><strong>GitHub</strong><small>Browse the source</small></span>
+            <span className={styles.arrow} aria-hidden="true">↗</span>
           </a>
           <a
             href={DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-8 py-3 rounded-lg bg-eth-pink/10 border border-eth-pink/50
-                       text-eth-pink font-semibold hover:bg-eth-pink/20
-                       hover:shadow-[0_0_20px_#ff6b9d33] transition-all duration-300
-                       text-center"
+            className={`${styles.action} ${styles.docs}`}
+            data-hero-action="docs"
           >
-            Documentation
+            <span className={styles.icon} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 4.75h9.5L19 9.25v10H5v-14.5Zm9.5 0v4.5H19M8 13h8m-8 3h8" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" /></svg></span>
+            <span className={styles.label}><strong>Docs</strong><small>Build and run</small></span>
+            <span className={styles.arrow} aria-hidden="true">↗</span>
           </a>
         </motion.div>
 

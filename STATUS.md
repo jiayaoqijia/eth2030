@@ -1,5 +1,10 @@
 # Project Status
 
+## Homepage Hero Actions (2026-11-13)
+
+- Redesigned the Roadmap, GitHub and Docs actions as equal-sized responsive cards with consistent icons, descriptions, focus states and reduced-motion support.
+- Validation: production site build and export checks passed. Browser checks confirmed equal dimensions and valid destinations at 1440px, 390px and 320px, without horizontal overflow; the Roadmap action has a visible keyboard focus state. Changes remain local and unpublished.
+
 ## Homepage Roadmap Entry (2026-11-13)
 
 - Added direct Roadmap links to the homepage hero and footer. The site build and export checks passed; browser verification confirmed the hero link is visible at mobile width and opens `/roadmap/`.

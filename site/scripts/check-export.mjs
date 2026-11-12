@@ -15,7 +15,10 @@ assert.match(home, /Go 1\.26\.8\+/);
 assert.match(home, /Moving-pivot range reuse/);
 const homepageHero = home.split('<section')[1]?.split('</section>')[0];
 assert.ok(homepageHero, 'Homepage hero is missing');
-assert.match(homepageHero, /href="\/roadmap\/"[^>]*>Roadmap<\/a>/);
+for (const action of ['roadmap', 'github', 'docs']) {
+  assert.match(homepageHero, new RegExp(`data-hero-action="${action}"`), `Missing hero action ${action}`);
+}
+assert.match(homepageHero, /href="\/roadmap\/"/);
 assert.match(pq, /stub rather than a real signature check/);
 assert.doesNotMatch(home + pq, /65\/65|26\/26 gaps|100% EF State Tests|Live on Sepolia &amp; Mainnet/);
 assert.match(home, /href="\/eips\/"[^>]*>EIP Progress Tracker/);
