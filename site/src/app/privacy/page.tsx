@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { GITHUB_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy — ETH2030',
@@ -15,7 +16,7 @@ export default function PrivacyPage() {
         </Link>
 
         <h1 className="text-3xl font-bold text-eth-purple mb-2">Privacy Policy</h1>
-        <p className="text-sm text-eth-dim mb-12">Last updated: March 20, 2026</p>
+        <p className="text-sm text-eth-dim mb-12">Last updated: November 12, 2026</p>
 
         <div className="space-y-10 text-sm leading-relaxed text-eth-dim">
 
@@ -23,7 +24,7 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-eth-text mb-3">1. Overview</h2>
             <p>
               This Privacy Policy describes how the ETH2030 project (&ldquo;we&rdquo;, &ldquo;us&rdquo;) handles
-              information when you visit our website (<a href="https://eth2030.com" className="text-eth-purple hover:underline">eth2030.com</a>)
+              information when you visit our website (<a href="https://eth2030.altllm.ai" className="text-eth-purple hover:underline">eth2030.altllm.ai</a>)
               or interact with our open-source software. We are committed to minimizing data collection and
               respecting your privacy.
             </p>
@@ -186,7 +187,7 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-eth-text mb-3">12. Contact</h2>
             <p>
               For privacy-related questions, open an issue on our{' '}
-              <a href="https://github.com/jiayaoqijia/eth2030/issues" target="_blank" rel="noopener noreferrer"
+              <a href={`${GITHUB_URL}/issues`} target="_blank" rel="noopener noreferrer"
                  className="text-eth-purple hover:underline">GitHub repository</a>.
             </p>
           </section>

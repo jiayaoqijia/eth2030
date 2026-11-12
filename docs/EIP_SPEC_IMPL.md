@@ -61,8 +61,8 @@ Complete traceability matrix mapping every EIP to its specification, implementat
 
 | EIP | Title | Status | Spec | Implementation | Tests |
 |-----|-------|--------|------|----------------|-------|
-| 7975 | Partial Block Receipt Lists (ETH/70) | Referenced | Draft | `p2p/protocol.go` | via protocol tests |
-| 8159 | Block Access List Exchange (ETH/71) | Referenced | Draft | `p2p/protocol.go` | via protocol tests |
+| 7975 | Partial Block Receipt Lists (ETH/70) | Substantial | Draft | `eth/protocol.go`, `eth/handler.go`, `p2p/ethproto/protocol.go` | `eiptest/eip7975_test.go`, `eth/handler_test.go` |
+| 8159 | Block Access List Exchange (ETH/71) | Substantial | Draft | `eth/protocol_extended.go`, `p2p/ethproto/protocol.go` | `eiptest/eip8159_test.go` |
 
 ---
 
@@ -74,13 +74,13 @@ Complete traceability matrix mapping every EIP to its specification, implementat
 | 7898 | Uncoupled Execution Payload | Complete | [EIP-7898](https://eips.ethereum.org/EIPS/eip-7898) | `engine/engine_uncoupled.go` | `engine/engine_glamsterdam_test.go` |
 | 7706 | Separate Calldata Gas Dimension | Complete | [EIP-7706](https://eips.ethereum.org/EIPS/eip-7706) | `core/calldata_gas.go`, `core/multidim.go`, `core/multidim_gas.go` | `core/multidim_test.go`, `core/calldata_gas_test.go` |
 | 7999 | Multidimensional Gas Extension | Complete | Draft | `core/multidim.go` | `core/multidim_test.go` |
-| 6404 | SSZ Transactions | Complete | [EIP-6404](https://eips.ethereum.org/EIPS/eip-6404) | `core/types/tx_ssz.go`, `core/types/block_ssz.go` | `core/types/tx_ssz_test.go`, `core/types/block_ssz_test.go` |
-| 7807 | SSZ Blocks | Complete | [EIP-7807](https://eips.ethereum.org/EIPS/eip-7807) | `core/types/block_ssz.go` | `core/types/block_ssz_test.go` |
+| 6404 | SSZ Transactions | Substantial | [EIP-6404](https://eips.ethereum.org/EIPS/eip-6404) | `core/types/tx_ssz.go`, `core/types/block_ssz.go` | `core/types/tx_ssz_test.go`, `core/types/block_ssz_test.go` |
+| 7807 | SSZ Blocks | Substantial | [EIP-7807](https://eips.ethereum.org/EIPS/eip-7807) | `core/types/block_ssz.go` | `core/types/block_ssz_test.go` |
 | 7745 | Log Index | Complete | [EIP-7745](https://eips.ethereum.org/EIPS/eip-7745) | `core/types/log_index.go` | `core/types/log_index_test.go` |
 | 7916 | SSZ ProgressiveList | Complete | [EIP-7916](https://eips.ethereum.org/EIPS/eip-7916) | `ssz/progressive_list.go`, `ssz/progressive_encoder.go` | `ssz/progressive_list_test.go`, `ssz/progressive_encoder_test.go` |
 | 8077 | Announce Nonce (ETH/72) | Complete | [EIP-8077](https://eips.ethereum.org/EIPS/eip-8077) | `eth/announce_nonce.go`, `p2p/announce_nonce.go` | via eth tests |
 | 7691 | Blob Throughput Increase | Complete | [EIP-7691](https://eips.ethereum.org/EIPS/eip-7691) | `core/blob_schedule.go`, `core/blob_gas.go` | `core/eip7691_test.go`, `core/blob_schedule_test.go` |
-| 7495 | SSZ StableContainer | Referenced | [EIP-7495](https://eips.ethereum.org/EIPS/eip-7495) | `ssz/stable_container.go` | via ssz tests |
+| 7495 | SSZ StableContainer | Functional | [EIP-7495](https://eips.ethereum.org/EIPS/eip-7495) | `ssz/stable_container.go` | `ssz/stable_container_test.go` |
 
 ---
 
@@ -88,7 +88,7 @@ Complete traceability matrix mapping every EIP to its specification, implementat
 
 | EIP | Title | Status | Spec | Implementation | Tests |
 |-----|-------|--------|------|----------------|-------|
-| 8079 | Native Rollups | Complete | [EIP-8079](https://eips.ethereum.org/EIPS/eip-8079) | `rollup/execute.go`, `rollup/anchor.go`, `rollup/native_rollup.go`, `rollup/bridge.go` | `rollup/native_rollup_test.go`, `rollup/execute_test.go` |
+| 8079 | Native Rollups | Substantial | [EIP-8079](https://eips.ethereum.org/EIPS/eip-8079) | `rollup/execute.go`, `rollup/anchor.go`, `rollup/native_rollup.go`, `rollup/bridge.go` | `rollup/native_rollup_test.go`, `rollup/execute_test.go` |
 | 7251 | Max Effective Balance (2048 ETH) | Complete | [EIP-7251](https://eips.ethereum.org/EIPS/eip-7251) | `consensus/validator.go`, `consensus/consolidation.go`, `consensus/consolidation_manager.go` | `consensus/consolidation_test.go`, `consensus/validator_test.go` |
 | 7549 | Attestation Committee Index | Complete | [EIP-7549](https://eips.ethereum.org/EIPS/eip-7549) | `consensus/eip7549.go`, `consensus/attestation.go`, `consensus/attestation_aggregator.go` | via consensus tests |
 | 4762 | Verkle Gas Cost Changes | Complete | [EIP-4762](https://eips.ethereum.org/EIPS/eip-4762) | `core/vm/eip4762_gas.go`, `core/state/access_events.go` | `core/vm/eip4762_gas_test.go` |

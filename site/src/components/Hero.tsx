@@ -91,7 +91,7 @@ export default function Hero() {
           transition={{ duration: 0.6, delay: 1.1 }}
           className="mt-8 text-eth-dim text-sm"
         >
-          Experimental research software · not production-ready · Go 1.25+
+          Experimental research software · not production-ready · Go 1.26.8+
         </motion.div>
       </div>
 

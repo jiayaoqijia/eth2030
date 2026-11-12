@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { GITHUB_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Terms of Service — ETH2030',
@@ -15,14 +16,14 @@ export default function TermsPage() {
         </Link>
 
         <h1 className="text-3xl font-bold text-eth-purple mb-2">Terms of Service</h1>
-        <p className="text-sm text-eth-dim mb-12">Last updated: March 20, 2026</p>
+        <p className="text-sm text-eth-dim mb-12">Last updated: November 12, 2026</p>
 
         <div className="space-y-10 text-sm leading-relaxed text-eth-dim">
 
           <section>
             <h2 className="text-lg font-semibold text-eth-text mb-3">1. Acceptance of Terms</h2>
             <p>
-              By accessing or using the ETH2030 website (<a href="https://eth2030.com" className="text-eth-purple hover:underline">eth2030.com</a>),
+              By accessing or using the ETH2030 website (<a href="https://eth2030.altllm.ai" className="text-eth-purple hover:underline">eth2030.altllm.ai</a>),
               GitHub repository, documentation, or any associated software (collectively, the &ldquo;Service&rdquo;),
               you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.
             </p>
@@ -151,7 +152,7 @@ export default function TermsPage() {
             <h2 className="text-lg font-semibold text-eth-text mb-3">14. Contact</h2>
             <p>
               For questions about these Terms, open an issue on our{' '}
-              <a href="https://github.com/jiayaoqijia/eth2030/issues" target="_blank" rel="noopener noreferrer"
+              <a href={`${GITHUB_URL}/issues`} target="_blank" rel="noopener noreferrer"
                  className="text-eth-purple hover:underline">GitHub repository</a>.
             </p>
           </section>
