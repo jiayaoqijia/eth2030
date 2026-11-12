@@ -1,5 +1,10 @@
 # Project Status
 
+## EF Roadmap Prototype Density and Percentage (2026-11-13)
+
+- Made the six local prototype cards more compact, with responsive three-column layout, visible status ratios, animated percent rings and condensed EIP rows. Each percentage is the count of mapped entries labelled `complete` divided by all mapped tracker entries, rounded to the nearest whole percent; the unmapped EF node is excluded. Historical labels are not independent conformance or production-readiness measurements.
+- Validation: site production build and export checks passed; 371 tracker paths checked; browser checks recomputed all six ratios from displayed entries, including zero-complete cases, verified no detail links or console errors, and checked 1440px/390px layouts and reduced motion. This remains a local prototype.
+
 ## EF Roadmap Prototype Visual Revision (2026-11-12)
 
 - Revised the local-only six-card prototype to use the existing dark, purple/cyan, glitch and matrix visual language. Cards now display all mapped nodes, individual tracker labels and status distributions inline, with no EIP detail-page navigation. An EF node without a tracker mapping is marked explicitly; the EIP-8077 association remains tentative.

@@ -44,6 +44,7 @@ function groupNodes(entries: EipEntry[]) {
 function PhaseCard({ phase, index }: { phase: typeof phases[number]; index: number }) {
   const entries = EIPS.filter(entry => roadmapFork(entry) === phase.id && entry.strawmap);
   const counts = Object.fromEntries(statuses.map(status => [status, entries.filter(entry => entry.status === status).length])) as Record<Status, number>;
+  const completePercentage = entries.length ? Math.round((counts.complete / entries.length) * 100) : null;
   const groups = groupNodes(entries).map(group => ({ name: group[0].strawmap?.item ?? group[0].title, layer: roadmapLayer(group[0]), entries: group }));
   // Present an EF node even when the current project tracker has no mapping.
   if (phase.id === 'hegota') groups.push({ name: 'cryptography specs in Lean 4', layer: 'CL', entries: [] });
@@ -55,7 +56,13 @@ function PhaseCard({ phase, index }: { phase: typeof phases[number]; index: numb
       <div className={styles.cardTotal}><strong>{entries.length.toString().padStart(2, '0')}</strong><span>tracked<br />entries</span></div>
     </div>
     <p className={styles.cardDescription}>{phase.description}</p>
-    <div className={styles.progressHeader}><span>ETH2030 tracker distribution</span><span>{entries.length} entries</span></div>
+    <div className={styles.scoreRow}>
+      <div className={styles.score} style={{ '--complete-pct': completePercentage ?? 0 } as CSSProperties} aria-label={completePercentage === null ? 'No mapped tracker entries' : `${completePercentage}% of mapped tracker entries are labelled complete`}>
+        <div className={styles.scoreInner}><strong>{completePercentage ?? '—'}{completePercentage !== null && <span>%</span>}</strong><small>TRACKER COMPLETE</small></div>
+      </div>
+      <div className={styles.scoreCopy}><span>PROJECT TRACKER</span><strong>{counts.complete} <i>/</i> {entries.length}</strong><small>entries labelled complete</small></div>
+    </div>
+    <div className={styles.progressHeader}><span>TRACKER LABEL DISTRIBUTION</span><span>{entries.length} entries</span></div>
     <div className={styles.progressBar} aria-label={statuses.filter(s => counts[s]).map(s => `${counts[s]} ${statusNames[s]}`).join(', ')}>
       {statuses.filter(status => counts[status] > 0).map(status => <span key={status} className={styles[status]} style={{ flexGrow: counts[status] }} />)}
     </div>
@@ -69,7 +76,7 @@ function PhaseCard({ phase, index }: { phase: typeof phases[number]; index: numb
           <div className={`${styles.layerHeading} ${layerClasses[layer]}`}><span>{layer}</span><span>{layerNames[layer]}</span><i /></div>
           {items.map(group => {
             const entry = group.entries[0];
-            return <div className={styles.node} key={`${group.layer}:${group.name}`}>
+            return <div className={`${styles.node} ${group.entries.length > 2 ? styles.nodeDense : ''}`} key={`${group.layer}:${group.name}`}>
               <div className={styles.nodeHeading}><span>{group.name}</span><span className={styles.nodeMeta}>{group.entries.length > 1 ? `${group.entries.length} entries` : entry?.number ? `EIP-${entry.number}` : entry ? 'Research' : 'Not mapped'}</span></div>
               <div className={styles.nodeEntries}>{group.entries.length === 0 && <span className={styles.unmapped}>No tracker entry yet</span>}{group.entries.map(item => <span key={item.id} className={`${styles.entry} ${styles[`entry_${item.status}`]}`} title={`${item.title} — tracker: ${statusNames[item.status]}; ${item.implementation.length ? 'code referenced' : 'no code listed'}; ${item.tests.length ? 'tests referenced' : 'no tests listed'}`}>
                 <span className={styles.entryName}>{item.number ? `EIP-${item.number}` : statusNames[item.status]}</span><span className={styles.entryStatus}>{item.number ? `${statusNames[item.status]}${item.tests.length ? ' · tests' : ''}${item.id === 'eip-8077' ? ' · tentative map' : ''}` : item.tests.length ? 'tests referenced' : 'no tests listed'}</span>
@@ -102,7 +109,7 @@ export default function RoadmapPrototype() {
 
       <div className={styles.intro}><div><span>01 / PROTOCOL ROADMAP</span><h2>Six upgrades. One view.</h2><p>Each card contains all mapped entries from the project tracker.</p></div><div className={styles.snapshot}><i /> TRACKER SNAPSHOT <b>NOV 2026</b></div></div>
       <section className={styles.cards} aria-label="Ethereum roadmap upgrades">{phases.map((phase, index) => <PhaseCard key={phase.id} phase={phase} index={index} />)}</section>
-      <aside className={styles.caveat}><span>READING THE SIGNAL</span><p>The colored bars show the distribution of <strong>historical tracker labels</strong>, not percentage completion or evidence of conformance. “Complete” reflects a repository label and is not a production-readiness claim. EF&apos;s roadmap is a changing draft; I*–L* are placeholders. The older tracker places leanVM and ethp2p unification in different columns; this view follows the EF drawing. The longer-term column is outside these six cards.</p><a href="https://github.com/alt-research/eth2030/blob/master/STATUS.md" target="_blank" rel="noreferrer">Read project status ↗</a></aside>
+      <aside className={styles.caveat}><span>READING THE SIGNAL</span><p>Each percentage is the number of mapped entries labelled <strong>Complete</strong> in the historical project tracker divided by all mapped tracker entries in that card, rounded to the nearest whole percent. The unmapped EF node is excluded. These figures are not measured implementation completion, independent conformance, or production readiness. Colored bars show all tracker-label categories. EF&apos;s roadmap is a changing draft; I*–L* are placeholders. The older tracker places leanVM and ethp2p unification in different columns; this view follows the EF drawing. The longer-term column is outside these six cards.</p><a href="https://github.com/alt-research/eth2030/blob/master/STATUS.md" target="_blank" rel="noreferrer">Read project status ↗</a></aside>
       <footer className={styles.footer}><span>◆ ETH2030 <i>/</i> ROADMAP EXPLORER</span><a href={source}>SOURCE: EF ARCHITECTURE ↗</a></footer>
     </div>
   </main>;

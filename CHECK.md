@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Roadmap Prototype Density and Percentage (2026-11-13)
+
+- [x] Make all six cards denser and emphasize tracker progress with clearly defined percentages and animation.
+- [x] Check percentage math against displayed entries, zero-complete cases, responsive layouts and reduced motion.
+- [x] Build, update status, and commit the local prototype without publishing.
+
 ## Roadmap Prototype Visual Revision (2026-11-12)
 
 - [x] Match the existing site's dark visual language and add accessible animation.
