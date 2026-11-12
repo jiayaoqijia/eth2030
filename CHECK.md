@@ -1,5 +1,15 @@
 # Lean4 Verification Check-list
 
+## Track 3 Completion Follow-Up (2026-11-12)
+
+- [x] Trace bounded-memory snapshot download, execution and serving against the snap protocol and database implementations; the active FileDB also retains all values in memory.
+- [x] Preserve storage pagination on transient failure and avoid quadratic scans of completed storage tasks.
+- [x] Verify finalized ancestry before reusing a completed snapshot after a CL finality advance.
+- [ ] Implement authenticated moving-pivot continuation and safe restart behavior with regression coverage.
+- [ ] Remove remaining sync scalability bottlenecks without weakening ancestry validation.
+- [ ] Validate real-client interoperability and record the actual scope and resource limits.
+- [ ] Run affected tests, race checks and builds; update status and commit task-owned changes.
+
 ## Track 3 Adversarial Review (2026-11-12)
 
 - [x] Re-read specification and design contracts; audit every Track 3 production change and its callers.

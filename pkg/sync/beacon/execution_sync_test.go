@@ -121,3 +121,69 @@ func TestExecutionSyncRejectsWrongHash(t *testing.T) {
 		t.Fatal("wrong hash response accepted")
 	}
 }
+
+func TestAdoptFinalizedAfterFinalityAdvance(t *testing.T) {
+	genesis := types.NewBlock(&types.Header{Number: big.NewInt(0)}, nil)
+	pivot := types.NewBlock(&types.Header{ParentHash: genesis.Hash(), Number: big.NewInt(1)}, nil)
+	next := types.NewBlock(&types.Header{ParentHash: pivot.Hash(), Number: big.NewInt(2)}, nil)
+	other := types.NewBlock(&types.Header{ParentHash: genesis.Hash(), Number: big.NewInt(1), Time: 2}, nil)
+	chain := &executionTestChain{blocks: map[types.Hash]*types.Block{genesis.Hash(): genesis}}
+	fetch := executionTestFetcher(func(_ context.Context, hash types.Hash) (*types.Block, error) {
+		switch hash {
+		case next.Hash():
+			return next, nil
+		case other.Hash():
+			return other, nil
+		default:
+			return nil, nil
+		}
+	})
+	syncer := NewExecutionSyncer(chain, fetch, nil)
+	syncer.Request(ExecutionTarget{Head: next.Hash(), Finalized: next.Hash()})
+	adopted := false
+	if err := syncer.AdoptFinalized(context.Background(), pivot, func() error { adopted = true; return nil }); err != nil || !adopted {
+		t.Fatalf("valid finalized advance not adopted: %v", err)
+	}
+	syncer.Request(ExecutionTarget{Head: other.Hash(), Finalized: other.Hash()})
+	adopted = false
+	if err := syncer.AdoptFinalized(context.Background(), pivot, func() error { adopted = true; return nil }); err == nil || adopted {
+		t.Fatal("conflicting finalized chain adopted")
+	}
+}
+
+func TestAdoptFinalizedRechecksTargetDuringAncestryFetch(t *testing.T) {
+	genesis := types.NewBlock(&types.Header{Number: big.NewInt(0)}, nil)
+	pivot := types.NewBlock(&types.Header{ParentHash: genesis.Hash(), Number: big.NewInt(1)}, nil)
+	next := types.NewBlock(&types.Header{ParentHash: pivot.Hash(), Number: big.NewInt(2)}, nil)
+	other := types.NewBlock(&types.Header{ParentHash: genesis.Hash(), Number: big.NewInt(1), Time: 2}, nil)
+	chain := &executionTestChain{blocks: map[types.Hash]*types.Block{genesis.Hash(): genesis}}
+	var syncer *ExecutionSyncer
+	fetch := executionTestFetcher(func(_ context.Context, hash types.Hash) (*types.Block, error) {
+		if hash == next.Hash() {
+			syncer.Request(ExecutionTarget{Head: other.Hash(), Finalized: other.Hash()})
+			return next, nil
+		}
+		if hash == other.Hash() {
+			return other, nil
+		}
+		return nil, nil
+	})
+	syncer = NewExecutionSyncer(chain, fetch, nil)
+	syncer.Request(ExecutionTarget{Head: next.Hash(), Finalized: next.Hash()})
+	adopted := false
+	if err := syncer.AdoptFinalized(context.Background(), pivot, func() error { adopted = true; return nil }); err == nil || adopted {
+		t.Fatal("adopted snapshot after finalized target changed to conflicting chain")
+	}
+}
+
+func TestAdoptFinalizedRejectsNoncontiguousAncestry(t *testing.T) {
+	pivot := types.NewBlock(&types.Header{Number: big.NewInt(4)}, nil)
+	bad := types.NewBlock(&types.Header{ParentHash: pivot.Hash(), Number: big.NewInt(7)}, nil)
+	chain := &executionTestChain{blocks: map[types.Hash]*types.Block{bad.Hash(): bad}}
+	syncer := NewExecutionSyncer(chain, nil, nil)
+	syncer.Request(ExecutionTarget{Head: bad.Hash(), Finalized: bad.Hash()})
+	adopted := false
+	if err := syncer.AdoptFinalized(context.Background(), pivot, func() error { adopted = true; return nil }); err == nil || adopted {
+		t.Fatal("noncontiguous finalized ancestry adopted")
+	}
+}

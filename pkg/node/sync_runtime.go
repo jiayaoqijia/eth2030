@@ -107,7 +107,7 @@ func (n *Node) syncFinalizedPivot(ctx context.Context, pivot *types.Block) (bool
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := n.executionSync.AdoptFinalized(ctx, pivot.Hash(), func() error { return n.blockchain.ImportSnapPivot(pivot, history) }); err != nil {
+		if err := n.executionSync.AdoptFinalized(ctx, pivot, func() error { return n.blockchain.ImportSnapPivot(pivot, history) }); err != nil {
 			return false, err
 		}
 		return true, nil

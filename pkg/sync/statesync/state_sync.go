@@ -382,6 +382,7 @@ func (s *StateSyncScheduler) runAccountDownload(peer SnapPeer) error {
 }
 
 func (s *StateSyncScheduler) runStorageDownload(peer SnapPeer) error {
+	index := 0
 	for {
 		select {
 		case <-s.cancel:
@@ -389,17 +390,14 @@ func (s *StateSyncScheduler) runStorageDownload(peer SnapPeer) error {
 		default:
 		}
 		s.mu.Lock()
-		var task *storageTask
-		for _, t := range s.storageTasks {
-			if !t.done {
-				task = t
-				break
-			}
+		for index < len(s.storageTasks) && s.storageTasks[index].done {
+			index++
 		}
-		if task == nil {
+		if index == len(s.storageTasks) {
 			s.mu.Unlock()
 			return nil
 		}
+		task := s.storageTasks[index]
 		s.progress.StorageAccountsTotal = len(s.storageTasks)
 		root := s.pivotRoot
 		s.mu.Unlock()
@@ -428,8 +426,9 @@ func (s *StateSyncScheduler) runStorageDownload(peer SnapPeer) error {
 				if err := s.retryWait(); err != nil {
 					return err
 				}
-				break
+				continue
 			}
+			task.retries = 0
 			for _, slot := range resp.Slots {
 				if e := s.writer.WriteStorage(slot.AccountHash, slot.SlotHash, slot.Value); e != nil {
 					return fmt.Errorf("state sync: write storage: %w", e)

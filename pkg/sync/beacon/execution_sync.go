@@ -135,16 +135,72 @@ func (s *ExecutionSyncer) ApplyKnown(target ExecutionTarget) error {
 	return nil
 }
 
-func (s *ExecutionSyncer) AdoptFinalized(ctx context.Context, hash types.Hash, adopt func() error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if ctx.Err() != nil {
-		return ctx.Err()
+func (s *ExecutionSyncer) AdoptFinalized(ctx context.Context, pivot *types.Block, adopt func() error) error {
+	if pivot == nil || pivot.Header().Number == nil || !pivot.Header().Number.IsUint64() {
+		return fmt.Errorf("beacon execution sync: invalid pivot")
 	}
-	if s.target.Finalized != hash {
+	hash := pivot.Hash()
+	for {
+		s.mu.Lock()
+		finalized := s.target.Finalized
+		s.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// A snapshot may take longer than a finality interval. An older CL
+		// finalized pivot is still usable only if it is an ancestor of the
+		// latest finalized block. Verify the hash-linked path before adopting.
+		if finalized != hash {
+			if err := s.verifyFinalizedAncestor(ctx, finalized, pivot); err != nil {
+				return err
+			}
+		}
+		s.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		if s.target.Finalized != finalized {
+			s.mu.Unlock()
+			continue
+		}
+		err := adopt()
+		s.mu.Unlock()
+		return err
+	}
+}
+
+func (s *ExecutionSyncer) verifyFinalizedAncestor(ctx context.Context, descendant types.Hash, pivot *types.Block) error {
+	ancestor := pivot.Hash()
+	if descendant == (types.Hash{}) || ancestor == (types.Hash{}) {
 		return context.Canceled
 	}
-	return adopt()
+	var childNumber uint64
+	for count := 0; descendant != ancestor; count++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if count >= 65536 {
+			return fmt.Errorf("beacon execution sync: finalized ancestry exceeds limit")
+		}
+		block := s.chain.GetBlock(descendant)
+		if block == nil {
+			var err error
+			block, err = s.fetcher.FetchBlock(ctx, descendant)
+			if err != nil {
+				return err
+			}
+		}
+		if block == nil || block.Header().Number == nil || !block.Header().Number.IsUint64() || block.Hash() != descendant || block.NumberU64() == 0 || (count > 0 && block.NumberU64()+1 != childNumber) {
+			return fmt.Errorf("beacon execution sync: invalid finalized ancestry at %s", descendant)
+		}
+		childNumber = block.NumberU64()
+		descendant = block.ParentHash()
+	}
+	if childNumber == 0 || childNumber-1 != pivot.NumberU64() {
+		return fmt.Errorf("beacon execution sync: non-contiguous finalized pivot")
+	}
+	return nil
 }
 
 func (s *ExecutionSyncer) validated(hash types.Hash) bool {

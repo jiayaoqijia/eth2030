@@ -1,5 +1,11 @@
 # Project Status
 
+## Track 3 Sync Scalability Follow-up (2026-11-12)
+
+- A completed snap pivot can now be adopted after finalized advances only after verifying hash-linked, height-contiguous ancestry against the current CL target and checking that the target did not change during verification. Conflicting branches and malformed ancestry fail closed.
+- Storage pagination retries preserve the last verified origin, and completed storage tasks are traversed linearly instead of rescanning the entire task list. Regression tests cover interrupted pages, advancing finality, conflicting finality, concurrent target replacement, and invalid heights.
+- This is partial progress, not production snap completion: moving-pivot range reuse, bounded-memory state assembly and serving, bounded-memory database storage, and real-client/mainnet-scale validation remain open.
+
 ## Forkchoice Missing-Ancestor Follow-up (2026-11-12)
 
 - Rechecked `0084028` and found that old-canonical ancestry traversal could terminate at a missing block body without finding a common ancestor, then publish a reorg without fully removing old transaction indices. `ApplyForkchoice` now rejects that case before committing state or metadata.

@@ -33,7 +33,10 @@ The node joins its sync worker on shutdown. A committed pivot and subsequent
 canonical blocks survive restart; the latter are replayed through ordinary
 execution validation. Full-mode restart also replays the saved canonical head.
 Interrupted, unpublished snapshots are never adopted. A finalized snapshot
-download is allowed to finish while the CL head advances, then the worker
+download is allowed to finish while the CL head advances. If finality also
+advances, the worker verifies a hash-linked, height-contiguous path from the
+current finalized block to the downloaded pivot and rechecks the target before
+adopting it. A conflicting or unavailable path fails closed. The worker then
 catches up to the latest target.
 
 ## Explicit native consensus observer
@@ -95,11 +98,13 @@ finality, then verifies CL selection, shutdown and checkpoint recovery. Separate
 range gaps, wrong roots, false empty replies, cancellation, target replacement,
 incomplete snapshots and authenticated account/storage trie healing.
 
-This implementation uses **snap/1 with a fixed finalized pivot**. Snapshot
+This implementation uses **snap/1 with a fixed finalized pivot per download**. Snapshot
 assembly and serving currently materialize state in memory; moving-pivot
 range reuse, mainnet-scale resource qualification, and snap/2 BAL-based sync
-are not implemented. If a peer ages out the pivot, the attempt fails and the
-worker retries the current CL target. This is a functional bootstrap path,
+are not implemented. The native FileDB also keeps its full key/value index in
+memory. A completed snapshot can survive a finalized advance, but this does not
+retarget an in-progress range download. If a peer ages out the pivot, the
+attempt fails and the worker retries the current CL target. This is a functional bootstrap path,
 not completed production/mainnet snap synchronization. The research observer
 is not an autonomous CL or a mainnet consensus-fork activation.
 

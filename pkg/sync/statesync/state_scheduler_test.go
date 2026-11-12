@@ -50,3 +50,49 @@ func TestStateSchedulerCancelledRetry(t *testing.T) {
 		t.Fatal("cancelled sync did not stop promptly")
 	}
 }
+
+type retryStoragePeer struct {
+	SnapPeer
+	origins []types.Hash
+	account types.Hash
+}
+
+func (p *retryStoragePeer) RequestStorageRange(req StorageRangeRequest) (*StorageRangeResponse, error) {
+	p.origins = append(p.origins, req.Origin)
+	switch len(p.origins) {
+	case 1:
+		return &StorageRangeResponse{More: true, Slots: []StorageData{{AccountHash: p.account, SlotHash: types.IntToHash(big.NewInt(7)), Value: []byte{1}}}}, nil
+	case 2:
+		return nil, errors.New("temporary failure")
+	default:
+		return &StorageRangeResponse{Slots: []StorageData{{AccountHash: p.account, SlotHash: types.IntToHash(big.NewInt(9)), Value: []byte{2}}}}, nil
+	}
+}
+
+type recordingStorageWriter struct {
+	StateWriter
+	slots []types.Hash
+}
+
+func (w *recordingStorageWriter) WriteStorage(_ types.Hash, slot types.Hash, _ []byte) error {
+	w.slots = append(w.slots, slot)
+	return nil
+}
+
+func TestStateSchedulerStorageRetryKeepsPage(t *testing.T) {
+	account := types.IntToHash(big.NewInt(1))
+	writer := &recordingStorageWriter{}
+	scheduler := NewStateSyncScheduler(writer, nil)
+	scheduler.storageTasks = []*storageTask{{accountHash: account}}
+	peer := &retryStoragePeer{account: account}
+	if err := scheduler.runStorageDownload(peer); err != nil {
+		t.Fatal(err)
+	}
+	want := types.IntToHash(big.NewInt(8))
+	if len(peer.origins) != 3 || peer.origins[1] != want || peer.origins[2] != want {
+		t.Fatalf("retry did not preserve page origin: %v", peer.origins)
+	}
+	if len(writer.slots) != 2 || scheduler.Progress().StorageSlotsTotal != 2 {
+		t.Fatalf("retry repeated downloaded slots: %v, %+v", writer.slots, scheduler.Progress())
+	}
+}
