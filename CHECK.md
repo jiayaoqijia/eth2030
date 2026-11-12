@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Roadmap Prototype Visual Revision (2026-11-12)
+
+- [x] Match the existing site's dark visual language and add accessible animation.
+- [x] Put all mapped roadmap nodes and tracker progress directly inside six cards without detail-page navigation.
+- [x] Verify every mapped entry, status counts, animations, responsive layout, and the production build.
+- [x] Record the prototype revision and commit without publishing.
+
 ## EF Roadmap Six-Card Prototype (2026-11-12)
 
 - [x] Check the current EF Strawmap and map its six fork columns to the existing repository tracker.

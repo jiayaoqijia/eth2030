@@ -1,5 +1,11 @@
 # Project Status
 
+## EF Roadmap Prototype Visual Revision (2026-11-12)
+
+- Revised the local-only six-card prototype to use the existing dark, purple/cyan, glitch and matrix visual language. Cards now display all mapped nodes, individual tracker labels and status distributions inline, with no EIP detail-page navigation. An EF node without a tracker mapping is marked explicitly; the EIP-8077 association remains tentative.
+- Status distribution bars count historical tracker labels and are not implementation-completion percentages. The prototype retains this limitation and the EF draft-roadmap attribution.
+- Validation: production site build and export checks passed; 371 tracker paths verified; browser checks confirmed six cards, all 51 mapped entries and their counts, no detail links, no console errors, 1440px/390px layout, and reduced-motion behavior. Not published.
+
 ## EF Roadmap Six-Card Prototype (2026-11-12)
 
 - Added a local-only `/roadmap-prototype/` view using the EF-maintained November 2 Strawmap as its source. Six interactive fork cards open mapped tracker entries grouped by roadmap node, with source, code/test references and explicit historical-status limits.
