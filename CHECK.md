@@ -1,5 +1,16 @@
 # Lean4 Verification Check-list
 
+## Track 3 Implementation (2026-11-12)
+
+Base: `origin/master` at `9fde8aa` (PR #50 merged), branch `feat/track3-node`.
+
+- [ ] Trace current snap serving, download, proof verification, persistence, pivot adoption, and restart paths against the pinned specifications.
+- [ ] Replace node snap-sync no-op writers with verified persistent state and trie healing; test sync from an empty database and execution after pivot adoption.
+- [ ] Connect unknown Engine forkchoice heads to a cancellable CL-driven beacon sync loop with peer download, validated ancestry, retries, and shutdown coverage.
+- [ ] Connect 3SF, quick-slot scheduling, and PQ attestation components to an explicitly configured node lifecycle and verify their event consumers and shutdown.
+- [ ] Run meaningful negative-path tests, affected race tests, integration tests, full Go tests, vet, formatting, and local builds.
+- [ ] Update `STATUS.md` and the Track 3 completion record with implementation and verification evidence; commit scoped changes.
+
 ## Next Phase Planning (2026-11-11)
 
 Baseline: `master` at `137006e` (PR #48, `feat/eiptest-framework` merged). Re-verify each
