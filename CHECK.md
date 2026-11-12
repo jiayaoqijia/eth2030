@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Roadmap Prototype Card Alignment (2026-11-13)
+
+- [x] Keep the six roadmap phases in chronological reading order and equalize card dimensions without clipping content.
+- [x] Verify all card sizes, order, visible content, and responsive layouts in the browser.
+- [x] Build, record the result, and commit the local prototype without publishing.
+
 ## Roadmap Prototype Density and Percentage (2026-11-13)
 
 - [x] Make all six cards denser and emphasize tracker progress with clearly defined percentages and animation.

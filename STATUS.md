@@ -1,5 +1,10 @@
 # Project Status
 
+## EF Roadmap Prototype Card Alignment (2026-11-13)
+
+- Made all six roadmap cards equal in height and width within each responsive layout, preserved chronological reading order, aligned card footers, and allowed content to expand the shared grid height instead of being clipped.
+- Validation: production site build and export checks passed. Browser checks at 1440px, 1024px, 390px and 320px confirmed matching card dimensions, reading order, and no card or page overflow. This remains a local prototype.
+
 ## EF Roadmap Prototype Density and Percentage (2026-11-13)
 
 - Made the six local prototype cards more compact, with responsive three-column layout, visible status ratios, animated percent rings and condensed EIP rows. Each percentage is the count of mapped entries labelled `complete` divided by all mapped tracker entries, rounded to the nearest whole percent; the unmapped EF node is excluded. Historical labels are not independent conformance or production-readiness measurements.

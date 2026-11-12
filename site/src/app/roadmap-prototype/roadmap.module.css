@@ -55,3 +55,12 @@
 @media(max-width:800px) { .cards { grid-template-columns:1fr; } }
 @media(max-width:600px) { .hero { padding:35px 0 25px; }.card { padding:15px; }.score { width:82px; height:82px; }.scoreInner strong { font-size:25px; }.node { padding:5px 0; }.nodeHeading { font-size:10px; }.nodeEntries { justify-content:flex-end; } }
 @media(prefers-reduced-motion:reduce) { .score { animation:none; }.card:hover { transform:none; } }
+
+/* Equal tracks keep all six fork cards aligned while their content remains
+   in normal flow, so a longer entry expands every card instead of clipping. */
+.cards { grid-auto-rows:1fr; align-items:stretch; }
+.card { height:100%; display:flex; flex-direction:column; }
+.card:hover { transform:none; }
+.cardDescription { min-height:3.4em; }
+.counts { min-height:23px; }
+.cardFooter { margin-top:auto; }
