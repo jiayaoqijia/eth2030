@@ -1,5 +1,14 @@
 # Lean4 Verification Check-list
 
+## Track 3 Adversarial Review (2026-11-12)
+
+- [ ] Re-read specification and design contracts; audit every Track 3 production change and its callers.
+- [ ] Reproduce and fix forkchoice authority, ancestry, durable publication, restart and reorg defects.
+- [ ] Reproduce and fix native/snap state execution, rollback, storage, and proof-validation defects.
+- [ ] Audit protocol encodings, peer cancellation, pagination, lifecycle shutdown and native consensus invariants.
+- [ ] Add behavioral regressions and targeted mutation checks; run affected race, full, integration, tag, vet and build checks.
+- [ ] Correct completion claims and document remaining scope accurately; commit and push scoped fixes.
+
 ## Track 3 Implementation (2026-11-12)
 
 Base: `origin/master` at `9fde8aa` (PR #50 merged), branch `feat/track3-node`.
