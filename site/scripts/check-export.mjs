@@ -4,6 +4,9 @@ import { strict as assert } from 'node:assert';
 const home = readFileSync(new URL('../out/index.html', import.meta.url), 'utf8');
 const pq = readFileSync(new URL('../out/pq-roadmap/index.html', import.meta.url), 'utf8');
 const tracker = readFileSync(new URL('../out/eips/index.html', import.meta.url), 'utf8');
+const roadmap = readFileSync(new URL('../out/roadmap/index.html', import.meta.url), 'utf8');
+const homepageRoadmap = home.split('id="roadmap"')[1]?.split('</section>')[0];
+assert.ok(homepageRoadmap, 'Homepage roadmap section is missing');
 assert.match(home, /November 2, 2026/);
 assert.match(home, /VERIFICATION INCOMPLETE/i);
 assert.match(home, /not production-ready/i);
@@ -13,10 +16,21 @@ assert.match(home, /Moving-pivot range reuse/);
 assert.match(pq, /stub rather than a real signature check/);
 assert.doesNotMatch(home + pq, /65\/65|26\/26 gaps|100% EF State Tests|Live on Sepolia &amp; Mainnet/);
 assert.match(home, /href="\/eips\/"[^>]*>EIP Progress Tracker/);
-for (const fork of ['glamsterdam', 'hegota', 'i', 'j', 'k', 'l', 'longer']) {
-  assert.ok(home.includes(`href="/eips/#fork-${fork}"`), `Missing homepage link for ${fork}`);
+assert.match(homepageRoadmap, /href="\/roadmap\/"/);
+assert.doesNotMatch(homepageRoadmap, /data-status="complete"/, 'Homepage work list contains a complete entry');
+for (const fork of ['glamsterdam', 'hegota', 'i', 'j', 'k', 'l']) {
+  assert.ok(homepageRoadmap.includes(`href="/roadmap/#fork-${fork}"`), `Missing homepage link for ${fork}`);
+  assert.ok(homepageRoadmap.includes(`data-phase="${fork}"`), `Missing homepage card for ${fork}`);
+  assert.ok(roadmap.includes(`id="fork-${fork}"`), `Missing roadmap detail card for ${fork}`);
   assert.ok(tracker.includes(`id="fork-${fork}"`), `Missing tracker section for ${fork}`);
+  const homeCard = homepageRoadmap.match(new RegExp(`<a[^>]*data-phase="${fork}"[^>]*>(.*?)</a>`, 's'))?.[1];
+  const detailCard = roadmap.match(new RegExp(`<article[^>]*id="fork-${fork}"[^>]*>(.*?)</article>`, 's'))?.[1];
+  assert.ok(homeCard && detailCard, `Missing rendered cards for ${fork}`);
+  const percentage = html => html.match(/aria-label="(\d+)% of mapped tracker entries (?:are )?labelled complete"/)?.[1] ?? null;
+  assert.notEqual(percentage(homeCard), null, `Missing tracker percentage for ${fork}`);
+  assert.equal(percentage(homeCard), percentage(detailCard), `Homepage/detail percentage mismatch for ${fork}`);
 }
+assert.ok(tracker.includes('id="fork-longer"'), 'Missing longer-term tracker section');
 for (const [id, expected, obsolete] of [
   ['eip-7928', 'BAL header commitment encoded', 'block_access_list_hash header field not yet added'],
   ['eip-7805', 'Inclusion-list gossip validation', 'CL P2P gossip validation rules for ILs'],

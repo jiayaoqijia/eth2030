@@ -1,5 +1,11 @@
 # Project Status
 
+## Roadmap Homepage Integration (2026-11-13)
+
+- Promoted the six-card roadmap prototype to `/roadmap/` and integrated a compact six-card summary into the homepage. The homepage displays non-complete tracker entries only, with direct links to the corresponding detailed card; the detailed page retains the full node and status display.
+- Both views use the same fork mapping and tracker-count calculation. Percentages are the share of mapped entries historically labelled complete, not independent conformance or readiness measurements.
+- Validation: site build and export assertions passed, including all six links, filtering of complete entries and matching homepage/detail percentages. Tracker verification checked 371 paths without missing files or blocking discrepancies. Browser checks covered 1440px/390px layouts, card sizes, anchors and console errors; local Go build passed. This branch builds on the unmerged website refresh PR #52 and is not deployed.
+
 ## EF Roadmap Prototype Card Alignment (2026-11-13)
 
 - Made all six roadmap cards equal in height and width within each responsive layout, preserved chronological reading order, aligned card footers, and allowed content to expand the shared grid height instead of being clipped.

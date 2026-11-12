@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Roadmap Homepage Integration (2026-11-13)
+
+- [x] Promote the approved prototype to a detailed roadmap page and share its progress model with the homepage.
+- [x] Replace the homepage roadmap with six compact cards showing progress and only non-complete tracker entries.
+- [x] Verify homepage filtering, matching percentages, links, responsive layout, and the site build.
+- [x] Update status and commit the integration without publishing.
+
 ## Roadmap Prototype Card Alignment (2026-11-13)
 
 - [x] Keep the six roadmap phases in chronological reading order and equalize card dimensions without clipping content.

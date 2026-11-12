@@ -2,53 +2,20 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import GlitchText from '@/components/ui/GlitchText';
 import MatrixRain from '@/components/ui/MatrixRain';
-import { EIPS, type EipEntry, type ForkId, type Layer, type Status } from '@/data/eips';
+import { type Layer } from '@/data/eips';
+import { roadmapStages, roadmapStatuses, roadmapStatusNames, roadmapLayer, roadmapProgress, groupRoadmapNodes } from '@/lib/roadmap';
 import styles from './roadmap.module.css';
-
-const phases: { id: ForkId; name: string; glyph: string; heading: string; description: string }[] = [
-  { id: 'glamsterdam', name: 'Glamsterdam', glyph: 'G*', heading: 'Scale the execution layer', description: 'Block access lists, ePBS and the foundations for faster L1 execution.' },
-  { id: 'hegota', name: 'Hegotá', glyph: 'H*', heading: 'Open the protocol', description: 'Inclusion lists, quick slots and programmable transactions.' },
-  { id: 'i', name: 'I*', glyph: 'I*', heading: 'The next foundations', description: 'Decoupled consensus, binary state and post-quantum research.' },
-  { id: 'j', name: 'J*', glyph: 'J*', heading: 'Towards post-quantum', description: 'Attestations, sampling and proofs for a new security model.' },
-  { id: 'k', name: 'K*', glyph: 'K*', heading: 'Proofs and state', description: 'Mandatory proofs and a path towards decentralized state.' },
-  { id: 'l', name: 'L*', glyph: 'L*', heading: 'The longer horizon', description: 'One-round finality, native rollups and protocol simplification.' },
-];
 
 const layerNames: Record<Layer, string> = { CL: 'Consensus layer', DL: 'Data layer', EL: 'Execution layer', cross: 'Cross-layer' };
 const layerClasses: Record<Layer, string> = { CL: styles.cl, DL: styles.dl, EL: styles.el, cross: styles.cross };
-const statusNames: Record<Status, string> = { complete: 'Complete', substantial: 'Substantial', functional: 'Functional', partial: 'Partial', referenced: 'Referenced', planned: 'Planned' };
-const statuses: Status[] = ['complete', 'substantial', 'functional', 'partial', 'referenced', 'planned'];
 const source = 'https://strawmap.org/';
 
-// Follow the EF drawing where the older repository tracker differs.
-function roadmapFork(entry: EipEntry): ForkId {
-  if (entry.id === 'feature-leanvm-pq-proofs') return 'i';
-  if (entry.id === 'feature-ethp2p-unification') return 'l';
-  return entry.fork;
-}
-
-function roadmapLayer(entry: EipEntry): Layer {
-  if (['feature-fast-payload-broadcast', 'feature-ethp2p-unification', 'eip-8077'].includes(entry.id)) return 'EL';
-  return entry.layer;
-}
-
-function groupNodes(entries: EipEntry[]) {
-  const groups = new Map<string, EipEntry[]>();
-  for (const entry of entries) {
-    const key = `${roadmapLayer(entry)}:${entry.strawmap?.item}`;
-    groups.set(key, [...(groups.get(key) ?? []), entry]);
-  }
-  return [...groups.values()];
-}
-
-function PhaseCard({ phase, index }: { phase: typeof phases[number]; index: number }) {
-  const entries = EIPS.filter(entry => roadmapFork(entry) === phase.id && entry.strawmap);
-  const counts = Object.fromEntries(statuses.map(status => [status, entries.filter(entry => entry.status === status).length])) as Record<Status, number>;
-  const completePercentage = entries.length ? Math.round((counts.complete / entries.length) * 100) : null;
-  const groups = groupNodes(entries).map(group => ({ name: group[0].strawmap?.item ?? group[0].title, layer: roadmapLayer(group[0]), entries: group }));
+function PhaseCard({ phase, index }: { phase: typeof roadmapStages[number]; index: number }) {
+  const { entries, counts, completePercentage } = roadmapProgress(phase.id);
+  const groups = groupRoadmapNodes(entries).map(group => ({ name: group[0].strawmap?.item ?? group[0].title, layer: roadmapLayer(group[0]), entries: group }));
   // Present an EF node even when the current project tracker has no mapping.
   if (phase.id === 'hegota') groups.push({ name: 'cryptography specs in Lean 4', layer: 'CL', entries: [] });
-  return <article className={styles.card} style={{ '--card-index': index } as CSSProperties}>
+  return <article id={`fork-${phase.id}`} className={styles.card} style={{ '--card-index': index } as CSSProperties}>
     <div className={styles.cardGlow} aria-hidden="true" />
     <div className={styles.cardHead}>
       <div className={styles.cardCode}>{phase.glyph}</div>
@@ -57,16 +24,16 @@ function PhaseCard({ phase, index }: { phase: typeof phases[number]; index: numb
     </div>
     <p className={styles.cardDescription}>{phase.description}</p>
     <div className={styles.scoreRow}>
-      <div className={styles.score} style={{ '--complete-pct': completePercentage ?? 0 } as CSSProperties} aria-label={completePercentage === null ? 'No mapped tracker entries' : `${completePercentage}% of mapped tracker entries are labelled complete`}>
+      <div className={styles.score} role="img" style={{ '--complete-pct': completePercentage ?? 0 } as CSSProperties} aria-label={completePercentage === null ? 'No mapped tracker entries' : `${completePercentage}% of mapped tracker entries are labelled complete`}>
         <div className={styles.scoreInner}><strong>{completePercentage ?? '—'}{completePercentage !== null && <span>%</span>}</strong><small>TRACKER COMPLETE</small></div>
       </div>
       <div className={styles.scoreCopy}><span>PROJECT TRACKER</span><strong>{counts.complete} <i>/</i> {entries.length}</strong><small>entries labelled complete</small></div>
     </div>
     <div className={styles.progressHeader}><span>TRACKER LABEL DISTRIBUTION</span><span>{entries.length} entries</span></div>
-    <div className={styles.progressBar} aria-label={statuses.filter(s => counts[s]).map(s => `${counts[s]} ${statusNames[s]}`).join(', ')}>
-      {statuses.filter(status => counts[status] > 0).map(status => <span key={status} className={styles[status]} style={{ flexGrow: counts[status] }} />)}
+    <div className={styles.progressBar} role="img" aria-label={roadmapStatuses.filter(s => counts[s]).map(s => `${counts[s]} ${roadmapStatusNames[s]}`).join(', ')}>
+      {roadmapStatuses.filter(status => counts[status] > 0).map(status => <span key={status} className={styles[status]} style={{ flexGrow: counts[status] }} />)}
     </div>
-    <div className={styles.counts}>{statuses.filter(status => counts[status] > 0).map(status => <span key={status}><i className={styles[status]} />{counts[status]} {statusNames[status]}</span>)}</div>
+    <div className={styles.counts}>{roadmapStatuses.filter(status => counts[status] > 0).map(status => <span key={status}><i className={styles[status]} />{counts[status]} {roadmapStatusNames[status]}</span>)}</div>
 
     <div className={styles.nodes}>
       {(['CL', 'DL', 'EL', 'cross'] as Layer[]).map(layer => {
@@ -78,8 +45,8 @@ function PhaseCard({ phase, index }: { phase: typeof phases[number]; index: numb
             const entry = group.entries[0];
             return <div className={`${styles.node} ${group.entries.length > 2 ? styles.nodeDense : ''}`} key={`${group.layer}:${group.name}`}>
               <div className={styles.nodeHeading}><span>{group.name}</span><span className={styles.nodeMeta}>{group.entries.length > 1 ? `${group.entries.length} entries` : entry?.number ? `EIP-${entry.number}` : entry ? 'Research' : 'Not mapped'}</span></div>
-              <div className={styles.nodeEntries}>{group.entries.length === 0 && <span className={styles.unmapped}>No tracker entry yet</span>}{group.entries.map(item => <span key={item.id} className={`${styles.entry} ${styles[`entry_${item.status}`]}`} title={`${item.title} — tracker: ${statusNames[item.status]}; ${item.implementation.length ? 'code referenced' : 'no code listed'}; ${item.tests.length ? 'tests referenced' : 'no tests listed'}`}>
-                <span className={styles.entryName}>{item.number ? `EIP-${item.number}` : statusNames[item.status]}</span><span className={styles.entryStatus}>{item.number ? `${statusNames[item.status]}${item.tests.length ? ' · tests' : ''}${item.id === 'eip-8077' ? ' · tentative map' : ''}` : item.tests.length ? 'tests referenced' : 'no tests listed'}</span>
+              <div className={styles.nodeEntries}>{group.entries.length === 0 && <span className={styles.unmapped}>No tracker entry yet</span>}{group.entries.map(item => <span key={item.id} className={`${styles.entry} ${styles[`entry_${item.status}`]}`} title={`${item.title} — tracker: ${roadmapStatusNames[item.status]}; ${item.implementation.length ? 'code referenced' : 'no code listed'}; ${item.tests.length ? 'tests referenced' : 'no tests listed'}`}>
+                <span className={styles.entryName}>{item.number ? `EIP-${item.number}` : roadmapStatusNames[item.status]}</span><span className={styles.entryStatus}>{item.number ? `${roadmapStatusNames[item.status]}${item.tests.length ? ' · tests' : ''}${item.id === 'eip-8077' ? ' · tentative map' : ''}` : item.tests.length ? 'tests referenced' : 'no tests listed'}</span>
               </span>)}</div>
             </div>;
           })}
@@ -90,10 +57,10 @@ function PhaseCard({ phase, index }: { phase: typeof phases[number]; index: numb
   </article>;
 }
 
-export default function RoadmapPrototype() {
+export default function RoadmapPage() {
   return <main className={styles.page}>
     <MatrixRain />
-    <header className={styles.nav}><Link href="/" className={styles.brand}><span>◆</span> ETH2030 <i>/</i> Roadmap</Link><span className={styles.prototype}>PROTOTYPE</span><a href={source} target="_blank" rel="noreferrer" className={styles.sourceLink}>EF original ↗</a></header>
+    <header className={styles.nav}><Link href="/" className={styles.brand}><span>◆</span> ETH2030 <i>/</i> Roadmap</Link><a href={source} target="_blank" rel="noreferrer" className={styles.sourceLink}>EF original ↗</a></header>
     <div className={styles.wrap}>
       <section className={styles.hero}>
         <div className={styles.heroGrid} aria-hidden="true" />
@@ -108,7 +75,7 @@ export default function RoadmapPrototype() {
       </section>
 
       <div className={styles.intro}><div><span>01 / PROTOCOL ROADMAP</span><h2>Six upgrades. One view.</h2><p>Each card contains all mapped entries from the project tracker.</p></div><div className={styles.snapshot}><i /> TRACKER SNAPSHOT <b>NOV 2026</b></div></div>
-      <section className={styles.cards} aria-label="Ethereum roadmap upgrades">{phases.map((phase, index) => <PhaseCard key={phase.id} phase={phase} index={index} />)}</section>
+      <section className={styles.cards} aria-label="Ethereum roadmap upgrades">{roadmapStages.map((phase, index) => <PhaseCard key={phase.id} phase={phase} index={index} />)}</section>
       <aside className={styles.caveat}><span>READING THE SIGNAL</span><p>Each percentage is the number of mapped entries labelled <strong>Complete</strong> in the historical project tracker divided by all mapped tracker entries in that card, rounded to the nearest whole percent. The unmapped EF node is excluded. These figures are not measured implementation completion, independent conformance, or production readiness. Colored bars show all tracker-label categories. EF&apos;s roadmap is a changing draft; I*–L* are placeholders. The older tracker places leanVM and ethp2p unification in different columns; this view follows the EF drawing. The longer-term column is outside these six cards.</p><a href="https://github.com/alt-research/eth2030/blob/master/STATUS.md" target="_blank" rel="noreferrer">Read project status ↗</a></aside>
       <footer className={styles.footer}><span>◆ ETH2030 <i>/</i> ROADMAP EXPLORER</span><a href={source}>SOURCE: EF ARCHITECTURE ↗</a></footer>
     </div>
