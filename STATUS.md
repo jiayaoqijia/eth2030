@@ -1,6 +1,22 @@
 # Project Status
 
+## Track 3 Corrective Review (2026-11-12)
+
+Reviewed `fc1f70f` through specification, production callers, wire messages, persisted state, restart and adversarial tests. The previous Track 3 completion claim was too broad. Detailed findings and regressions: [Track 3 review](docs/track3-review.md).
+
+- Fixed synchronous FCU validation/publication, candidate staging, validation provenance, missing-body handling, canonical index cleanup, branch-specific `BLOCKHASH`, failed-recovery target preservation and genesis mismatch handling. Backend shutdown now joins actual work instead of unused queue loops; partially constructed nodes release their database locks.
+- Fixed FileDB's mixed-transaction recovery window by committing WAL before materializing files and fencing failed writes. Added failure injection that previously recovered a new head with an old finalized checkpoint.
+- Fixed per-transaction original storage, reversible account creation/deletion/recreation, adopted committed-storage persistence, mutation-invalidated trie roots, and snap/trie RPC proofs. Added a complete multi-transaction comparison with Geth, including the missing per-transaction `Finalise` in the Geth adapter itself. State/proof comparisons include independent verification and values requiring multi-byte RLP encoding.
+- Replaced the native node's private plaintext handshake with standard RLPx, canonical Hello, capability negotiation, reserved message offsets, persistent identity and timestamp-aware fork IDs. Corrected eth/68 pooled-transaction/receipt envelopes and eth/70 bloom-free receipts. Added direct interoperability checks against Geth's RLPx, RLP and ForkID implementations.
+- Corrected the design overreach in the native lane: `--native-consensus` now enables a research observer and never replaces external CL authority. Votes use a chain/timing/registry domain, per-source-target quorums, duplicate handling, retryable callback failures and CL re-anchoring. Normal future/unavailable observations do not disconnect EL sync peers.
+- Broader race checks exposed and fixed gossip/anonymous-transport counter races and discovery test-counter races. Five temporary behavior mutations were detected by their intended regressions.
+- Validation passed on Go 1.26.10: full uncached Go suite; affected-package and complete P2P subtree race suites; integration, blst and goethkzg variants; vet; full build; native executable build with goethkzg. Final changed packages were rechecked after the last edits. Pinned Geth-backed EF vectors passed with 36,264 valid outcomes, zero failures/skips and 20 existing legacy outcomes. Five final-source behavior mutations were each detected by their intended regression.
+- **Still open:** production moving-pivot continuation and bounded-memory snap assembly. The original real-snap Track 3 checkbox is reopened. The observer is not an autonomous consensus client. No mainnet-scale qualification or complete native-consensus claim is made.
+
+
 ## Track 3 Node Sync and Native Consensus (2026-11-12)
+
+> Historical implementation record for `fc1f70f`; the corrective review above supersedes its authority and completion claims.
 
 Implemented on `feat/track3-node`, from `master` at `9fde8aa` (PR #50 merged). See [architecture, operation and scope](docs/track3-node.md).
 

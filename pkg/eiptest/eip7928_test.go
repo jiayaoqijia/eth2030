@@ -93,3 +93,27 @@ func TestEIP7928_EngineRejectsInconsistentBAL(t *testing.T) {
 	}
 	p.ExpectStatusValid(t, status)
 }
+
+func TestEngineRejectsBadHashBeforeUnknownParentSync(t *testing.T) {
+	s := eiptest.New(t, eiptest.ForkAt(eiptest.ForkAmsterdam, 0), eiptest.ForkAt(eiptest.ForkGlamsterdan, 0))
+	probe := s.Engine()
+	attrs := probe.Attributes()
+	id, err := probe.FCUWith(attrs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := probe.GetPayload(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := *built.ExecutionPayload
+	candidate.ParentHash = types.BytesToHash([]byte{0xff})
+	candidate.BlockHash = types.BytesToHash([]byte{0xaa})
+	status, err := probe.ProcessWith(&candidate, attrs.ParentBeaconBlockRoot, built.ExecutionRequests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != engine.StatusInvalid || status.ValidationError == nil || !strings.Contains(*status.ValidationError, "block hash") {
+		t.Fatalf("bad hash was hidden by SYNCING: %+v", status)
+	}
+}

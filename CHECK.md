@@ -2,12 +2,12 @@
 
 ## Track 3 Adversarial Review (2026-11-12)
 
-- [ ] Re-read specification and design contracts; audit every Track 3 production change and its callers.
-- [ ] Reproduce and fix forkchoice authority, ancestry, durable publication, restart and reorg defects.
-- [ ] Reproduce and fix native/snap state execution, rollback, storage, and proof-validation defects.
-- [ ] Audit protocol encodings, peer cancellation, pagination, lifecycle shutdown and native consensus invariants.
-- [ ] Add behavioral regressions and targeted mutation checks; run affected race, full, integration, tag, vet and build checks.
-- [ ] Correct completion claims and document remaining scope accurately; commit and push scoped fixes.
+- [x] Re-read specification and design contracts; audit every Track 3 production change and its callers.
+- [x] Reproduce and fix forkchoice authority, ancestry, durable publication, restart and reorg defects.
+- [x] Reproduce and fix native/snap state execution, rollback, storage, and proof-validation defects.
+- [x] Audit protocol encodings, peer cancellation, pagination, lifecycle shutdown and native consensus invariants.
+- [x] Add behavioral regressions and targeted mutation checks; run affected race, full, integration, tag, vet and build checks.
+- [x] Correct completion claims and document remaining scope accurately; commit and push scoped fixes.
 
 ## Track 3 Implementation (2026-11-12)
 
@@ -21,8 +21,10 @@ Base: `origin/master` at `9fde8aa` (PR #50 merged), branch `feat/track3-node`.
 - [x] Update `STATUS.md` and the Track 3 completion record with implementation and verification evidence; commit scoped changes.
 
 Functional scope and evidence: [Track 3 node integration](docs/track3-node.md).
-Production qualification remains separate: moving-pivot range reuse, bounded-memory
-mainnet-scale snapshot assembly, snap/2, and native-consensus validator/proposer tooling.
+Track 3 is **not fully complete**. Production snap synchronization still requires
+moving-pivot range reuse and bounded-memory assembly. Snap/2 and standalone CL
+validator/proposer tooling are additional work; the native observer has no
+execution forkchoice authority.
 
 ## Next Phase Planning (2026-11-11)
 
@@ -52,9 +54,9 @@ gap against current code before starting — parts of the 2026-03 gap analysis a
 
 ### Track 3 — Node fundamentals (cross-cutting)
 
-- [x] Real snap sync: replaced node no-op writers with proof-verified account/storage/code download, authenticated trie healing, persistent hashed state, finalized-pivot adoption, subsequent execution and restart readback; verified from genesis over TCP. Fixed-pivot/in-memory scope is documented in `docs/track3-node.md`.
+- [ ] Real snap sync: fixed-pivot proof-verified bootstrap, persistent hashed state, authenticated healing and recovery are implemented and tested. Moving-pivot continuation and bounded-memory assembly remain open; do not equate the small-chain end-to-end test with production snap-sync completion.
 - [x] CL-driven beacon sync loop (`pkg/sync/beacon`): authenticated Engine request → hash-bound `eth` download → staged execution → atomic forkchoice publication; retries, target replacement, cancellation and `eth_syncing` are wired.
-- [x] Wire own consensus components (3SF, quick slots, PQ attestations) into node lifecycle: explicit native configuration, registered ML-DSA validators, TCP vote delivery, source finalization, execution checkpoint updates and joined shutdown; default external CL mode preserved.
+- [x] Wire own consensus components (3SF, quick slots, PQ attestations) into node lifecycle as an explicit research observer: configuration-bound signatures, source-target quorums, RLPx vote delivery, CL reorg re-anchoring and joined shutdown. The external CL retains execution forkchoice authority; this is not a standalone consensus client.
 
 ### Track 4 — I* / PQ direction
 

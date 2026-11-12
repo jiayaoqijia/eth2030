@@ -11,10 +11,16 @@ import (
 // InsertSyncedBlock validates and stores a downloaded block without publishing
 // it as canonical. Only the completed CL target is selected by ApplyForkchoice.
 func (bc *Blockchain) InsertSyncedBlock(block *types.Block) error {
+	_, err := bc.InsertSyncedBlockWithResult(block)
+	return err
+}
+
+func (bc *Blockchain) InsertSyncedBlockWithResult(block *types.Block) (*execution.ProcessResult, error) {
 	bc.insertMu.Lock()
 	defer bc.insertMu.Unlock()
 	var result *execution.ProcessResult
-	return bc.insertBlock(block, &result, true)
+	err := bc.insertBlock(block, &result, true)
+	return result, err
 }
 
 // ApplyForkchoice atomically publishes a fully validated CL-nominated head,
@@ -23,19 +29,19 @@ func (bc *Blockchain) ApplyForkchoice(headHash, safeHash, finalHash types.Hash) 
 	bc.insertMu.Lock()
 	defer bc.insertMu.Unlock()
 	head := bc.GetBlock(headHash)
-	if head == nil {
-		return fmt.Errorf("forkchoice: unknown head")
+	if head == nil || !bc.HasValidatedBlock(headHash) {
+		return fmt.Errorf("%w: forkchoice head not validated", ErrStateNotFound)
 	}
 	var safe, final *types.Block
 	if safeHash != (types.Hash{}) {
 		safe = bc.GetBlock(safeHash)
-		if safe == nil {
+		if safe == nil || !bc.HasValidatedBlock(safeHash) {
 			return fmt.Errorf("forkchoice: unknown safe block")
 		}
 	}
 	if finalHash != (types.Hash{}) {
 		final = bc.GetBlock(finalHash)
-		if final == nil {
+		if final == nil || !bc.HasValidatedBlock(finalHash) {
 			return fmt.Errorf("forkchoice: unknown finalized block")
 		}
 	}
@@ -43,8 +49,15 @@ func (bc *Blockchain) ApplyForkchoice(headHash, safeHash, finalHash types.Hash) 
 	if prior != nil && final != nil && final.NumberU64() < prior.NumberU64() {
 		return fmt.Errorf("forkchoice: finalized block regresses")
 	}
+	if safe != nil && final != nil && safe.NumberU64() < final.NumberU64() {
+		return fmt.Errorf("forkchoice: safe block precedes finalized block")
+	}
 	ancestors := make(map[types.Hash]*types.Block)
+	oldHead := bc.CurrentBlock()
 	minimum := head.NumberU64()
+	if oldHead.NumberU64() < minimum {
+		minimum = oldHead.NumberU64()
+	}
 	for _, required := range []*types.Block{safe, final, prior} {
 		if required != nil && required.NumberU64() < minimum {
 			minimum = required.NumberU64()
@@ -65,66 +78,103 @@ func (bc *Blockchain) ApplyForkchoice(headHash, safeHash, finalHash types.Hash) 
 			return fmt.Errorf("forkchoice: checkpoint is not a head ancestor")
 		}
 	}
+	var removed []*types.Block
+	for old := oldHead; old != nil && ancestors[old.Hash()] == nil; old = bc.GetBlock(old.ParentHash()) {
+		removed = append(removed, old)
+		if old.NumberU64() == 0 {
+			return fmt.Errorf("forkchoice: no common ancestor")
+		}
+	}
 	st, err := bc.StateAtBlock(head)
 	if err != nil {
 		return err
 	}
-	if _, err := st.Commit(); err != nil {
-		return err
+	if st.GetRoot() != head.Header().Root {
+		bc.sc.remove(headHash)
+		bc.memSC.remove(headHash)
+		return fmt.Errorf("%w: forkchoice head state root mismatch", ErrStateNotFound)
 	}
-	for _, block := range ancestors {
-		if receipts := bc.GetReceipts(block.Hash()); receipts != nil {
-			bc.writeReceipts(block.NumberU64(), block.Hash(), receipts)
+	if oldHead.Hash() != headHash {
+		root, err := st.Commit()
+		if err != nil {
+			return storageFailure(err)
 		}
-		bc.writeTxLookups(block.Transactions(), block.NumberU64())
+		if root != head.Header().Root {
+			return fmt.Errorf("forkchoice: committed root mismatch")
+		}
 	}
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
 	batch := bc.db.NewBatch()
+	for _, block := range removed {
+		for _, tx := range block.Transactions() {
+			if err := rawdb.DeleteTxLookup(batch, tx.Hash()); err != nil {
+				return storageFailure(err)
+			}
+		}
+		if block.NumberU64() > head.NumberU64() {
+			if err := rawdb.DeleteCanonicalHash(batch, block.NumberU64()); err != nil {
+				return storageFailure(err)
+			}
+		}
+	}
 	for _, block := range ancestors {
 		if err := rawdb.WriteCanonicalHash(batch, block.NumberU64(), block.Hash()); err != nil {
-			return err
+			return storageFailure(err)
 		}
-	}
-	for number := head.NumberU64() + 1; number <= bc.currentBlock.NumberU64(); number++ {
-		if err := rawdb.DeleteCanonicalHash(batch, number); err != nil {
-			return err
+		for _, tx := range block.Transactions() {
+			if err := rawdb.WriteTxLookup(batch, tx.Hash(), block.NumberU64()); err != nil {
+				return storageFailure(err)
+			}
 		}
 	}
 	if err := rawdb.WriteHeadBlockHash(batch, headHash); err != nil {
-		return err
+		return storageFailure(err)
 	}
 	if err := rawdb.WriteHeadHeaderHash(batch, headHash); err != nil {
-		return err
+		return storageFailure(err)
 	}
 	if final != nil {
 		if err := rawdb.WriteFinalizedBlockHash(batch, finalHash); err != nil {
-			return err
+			return storageFailure(err)
 		}
 	}
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
 	if err := batch.Write(); err != nil {
-		return err
+		return storageFailure(err)
+	}
+	for _, block := range removed {
+		for _, tx := range block.Transactions() {
+			delete(bc.txLookup, tx.Hash())
+		}
 	}
 	for _, block := range ancestors {
 		bc.canonCache[block.NumberU64()] = block.Hash()
+		for index, tx := range block.Transactions() {
+			bc.txLookup[tx.Hash()] = TxLookupEntry{BlockHash: block.Hash(), BlockNumber: block.NumberU64(), TxIndex: uint64(index)}
+		}
 	}
 	for number := range bc.canonCache {
 		if number > head.NumberU64() {
 			delete(bc.canonCache, number)
 		}
 	}
-	bc.currentBlock, bc.currentState = head, st
-	if safe != nil {
-		bc.currentSafeBlock = safe
-	}
+	bc.currentBlock, bc.currentState, bc.currentSafeBlock = head, st, safe
 	if final != nil {
 		bc.currentFinalBlock = final
 	}
+	// Replace a pre-commit cache entry with the independent committed state.
+	bc.sc.remove(headHash)
+	bc.memSC.remove(headHash)
 	bc.sc.put(headHash, head.NumberU64(), st)
 	bc.sc.protect(headHash)
 	bc.memSC.put(headHash, head.NumberU64(), st)
 	bc.memSC.protect(headHash)
 	bc.hc.mu.Lock()
+	for number := range bc.hc.headers {
+		if number > head.NumberU64() {
+			delete(bc.hc.headers, number)
+		}
+	}
 	for _, block := range ancestors {
 		bc.hc.headers[block.NumberU64()] = block.Header()
 		bc.hc.headersByHash[block.Hash()] = block.Header()

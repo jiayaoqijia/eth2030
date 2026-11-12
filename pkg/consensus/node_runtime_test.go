@@ -35,7 +35,7 @@ func TestNativeRuntimeThreeSlotPQFinality(t *testing.T) {
 	}
 	runtime.Start()
 	defer runtime.Stop()
-	bad, err := SignNativeVote(genesis, genesis, first, 0, 1, 1, 0, keys[0])
+	bad, err := SignNativeVote(runtime.Domain(), genesis, first, 0, 1, 1, 0, keys[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestNativeRuntimeThreeSlotPQFinality(t *testing.T) {
 		t.Fatal("cross-chain signature accepted")
 	}
 	for i := 0; i < 2; i++ {
-		vote, _ := SignNativeVote(genesis, genesis, first, 0, 1, 1, uint64(i), keys[i])
+		vote, _ := SignNativeVote(runtime.Domain(), genesis, first, 0, 1, 1, uint64(i), keys[i])
 		if err := runtime.Submit(vote); err != nil {
 			t.Fatal(err)
 		}
@@ -60,7 +60,7 @@ func TestNativeRuntimeThreeSlotPQFinality(t *testing.T) {
 		t.Fatal("first quorum must justify target without finalizing it")
 	}
 	for i := 0; i < 2; i++ {
-		vote, _ := SignNativeVote(genesis, first, second, 1, 2, 2, uint64(i), keys[i])
+		vote, _ := SignNativeVote(runtime.Domain(), first, second, 1, 2, 2, uint64(i), keys[i])
 		if err := runtime.Submit(vote); err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +69,7 @@ func TestNativeRuntimeThreeSlotPQFinality(t *testing.T) {
 		t.Fatal("consecutive quorum did not finalize source")
 	}
 	runtime.Stop()
-	vote, _ := SignNativeVote(genesis, first, second, 1, 2, 2, 2, keys[2])
+	vote, _ := SignNativeVote(runtime.Domain(), first, second, 1, 2, 2, 2, keys[2])
 	if err := runtime.Submit(vote); err == nil {
 		t.Fatal("stopped runtime accepted vote")
 	}

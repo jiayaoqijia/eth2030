@@ -44,9 +44,10 @@ func (rw *ProtoRW) ReadMsg() (wire.Msg, error) {
 // Each protocol is assigned a contiguous range of message codes. Incoming messages
 // are dispatched to the correct protocol based on their code.
 type Multiplexer struct {
-	transport wire.Transport
-	protos    []*ProtoRW
-	totalLen  uint64 // Total message code space across all protocols.
+	transport  wire.Transport
+	protos     []*ProtoRW
+	totalLen   uint64 // Total message code space across all protocols.
+	baseOffset uint64
 
 	mu     sync.Mutex
 	closed bool
@@ -64,6 +65,10 @@ type ProtoMatch struct {
 // NewMultiplexer creates a multiplexer for the given protocols over a transport.
 // Protocols are sorted by (Name, Version) and assigned contiguous code ranges.
 func NewMultiplexer(tr wire.Transport, protocols []Protocol) *Multiplexer {
+	return newMultiplexer(tr, protocols, 0)
+}
+
+func newMultiplexer(tr wire.Transport, protocols []Protocol, baseOffset uint64) *Multiplexer {
 	// Sort protocols by name, then version (ascending).
 	sorted := make([]Protocol, len(protocols))
 	copy(sorted, protocols)
@@ -75,11 +80,12 @@ func NewMultiplexer(tr wire.Transport, protocols []Protocol) *Multiplexer {
 	})
 
 	mux := &Multiplexer{
-		transport: tr,
-		done:      make(chan struct{}),
+		transport:  tr,
+		baseOffset: baseOffset,
+		done:       make(chan struct{}),
 	}
 
-	var offset uint64
+	offset := baseOffset
 	for _, p := range sorted {
 		rw := &ProtoRW{
 			proto:  p,
@@ -136,6 +142,23 @@ func (mux *Multiplexer) ReadLoop() error {
 		if err != nil {
 			mux.Close()
 			return err
+		}
+		if msg.Code < mux.baseOffset {
+			switch msg.Code {
+			case 1:
+				return fmt.Errorf("p2p: remote disconnect")
+			case 2:
+				mux.wmu.Lock()
+				err := mux.transport.WriteMsg(wire.Msg{Code: 3, Size: 1, Payload: []byte{0xc0}})
+				mux.wmu.Unlock()
+				if err != nil {
+					return err
+				}
+			case 3:
+			default:
+				return fmt.Errorf("p2p: invalid base message %d", msg.Code)
+			}
+			continue
 		}
 
 		rw := mux.findProto(msg.Code)

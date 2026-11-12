@@ -129,4 +129,9 @@ func TestSnapRequestCancellation(t *testing.T) {
 	if len(client.pending) != 0 {
 		t.Fatal("cancelled request leaked correlation entry")
 	}
+	// The request was already sent. A superseded CL target must cancel its
+	// response wait without tearing down the healthy multiplexed connection.
+	if err := right.WriteMsg(wire.Msg{Code: ByteCodesMsg, Payload: []byte{0xc0}}); err != nil {
+		t.Fatalf("cancellation disconnected healthy peer: %v", err)
+	}
 }

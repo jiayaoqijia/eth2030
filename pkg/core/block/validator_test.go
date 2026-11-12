@@ -245,6 +245,8 @@ func TestValidateBody_NoUncles(t *testing.T) {
 	v := NewBlockValidator(config.TestConfig)
 	header := makeValidParent()
 	header.TxHash = types.EmptyRootHash // correct root for empty tx list
+	withdrawalsRoot := types.EmptyRootHash
+	header.WithdrawalsHash = &withdrawalsRoot
 	blk := types.NewBlock(header, &types.Body{
 		Withdrawals: []*types.Withdrawal{}, // Post-Shanghai requires withdrawals.
 	})

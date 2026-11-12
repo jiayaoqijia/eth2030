@@ -33,6 +33,7 @@ type Client struct {
 	seq       atomic.Uint64
 	mu        sync.Mutex
 	pending   map[uint64]pendingResponse
+	done      chan struct{}
 }
 
 func (c *Client) ID() string { return c.id }
@@ -46,9 +47,14 @@ type VerifiedPeer struct {
 	*Client
 	ctx          context.Context
 	storageRoots map[types.Hash]types.Hash
+	stateRoot    types.Hash
+	rootSet      bool
 }
 
 func (c *Client) request(ctx context.Context, code uint64, packet func(uint64) any, out any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	stopClose := context.AfterFunc(ctx, func() { _ = c.transport.Close() })
@@ -59,10 +65,14 @@ func (c *Client) request(ctx context.Context, code uint64, packet func(uint64) a
 	c.pending[id] = pendingResponse{code + 1, ch}
 	c.mu.Unlock()
 	defer func() { c.mu.Lock(); delete(c.pending, id); c.mu.Unlock() }()
-	if err := sendSnapMsg(c.transport, code, packet(id)); err != nil {
+	err := sendSnapMsg(c.transport, code, packet(id))
+	stopClose()
+	if err != nil {
 		return err
 	}
 	select {
+	case <-c.done:
+		return fmt.Errorf("snap: peer disconnected")
 	case <-ctx.Done():
 		return ctx.Err()
 	case msg := <-ch:
@@ -111,6 +121,12 @@ func verifyRange(root, origin types.Hash, keys, values, proof [][]byte) (bool, e
 }
 
 func (p *VerifiedPeer) RequestAccountRange(req statesync.AccountRangeRequest) (*statesync.AccountRangeResponse, error) {
+	p.mu.Lock()
+	mismatch := p.rootSet && p.stateRoot != req.Root
+	p.mu.Unlock()
+	if mismatch {
+		return nil, fmt.Errorf("snap: peer adapter pivot changed")
+	}
 	var response AccountRangePacket
 	if err := p.request(p.ctx, GetAccountRangeMsg, func(id uint64) any { return &GetAccountRangePacket{id, req.Root, req.Origin, req.Limit, req.Bytes} }, &response); err != nil {
 		return nil, err
@@ -137,6 +153,7 @@ func (p *VerifiedPeer) RequestAccountRange(req statesync.AccountRangeRequest) (*
 		return nil, fmt.Errorf("snap: account range proof: %w", err)
 	}
 	p.mu.Lock()
+	p.stateRoot, p.rootSet = req.Root, true
 	for key, root := range roots {
 		p.storageRoots[key] = root
 	}
@@ -152,6 +169,7 @@ func (p *VerifiedPeer) RequestStorageRange(req statesync.StorageRangeRequest) (*
 	account := req.Accounts[0]
 	p.mu.Lock()
 	root, ok := p.storageRoots[account]
+	ok = ok && p.rootSet && p.stateRoot == req.Root
 	p.mu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("snap: storage account not verified")
@@ -185,17 +203,20 @@ func (p *VerifiedPeer) RequestBytecodes(req statesync.BytecodeRequest) (*statesy
 	if err := p.request(p.ctx, GetByteCodesMsg, func(id uint64) any { return &GetByteCodesPacket{id, req.Hashes, SoftResponseLimit} }, &response); err != nil {
 		return nil, err
 	}
-	allowed := make(map[types.Hash]bool)
-	for _, hash := range req.Hashes {
-		allowed[hash] = true
+	allowed := make(map[types.Hash]int)
+	for i, hash := range req.Hashes {
+		allowed[hash] = i
 	}
+	previous := -1
 	out := &statesync.BytecodeResponse{ID: req.ID}
 	for _, code := range response.Codes {
 		hash := crypto.Keccak256Hash(code)
-		if !allowed[hash] {
+		index, ok := allowed[hash]
+		if !ok || index <= previous {
 			return nil, fmt.Errorf("snap: unrequested bytecode")
 		}
 		delete(allowed, hash)
+		previous = index
 		out.Codes = append(out.Codes, statesync.BytecodeData{Hash: hash, Code: code})
 	}
 	return out, nil

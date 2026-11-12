@@ -46,3 +46,24 @@ func TestDiffProbe_ContractParity(t *testing.T) {
 	}
 	s.Diff().DiffBlocks(t, pre, r.Block)
 }
+
+func TestDiffProbe_MultipleStorageWritesInOneBlock(t *testing.T) {
+	s := eiptest.New(t)
+	pre := snapshotStandardAccounts(t, s)
+	init := []byte{0x60, 7, 0x60, 12, 0x60, 0, 0x39, 0x60, 7, 0x60, 0, 0xf3, 0x60, 0, 0x35, 0x60, 0, 0x55, 0}
+	deploy := eiptest.DynamicFee(s.Config().ChainID, s.Alice(), 0, nil, big.NewInt(0), init, 200000, bigFeeCap, bigTipCap)
+	deployment := s.Commit(deploy)
+	contract := eiptest.ExpectSuccess(t, deployment, 0).ContractAddress()
+	first, second := make([]byte, 32), make([]byte, 32)
+	first[31] = 1
+	second[31] = 2
+	tx1 := eiptest.DynamicFee(s.Config().ChainID, s.Alice(), 1, &contract, big.NewInt(0), first, 100000, bigFeeCap, bigTipCap)
+	tx2 := eiptest.DynamicFee(s.Config().ChainID, s.Alice(), 2, &contract, big.NewInt(0), second, 100000, bigFeeCap, bigTipCap)
+	result := s.Commit(tx1, tx2)
+	eiptest.ExpectSuccess(t, result, 0)
+	eiptest.ExpectSuccess(t, result, 1)
+	eiptest.ExpectStorage(t, s, contract, types.Hash{}, eiptest.Uint64ToHash(2))
+	// Replay from complete genesis state, including deployment fees and all
+	// system-contract effects, instead of supplying a partial post-deploy map.
+	s.Diff().DiffBlocks(t, pre, deployment.Block, result.Block)
+}

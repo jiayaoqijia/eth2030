@@ -2,6 +2,7 @@ package ethproto
 
 import (
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"sort"
 
@@ -41,6 +42,81 @@ func CalcForkID(genesisHash types.Hash, head uint64, forkBlocks []uint64) ForkID
 		Hash: checksumToBytes(hash),
 		Next: 0,
 	}
+}
+
+// CalcForkIDWithTime implements EIP-6122: block forks precede timestamp
+// forks, and rules active at genesis are not additional checksum events.
+func CalcForkIDWithTime(genesis types.Hash, genesisTime, head, headTime uint64, blocks, times []uint64) ForkID {
+	blocks = cleanForks(blocks)
+	times = cleanTimes(times, genesisTime)
+	hash := crc32.ChecksumIEEE(genesis[:])
+	for _, fork := range blocks {
+		if fork > head {
+			return ForkID{Hash: checksumToBytes(hash), Next: fork}
+		}
+		hash = checksumUpdate(hash, fork)
+	}
+	for _, fork := range times {
+		if fork > headTime {
+			return ForkID{Hash: checksumToBytes(hash), Next: fork}
+		}
+		hash = checksumUpdate(hash, fork)
+	}
+	return ForkID{Hash: checksumToBytes(hash)}
+}
+func cleanTimes(times []uint64, genesisTime uint64) []uint64 {
+	clean := cleanForks(times)
+	out := clean[:0]
+	for _, fork := range clean {
+		if fork > genesisTime {
+			out = append(out, fork)
+		}
+	}
+	return out
+}
+
+func ValidateForkID(remote ForkID, genesis types.Hash, genesisTime, head, headTime uint64, blocks, times []uint64) error {
+	blocks = cleanForks(blocks)
+	times = cleanTimes(times, genesisTime)
+	forks := append(append([]uint64{}, blocks...), times...)
+	hash := crc32.ChecksumIEEE(genesis[:])
+	sums := [][4]byte{checksumToBytes(hash)}
+	passed := 0
+	for i, fork := range forks {
+		limit := head
+		if i >= len(blocks) {
+			limit = headTime
+		}
+		if i == passed && fork <= limit {
+			passed++
+		}
+		hash = checksumUpdate(hash, fork)
+		sums = append(sums, checksumToBytes(hash))
+	}
+	for i, sum := range sums {
+		if sum != remote.Hash {
+			continue
+		}
+		switch {
+		case i < passed:
+			if remote.Next != forks[i] {
+				return fmt.Errorf("eth: stale fork ID")
+			}
+			return nil
+		case i > passed:
+			return nil
+		default:
+			limit := head
+			if passed >= len(blocks) && len(times) > 0 {
+				limit = headTime
+			}
+			if remote.Next > 0 && (remote.Next <= limit || (remote.Next > 1438269973 && remote.Next <= headTime)) {
+				return fmt.Errorf("eth: incompatible fork next")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("eth: incompatible fork ID")
 }
 
 // checksumUpdate folds a fork block number into the running CRC32 checksum.

@@ -174,6 +174,7 @@ func TestNewNode(t *testing.T) {
 }
 
 func TestNewNode_NilConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	// Passing nil should use default config.
 	n, err := New(nil)
 	if err != nil {

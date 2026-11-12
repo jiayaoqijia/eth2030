@@ -84,6 +84,13 @@ func (p *GethBlockProcessor) ProcessBlock(
 	}
 
 	gasPool := gethcore.NewGasPool(header.GasLimit)
+	rules := p.config.Rules(header.Number, blockCtx.Random != nil, header.Time)
+	if p.eth2030Cfg != nil {
+		rules.IsEIP158 = false
+	}
+	// Match Geth's transaction boundary, including system-call effects before
+	// the first transaction. SetTxContext alone does not advance original storage.
+	statedb.Finalise(rules)
 
 	var (
 		receipts          []*types.Receipt
@@ -105,6 +112,7 @@ func (p *GethBlockProcessor) ProcessBlock(
 		receipt.BlockNumber = new(big.Int).Set(header.Number)
 
 		receipts = append(receipts, receipt)
+		statedb.Finalise(rules)
 	}
 
 	// Assign global log indices across all receipts.
@@ -129,7 +137,6 @@ func (p *GethBlockProcessor) ProcessBlock(
 		}
 	}
 
-	rules := p.config.Rules(header.Number, blockCtx.Random != nil, header.Time)
 	if p.eth2030Cfg == nil {
 		TouchCoinbase(statedb, blockCtx.Coinbase)
 	} else {

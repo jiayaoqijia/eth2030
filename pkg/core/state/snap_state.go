@@ -36,6 +36,9 @@ func (s *StateSnapshot) Root() types.Hash { return snapshotTrie(s.Accounts).Hash
 
 // Validate verifies completeness, not just inclusion of individual leaves.
 func (s *StateSnapshot) Validate(root types.Hash) error {
+	if s == nil {
+		return fmt.Errorf("snapshot: nil snapshot")
+	}
 	if s.Root() != root {
 		return fmt.Errorf("snapshot: account root mismatch")
 	}
@@ -62,6 +65,16 @@ func (s *StateSnapshot) Validate(root types.Hash) error {
 		codeHash := types.BytesToHash(acc.CodeHash)
 		if codeHash != types.EmptyCodeHash && crypto.Keccak256Hash(s.Codes[codeHash]) != codeHash {
 			return fmt.Errorf("snapshot: missing or invalid code %s", codeHash)
+		}
+	}
+	for account, slots := range s.Storage {
+		if _, ok := s.Accounts[account]; !ok && len(slots) > 0 {
+			return fmt.Errorf("snapshot: storage without account")
+		}
+	}
+	for hash, code := range s.Codes {
+		if crypto.Keccak256Hash(code) != hash {
+			return fmt.Errorf("snapshot: invalid bytecode entry")
 		}
 	}
 	return nil
@@ -121,8 +134,12 @@ func StoreStateSnapshot(db rawdb.Database, root types.Hash, s *StateSnapshot) er
 
 func LoadStateSnapshot(db rawdb.Database, root types.Hash) (*StateSnapshot, error) {
 	prefix := snapshotPrefix(root)
-	if _, err := db.Get(append(bytes.Clone(prefix), 'v')); err != nil {
+	marker, err := db.Get(append(bytes.Clone(prefix), 'v'))
+	if err != nil {
 		return nil, err
+	}
+	if !bytes.Equal(marker, []byte{1}) {
+		return nil, fmt.Errorf("snapshot: invalid completion marker")
 	}
 	s := NewStateSnapshot()
 	iter := db.NewIterator(prefix)
@@ -163,9 +180,9 @@ func LoadStateSnapshot(db rawdb.Database, root types.Hash) (*StateSnapshot, erro
 // SnapStateDB executes on a verified hashed snapshot with a journalled native
 // dirty overlay. Snapshot data is immutable and shared across Dup copies.
 type SnapStateDB struct {
-	*MemoryStateDB
-	base *StateSnapshot
-	db   rawdb.Database
+	memory *MemoryStateDB
+	base   *StateSnapshot
+	db     rawdb.Database
 }
 
 func OpenSnapState(db rawdb.Database, root types.Hash) (*SnapStateDB, error) {
@@ -177,7 +194,7 @@ func OpenSnapState(db rawdb.Database, root types.Hash) (*SnapStateDB, error) {
 }
 
 func (s *SnapStateDB) load(addr types.Address) {
-	if s.stateObjects[addr] != nil {
+	if s.memory.stateObjects[addr] != nil {
 		return
 	}
 	body := s.base.Accounts[crypto.Keccak256Hash(addr[:])]
@@ -192,12 +209,12 @@ func (s *SnapStateDB) load(addr types.Address) {
 	obj.account.Nonce, obj.account.Balance, obj.account.CodeHash = acc.Nonce, new(big.Int).Set(acc.Balance), bytes.Clone(acc.CodeHash)
 	obj.dbStorageRoot = types.BytesToHash(acc.Root)
 	obj.code = bytes.Clone(s.base.Codes[types.BytesToHash(acc.CodeHash)])
-	s.stateObjects[addr] = obj
+	s.memory.stateObjects[addr] = obj
 }
 
 func (s *SnapStateDB) loadSlot(addr types.Address, key types.Hash) {
 	s.load(addr)
-	obj := s.stateObjects[addr]
+	obj := s.memory.stateObjects[addr]
 	if obj == nil {
 		return
 	}
@@ -218,20 +235,20 @@ func (s *SnapStateDB) loadSlot(addr types.Address, key types.Hash) {
 
 func (s *SnapStateDB) GetState(a types.Address, k types.Hash) types.Hash {
 	s.loadSlot(a, k)
-	return s.MemoryStateDB.GetState(a, k)
+	return s.memory.GetState(a, k)
 }
 func (s *SnapStateDB) GetCommittedState(a types.Address, k types.Hash) types.Hash {
 	s.loadSlot(a, k)
-	return s.MemoryStateDB.GetCommittedState(a, k)
+	return s.memory.GetCommittedState(a, k)
 }
 func (s *SnapStateDB) SetState(a types.Address, k, v types.Hash) {
 	s.loadSlot(a, k)
-	s.MemoryStateDB.SetState(a, k, v)
+	s.memory.SetState(a, k, v)
 }
 
 func (s *SnapStateDB) snapshot() *StateSnapshot {
 	out := s.base.copy()
-	applySnapshotOverlay(out, s.MemoryStateDB)
+	applySnapshotOverlay(out, s.memory)
 	return out
 }
 
@@ -281,79 +298,79 @@ func (s *SnapStateDB) Commit() (types.Hash, error) {
 		return types.Hash{}, err
 	}
 	s.base = snap
-	s.MemoryStateDB = NewMemoryStateDB()
+	s.memory = NewMemoryStateDB()
 	return root, nil
 }
-func (s *SnapStateDB) Dup() StateDB { return &SnapStateDB{s.MemoryStateDB.Copy(), s.base, s.db} }
+func (s *SnapStateDB) Dup() StateDB { return &SnapStateDB{s.memory.Copy(), s.base, s.db} }
 
 func (s *SnapStateDB) CreateAccount(addr types.Address) {
 	s.load(addr)
-	s.MemoryStateDB.CreateAccount(addr)
+	s.memory.CreateAccount(addr)
 }
 
 func (s *SnapStateDB) SubBalance(addr types.Address, amount *big.Int) {
 	s.load(addr)
-	s.MemoryStateDB.SubBalance(addr, amount)
+	s.memory.SubBalance(addr, amount)
 }
 
 func (s *SnapStateDB) AddBalance(addr types.Address, amount *big.Int) {
 	s.load(addr)
-	s.MemoryStateDB.AddBalance(addr, amount)
+	s.memory.AddBalance(addr, amount)
 }
 
 func (s *SnapStateDB) GetBalance(addr types.Address) *big.Int {
 	s.load(addr)
-	return s.MemoryStateDB.GetBalance(addr)
+	return s.memory.GetBalance(addr)
 }
 
 func (s *SnapStateDB) GetNonce(addr types.Address) uint64 {
 	s.load(addr)
-	return s.MemoryStateDB.GetNonce(addr)
+	return s.memory.GetNonce(addr)
 }
 
 func (s *SnapStateDB) SetNonce(addr types.Address, nonce uint64) {
 	s.load(addr)
-	s.MemoryStateDB.SetNonce(addr, nonce)
+	s.memory.SetNonce(addr, nonce)
 }
 
 func (s *SnapStateDB) GetCode(addr types.Address) []byte {
 	s.load(addr)
-	return s.MemoryStateDB.GetCode(addr)
+	return bytes.Clone(s.memory.GetCode(addr))
 }
 
 func (s *SnapStateDB) SetCode(addr types.Address, code []byte) {
 	s.load(addr)
-	s.MemoryStateDB.SetCode(addr, code)
+	s.memory.SetCode(addr, code)
 }
 
 func (s *SnapStateDB) GetCodeHash(addr types.Address) types.Hash {
 	s.load(addr)
-	return s.MemoryStateDB.GetCodeHash(addr)
+	return s.memory.GetCodeHash(addr)
 }
 
 func (s *SnapStateDB) GetCodeSize(addr types.Address) int {
 	s.load(addr)
-	return s.MemoryStateDB.GetCodeSize(addr)
+	return s.memory.GetCodeSize(addr)
 }
 
 func (s *SnapStateDB) SelfDestruct(addr types.Address) {
 	s.load(addr)
-	s.MemoryStateDB.SelfDestruct(addr)
+	s.memory.SelfDestruct(addr)
 }
 
 func (s *SnapStateDB) HasSelfDestructed(addr types.Address) bool {
 	s.load(addr)
-	return s.MemoryStateDB.HasSelfDestructed(addr)
+	return s.memory.HasSelfDestructed(addr)
 }
 
 func (s *SnapStateDB) Exist(addr types.Address) bool {
 	s.load(addr)
-	return s.MemoryStateDB.Exist(addr)
+	return s.memory.Exist(addr)
 }
 
 func (s *SnapStateDB) Empty(addr types.Address) bool {
 	s.load(addr)
-	return s.MemoryStateDB.Empty(addr)
+	return s.memory.Empty(addr)
 }
 
 var _ StateDB = (*SnapStateDB)(nil)
@@ -430,3 +447,51 @@ func (s *StateSnapshot) AccountProof(key types.Hash) ([][]byte, error) {
 func (s *StateSnapshot) StorageProof(account, key types.Hash) ([][]byte, error) {
 	return snapshotTrie(s.Storage[account]).ProveAbsence(key[:])
 }
+
+func (s *SnapStateDB) Snapshot() int { return s.memory.Snapshot() }
+
+func (s *SnapStateDB) RevertToSnapshot(id int) { s.memory.RevertToSnapshot(id) }
+
+func (s *SnapStateDB) AddLog(log *types.Log) { s.memory.AddLog(log) }
+
+func (s *SnapStateDB) GetLogs(hash types.Hash) []*types.Log { return s.memory.GetLogs(hash) }
+
+func (s *SnapStateDB) SetTxContext(hash types.Hash, index int) { s.memory.SetTxContext(hash, index) }
+
+func (s *SnapStateDB) AddRefund(gas uint64) { s.memory.AddRefund(gas) }
+
+func (s *SnapStateDB) SubRefund(gas uint64) { s.memory.SubRefund(gas) }
+
+func (s *SnapStateDB) GetRefund() uint64 { return s.memory.GetRefund() }
+
+func (s *SnapStateDB) AddAddressToAccessList(addr types.Address) {
+	s.memory.AddAddressToAccessList(addr)
+}
+
+func (s *SnapStateDB) AddSlotToAccessList(addr types.Address, slot types.Hash) {
+	s.memory.AddSlotToAccessList(addr, slot)
+}
+
+func (s *SnapStateDB) AddressInAccessList(addr types.Address) bool {
+	return s.memory.AddressInAccessList(addr)
+}
+
+func (s *SnapStateDB) SlotInAccessList(addr types.Address, slot types.Hash) (bool, bool) {
+	return s.memory.SlotInAccessList(addr, slot)
+}
+
+func (s *SnapStateDB) ClearAccessList() { s.memory.ClearAccessList() }
+
+func (s *SnapStateDB) GetTransientState(addr types.Address, key types.Hash) types.Hash {
+	return s.memory.GetTransientState(addr, key)
+}
+
+func (s *SnapStateDB) SetTransientState(addr types.Address, key, value types.Hash) {
+	s.memory.SetTransientState(addr, key, value)
+}
+
+func (s *SnapStateDB) ClearTransientStorage() { s.memory.ClearTransientStorage() }
+
+func (s *SnapStateDB) FinalizePreState() { s.memory.FinalizePreState() }
+
+func (s *SnapStateDB) FinalizeTransaction() { s.memory.FinalizeTransaction() }

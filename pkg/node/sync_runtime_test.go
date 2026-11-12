@@ -16,7 +16,15 @@ import (
 	coreblock "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/engine/payload"
+	nodebackend "github.com/eth2030/eth2030/node/backend"
+	"github.com/eth2030/eth2030/rpc"
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	gethrlp "github.com/ethereum/go-ethereum/rlp"
+	gethtrie "github.com/ethereum/go-ethereum/trie"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -26,7 +34,7 @@ func connectSyncNodes(t *testing.T, a, b *Node) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.p2pServer.AddPeer(net.JoinHostPort("127.0.0.1", port)); err != nil {
+	if err := b.p2pServer.AddPeer("enode://" + a.p2pServer.LocalID() + "@" + net.JoinHostPort("127.0.0.1", port)); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(3 * time.Second)
@@ -47,7 +55,7 @@ func TestNodeCLDrivenSyncAndSnapRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			account := types.HexToAddress("0x0000000000000000000000000000000000001234")
-			genesis["alloc"].(map[string]any)[account.Hex()] = map[string]any{"balance": "1000", "code": "0x600160005500", "storage": map[string]string{"0x00": "0x07"}}
+			genesis["alloc"].(map[string]any)[account.Hex()] = map[string]any{"balance": "1000", "code": "0x600160005500", "storage": map[string]string{"0x00": "0x80"}}
 			data, _ := json.Marshal(genesis)
 			path := filepath.Join(t.TempDir(), "genesis.json")
 			if err := os.WriteFile(path, data, 0600); err != nil {
@@ -137,8 +145,44 @@ func TestNodeCLDrivenSyncAndSnapRestart(t *testing.T) {
 			if target.blockchain.CurrentBlock().Hash() != blocks[4].Hash() || got.GetRoot() != source.blockchain.State().GetRoot() {
 				t.Fatal("synced head/state differs")
 			}
-			if got.GetState(account, types.Hash{}) != types.BytesToHash([]byte{7}) || got.GetCodeSize(account) != 6 {
+			if got.GetState(account, types.Hash{}) != types.BytesToHash([]byte{128}) || got.GetCodeSize(account) != 6 {
 				t.Fatal("storage/code not available after sync")
+			}
+			proof, err := nodebackend.NewRPCBackend(toNodeDeps(target), target.engBackend).GetProof(account, []types.Hash{{}}, rpc.LatestBlockNumber)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proofDB := memorydb.New()
+			for _, node := range proof.AccountProof {
+				_ = proofDB.Put(crypto.Keccak256(node), node)
+			}
+			accountBody, err := gethtrie.VerifyProof(gethcommon.Hash(blocks[4].Header().Root), crypto.Keccak256(account[:]), proofDB)
+			if err != nil || len(accountBody) == 0 {
+				t.Fatalf("independent account proof failed: %v", err)
+			}
+			var provedAccount gethtypes.StateAccount
+			if err := gethrlp.DecodeBytes(accountBody, &provedAccount); err != nil {
+				t.Fatal(err)
+			}
+			if provedAccount.Root != gethcommon.Hash(proof.StorageHash) {
+				t.Fatal("storage proof is not bound to account proof")
+			}
+
+			proofDB = memorydb.New()
+			for _, node := range proof.StorageProof[0].Proof {
+				_ = proofDB.Put(crypto.Keccak256(node), node)
+			}
+			var slot types.Hash
+			storageBody, err := gethtrie.VerifyProof(gethcommon.Hash(proof.StorageHash), crypto.Keccak256(slot[:]), proofDB)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var integer []byte
+			if err := gethrlp.DecodeBytes(storageBody, &integer); err != nil {
+				t.Fatal(err)
+			}
+			if len(integer) != 1 || integer[0] != 128 || proof.StorageProof[0].Value.Uint64() != 128 {
+				t.Fatal("RPC storage proof value is not the decoded slot integer")
 			}
 			if got.GetBalance(account).Cmp(source.blockchain.State().GetBalance(account)) != 0 {
 				t.Fatal("post-pivot execution lost withdrawal balances")

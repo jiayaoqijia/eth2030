@@ -32,6 +32,7 @@ var (
 	ErrInvalidStateRoot       = errors.New("invalid state root")
 	ErrInvalidReceiptRoot     = errors.New("invalid receipt root")
 	ErrInvalidTxRoot          = errors.New("invalid transaction root")
+	ErrInvalidWithdrawalsRoot = errors.New("invalid withdrawals root")
 	ErrInvalidGasUsedTotal    = errors.New("invalid total gas used")
 	ErrInvalidCalldataGas     = errors.New("invalid calldata gas")
 )
@@ -184,6 +185,23 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	if header.TxHash != computedTxHash {
 		return fmt.Errorf("%w: header=%s computed=%s", ErrInvalidTxRoot,
 			header.TxHash.Hex(), computedTxHash.Hex())
+	}
+	// EIP-4895 binds the entire withdrawals list, even when execution is
+	// skipped at a trusted snap pivot. Presence alone is insufficient.
+	if header.WithdrawalsHash != nil {
+		if block.Withdrawals() == nil {
+			return ErrInvalidWithdrawalsRoot
+		}
+		for _, withdrawal := range block.Withdrawals() {
+			if withdrawal == nil {
+				return ErrInvalidWithdrawalsRoot
+			}
+		}
+		if deriveWithdrawalsRoot(block.Withdrawals()) != *header.WithdrawalsHash {
+			return ErrInvalidWithdrawalsRoot
+		}
+	} else if block.Withdrawals() != nil {
+		return ErrInvalidWithdrawalsRoot
 	}
 
 	// EIP-4844: validate blob gas used matches the sum of blob gas from transactions.

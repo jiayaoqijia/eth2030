@@ -354,46 +354,7 @@ func (tm *TopicManager) SubscribedTopics() []GossipTopic {
 // the registered handler. Returns an error if the topic is not
 // subscribed, the data is empty/too large, or it is a duplicate.
 func (tm *TopicManager) Publish(topic GossipTopic, data []byte) error {
-	if len(data) == 0 {
-		return ErrTopicEmptyData
-	}
-	if len(data) > MaxPayloadSize {
-		return ErrTopicDataTooLarge
-	}
-	// Per-topic size limit check.
-	if limit, ok := TopicMessageSizeLimit[topic]; ok && len(data) > limit {
-		return ErrTopicMsgTooLarge
-	}
-
-	msgID := ComputeMessageID(data)
-
-	// Check and mark as seen (deduplication).
-	tm.seenMu.Lock()
-	if _, dup := tm.seen[msgID]; dup {
-		tm.seenMu.Unlock()
-		return ErrTopicDuplicateMessage
-	}
-	tm.seen[msgID] = time.Now()
-	tm.seenMu.Unlock()
-
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	if tm.closed {
-		return ErrTopicManagerClosed
-	}
-
-	state, exists := tm.topics[topic]
-	if !exists {
-		return ErrTopicNotSubscribed
-	}
-
-	state.score.MessagesReceived++
-	state.score.FirstDeliveries++
-	state.score.MeshDeliveries++
-
-	state.handler(topic, msgID, data)
-	return nil
+	return tm.Deliver(topic, data, true)
 }
 
 // Deliver processes an incoming message from another peer. It validates
@@ -418,37 +379,36 @@ func (tm *TopicManager) Deliver(topic GossipTopic, data []byte, isValid bool) er
 		msgID = ComputeInvalidMessageID(data)
 	}
 
-	// Deduplication.
+	tm.mu.Lock()
+	if tm.closed {
+		tm.mu.Unlock()
+		return ErrTopicManagerClosed
+	}
+	state, exists := tm.topics[topic]
+	if !exists {
+		tm.mu.Unlock()
+		return ErrTopicNotSubscribed
+	}
 	tm.seenMu.Lock()
-	if _, dup := tm.seen[msgID]; dup {
+	if _, duplicate := tm.seen[msgID]; duplicate {
 		tm.seenMu.Unlock()
+		tm.mu.Unlock()
 		return ErrTopicDuplicateMessage
 	}
 	tm.seen[msgID] = time.Now()
 	tm.seenMu.Unlock()
-
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	if tm.closed {
-		return ErrTopicManagerClosed
-	}
-
-	state, exists := tm.topics[topic]
-	if !exists {
-		return ErrTopicNotSubscribed
-	}
-
 	state.score.MessagesReceived++
-
 	if !isValid {
 		state.score.InvalidMessages++
+		tm.mu.Unlock()
 		return nil
 	}
-
 	state.score.FirstDeliveries++
 	state.score.MeshDeliveries++
-	state.handler(topic, msgID, data)
+	handler := state.handler
+	tm.mu.Unlock()
+	// Application callbacks may publish, unsubscribe or inspect stats.
+	handler(topic, msgID, data)
 	return nil
 }
 

@@ -452,7 +452,11 @@ func ProveAccountWithStorage(stateTrie *Trie, addr types.Address, storageTrie *T
 			// Retrieve the storage value.
 			val, getErr := storageTrie.Get(slotHash)
 			if getErr == nil && len(val) > 0 {
-				sp.Value = new(big.Int).SetBytes(val)
+				var integer []byte
+				if err := rlp.DecodeBytes(val, &integer); err != nil {
+					return nil, err
+				}
+				sp.Value = new(big.Int).SetBytes(integer)
 			}
 		}
 

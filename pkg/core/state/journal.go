@@ -130,12 +130,14 @@ func (ch storageChange) revert(s *MemoryStateDB) {
 type selfDestructChange struct {
 	addr           types.Address
 	prevDestructed bool
+	prevDeleted    bool
 	prevBalance    *big.Int
 }
 
 func (ch selfDestructChange) revert(s *MemoryStateDB) {
 	if obj := s.getStateObject(ch.addr); obj != nil {
 		obj.selfDestructed = ch.prevDestructed
+		obj.deleted = ch.prevDeleted
 		obj.account.Balance = ch.prevBalance
 	}
 }

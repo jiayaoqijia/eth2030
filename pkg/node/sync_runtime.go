@@ -27,6 +27,10 @@ func (a *nodeDepsAdapter) RequestExecutionSync(fc payload.ForkchoiceStateV1) {
 	}
 }
 
+func (a *nodeDepsAdapter) ApplyExecutionForkchoice(fc payload.ForkchoiceStateV1) error {
+	return a.n.executionSync.ApplyKnown(syncbeacon.ExecutionTarget{Head: fc.HeadBlockHash, Safe: fc.SafeBlockHash, Finalized: fc.FinalizedBlockHash})
+}
+
 func (a *nodeDepsAdapter) SyncProgress() (bool, uint64, uint64, uint64) {
 	current := a.n.blockchain.CurrentBlock().NumberU64()
 	if a.n.executionSync == nil {
@@ -103,7 +107,7 @@ func (n *Node) syncFinalizedPivot(ctx context.Context, pivot *types.Block) (bool
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := n.blockchain.ImportSnapPivot(pivot, history); err != nil {
+		if err := n.executionSync.AdoptFinalized(ctx, pivot.Hash(), func() error { return n.blockchain.ImportSnapPivot(pivot, history) }); err != nil {
 			return false, err
 		}
 		return true, nil

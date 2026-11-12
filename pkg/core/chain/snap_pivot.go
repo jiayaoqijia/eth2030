@@ -17,7 +17,7 @@ var snapPivotKey = []byte("snap-pivot")
 func (bc *Blockchain) ImportSnapPivot(pivot *types.Block, history []*types.Header) error {
 	bc.insertMu.Lock()
 	defer bc.insertMu.Unlock()
-	if pivot == nil || pivot.Header().Number == nil || pivot.NumberU64() == 0 {
+	if pivot == nil || pivot.Header().Number == nil || !pivot.Header().Number.IsUint64() || pivot.NumberU64() == 0 {
 		return fmt.Errorf("snap: invalid pivot")
 	}
 	if err := bc.validator.ValidateBody(pivot); err != nil {
@@ -32,7 +32,7 @@ func (bc *Blockchain) ImportSnapPivot(pivot *types.Block, history []*types.Heade
 	}
 	child := pivot.Header()
 	for _, parent := range history {
-		if parent == nil || parent.Number == nil || parent.Hash() != child.ParentHash {
+		if parent == nil || parent.Number == nil || !parent.Number.IsUint64() || parent.Hash() != child.ParentHash {
 			return fmt.Errorf("snap: invalid pivot ancestry")
 		}
 		if err := bc.validator.ValidateHeader(child, parent); err != nil {
@@ -79,6 +79,9 @@ func (bc *Blockchain) ImportSnapPivot(pivot *types.Block, history []*types.Heade
 	if err := rawdb.WriteHeadHeaderHash(batch, pivot.Hash()); err != nil {
 		return err
 	}
+	if err := batch.Put(validatedKey(pivot.Hash()), []byte{1}); err != nil {
+		return err
+	}
 	if err := batch.Put(snapPivotKey, pivot.Hash().Bytes()); err != nil {
 		return err
 	}
@@ -96,6 +99,7 @@ func (bc *Blockchain) ImportSnapPivot(pivot *types.Block, history []*types.Heade
 func (bc *Blockchain) adoptSnapPivot(pivot *types.Block, st state.StateDB, headers []*types.Header) {
 	bc.currentBlock, bc.currentState = pivot, st
 	bc.blockCache[pivot.Hash()] = pivot
+	bc.blockCacheOrder = append(bc.blockCacheOrder, pivot.Hash())
 	for _, header := range headers {
 		bc.canonCache[header.Number.Uint64()] = header.Hash()
 	}
@@ -147,7 +151,16 @@ func (bc *Blockchain) RestoreSnapPivot() error {
 		if err != nil {
 			return err
 		}
+		if header.Number == nil || header.Number.Uint64() != n-1 || header.Hash() != hash || headers[len(headers)-1].ParentHash != header.Hash() {
+			return fmt.Errorf("snap: corrupt persisted ancestry")
+		}
 		headers = append(headers, header)
+	}
+	if err := bc.validator.ValidateBody(pivot); err != nil {
+		return err
+	}
+	if err := bc.db.Put(validatedKey(pivot.Hash()), []byte{1}); err != nil {
+		return err
 	}
 	bc.mu.Lock()
 	bc.adoptSnapPivot(pivot, st, headers)
@@ -156,7 +169,6 @@ func (bc *Blockchain) RestoreSnapPivot() error {
 }
 
 func (bc *Blockchain) replayStoredAfter(pivot *types.Block) error {
-	// Capture the saved head before replay updates its durable pointer.
 	headHash, err := rawdb.ReadHeadBlockHash(bc.db)
 	if err != nil {
 		return err
@@ -165,19 +177,31 @@ func (bc *Blockchain) replayStoredAfter(pivot *types.Block) error {
 	if head == nil {
 		return fmt.Errorf("sync: missing saved head")
 	}
-	for n := pivot.NumberU64() + 1; n <= head.NumberU64(); n++ {
-		hash, err := rawdb.ReadCanonicalHash(bc.db, n)
+	if head.NumberU64() < pivot.NumberU64() {
+		return fmt.Errorf("sync: saved head precedes pivot")
+	}
+	// Recovery may populate validated side data, but never overwrites the
+	// durable canonical target before the complete original chain is checked.
+	parent := pivot
+	for number := pivot.NumberU64(); number < head.NumberU64(); {
+		number++
+		hash, err := rawdb.ReadCanonicalHash(bc.db, number)
 		if err != nil {
 			return err
 		}
-		blk := bc.GetBlock(hash)
-		if blk == nil {
-			return fmt.Errorf("snap: missing replay block %d", n)
+		block := bc.GetBlock(hash)
+		if block == nil || block.ParentHash() != parent.Hash() {
+			return fmt.Errorf("sync: missing or disconnected replay block %d", number)
 		}
 		bc.EvictBlockFromCache(hash)
-		if err := bc.InsertBlock(blk); err != nil {
+		// Force execution even when a validation marker survived a prior run.
+		bc.sc.remove(hash)
+		bc.memSC.remove(hash)
+		if err := bc.InsertSyncedBlock(block); err != nil {
 			return err
 		}
+		parent = block
 	}
-	return nil
+	final := rawdb.ReadFinalizedBlockHash(bc.db)
+	return bc.ApplyForkchoice(head.Hash(), final, final)
 }

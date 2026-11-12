@@ -36,10 +36,10 @@ Interrupted, unpublished snapshots are never adopted. A finalized snapshot
 download is allowed to finish while the CL head advances, then the worker
 catches up to the latest target.
 
-## Explicit native consensus mode
+## Explicit native consensus observer
 
 `eth2030 --native-consensus /path/to/native.json` enables the research 3SF/PQ
-lane. The file contains only timing and validator public keys:
+observer. The external CL always retains forkchoice authority. The file contains only timing and validator public keys:
 
 ```json
 {
@@ -57,27 +57,41 @@ Every participating node must use the same genesis, timing and registry.
 The runtime uses `QuickSlotScheduler`, real ML-DSA-65 verification through
 `PQAttestationVerifier`, and 3SF source/target justification rules. A quorum
 justifies a target; it finalizes the source only when the target is the next
-eligible slot after that source. Validator identity, chain domain and both
-checkpoints are signed. Unregistered keys, identity substitutions, duplicate
-votes, stale/future votes and invalid links are rejected.
+eligible slot after that source. Quorums are counted per source-target link. Validator identity, chain/timing/registry domain and both
+checkpoints are signed. Unregistered keys, identity substitutions, equivocation,
+future votes and invalid links are rejected; normal duplicates/stale deliveries
+are ignored without disconnecting the peer.
 
-Signed votes enter through `Node.BroadcastNativeVote` and the opt-in `ncs/1`
-peer protocol. `Node.NativeConsensusStatus` reports actual slot, signature and
-finality state. Finality updates reach the execution chain. The node starts and
-joins the runtime with its lifecycle, and seeds it from the persisted finalized
-checkpoint on restart. External Engine forkchoice updates are rejected in this
-mode so they cannot compete with native finality. Validator signing keys and
-automatic proposal/signing duties remain outside this node runtime.
+Signed votes enter through `Node.BroadcastNativeVote` and the opt-in `ncs/2`
+research protocol. `Node.NativeConsensusDomain` returns the configuration-bound
+signing domain. `Node.NativeConsensusStatus` reports observed slot, signature
+and research finality state. These observations **do not change execution
+forkchoice**. The node starts and joins the observer, follows authoritative CL
+reorganizations/finalized advances, and seeds it from the persisted CL checkpoint
+on restart. Observer votes are not a persistent standalone consensus state.
+Validator signing keys, proposal/signing duties, full CL fork choice and native
+consensus authority are outside this integration. The earlier authority switch
+was removed during review because it exceeded the Track 3 wiring design.
+
+## Peer transport
+
+The native node now uses standard RLPx authentication, canonical RLP Hello,
+Snappy, devp2p's reserved message range, and only jointly negotiated capabilities
+(highest shared version per name). Its identity is retained in `nodekey` with
+0600 permissions. `eth/68` uses its correct message range and canonical typed
+transaction/receipt envelopes; timestamp forks are included in ForkID.
+Old native plaintext peers require upgrading. Plaintext framing is retained only
+for explicit low-level test/server configurations.
 
 ## Verification and boundaries
 
 `TestNodeCLDrivenSyncAndSnapRestart` starts two real nodes, submits an
 authenticated Engine HTTP request before a peer is available, checks the
-`eth_syncing` transition, negotiates `eth` and `snap` over TCP, verifies stored
+`eth_syncing` transition, negotiates `eth` and `snap` over encrypted RLPx/TCP, verifies stored
 code/storage and post-pivot withdrawal execution, and restarts both full and
 snap receivers. `TestNodeNativeConsensusWireLifecycle` exchanges real signed
-PQ votes over TCP, verifies execution finalization, rejects external
-forkchoice, and checks shutdown and checkpoint recovery. Separate tests cover
+PQ votes over RLPx, verifies observer finality without changing execution
+finality, then verifies CL selection, shutdown and checkpoint recovery. Separate tests cover
 range gaps, wrong roots, false empty replies, cancellation, target replacement,
 incomplete snapshots and authenticated account/storage trie healing.
 
@@ -85,8 +99,9 @@ This implementation uses **snap/1 with a fixed finalized pivot**. Snapshot
 assembly and serving currently materialize state in memory; moving-pivot
 range reuse, mainnet-scale resource qualification, and snap/2 BAL-based sync
 are not implemented. If a peer ages out the pivot, the attempt fails and the
-worker retries the current CL target. Native consensus is an explicit research
-mode over locally validated blocks, not a mainnet consensus-fork activation.
+worker retries the current CL target. This is a functional bootstrap path,
+not completed production/mainnet snap synchronization. The research observer
+is not an autonomous CL or a mainnet consensus-fork activation.
 
 Sync testing exposed two pre-existing codec defects: generic header/body
 serialization lost optional-field and typed-transaction semantics, and header
@@ -103,3 +118,13 @@ rewritten. Pre-Amsterdam header encoding remains unchanged.
 - [Pinned snap/1 protocol](https://github.com/ethereum/devp2p/blob/e0091d1140bddce2a9805047b94110d3ad439e6e/caps/snap.md): ranges, proofs, slim accounts, bytecodes and trie-node paths.
 - `refs/EIPs/EIPS/eip-7782.md`: configurable slot timing; no fork schedule is activated here.
 - `refs/research/3sf-mini/consensus.py`: justification eligibility and source finalization; the implementation requires at least two thirds of registered validators.
+
+## Adversarial review
+
+The review of `fc1f70f` and the corrective evidence are recorded in
+[Track 3 review](track3-review.md). FCU validation/publication is synchronous for
+known heads; candidate payloads are staged; validated-block markers distinguish
+execution acceptance from stored data. Recovery preserves the saved target on
+failure. FileDB commits WAL transactions before materializing files and fences
+failed writes until reopen. These properties are covered by failure-injection,
+branch-execution and mutation tests, in addition to normal end-to-end tests.

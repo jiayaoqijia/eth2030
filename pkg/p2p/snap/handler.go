@@ -129,9 +129,10 @@ func (h *ServerHandler) HandleGetAccountRange(req *GetAccountRangePacket) (*Acco
 		// Proof for the last account (limit side), if different from origin.
 		if len(accounts) > 0 {
 			lastProof, err := h.backend.AccountProof(req.Root, accounts[len(accounts)-1].Hash)
-			if err == nil {
-				proof = append(proof, lastProof...)
+			if err != nil {
+				return nil, err
 			}
+			proof = append(proof, lastProof...)
 		}
 	}
 
@@ -155,19 +156,29 @@ func (h *ServerHandler) HandleGetStorageRanges(req *GetStorageRangesPacket) (*St
 	var proof [][]byte
 
 	// Determine origin/limit for the storage hash range.
-	origin := req.Origin
-	limit := req.Limit
-	if len(limit) == 0 {
+	if len(req.Origin) > 32 || len(req.Limit) > 32 {
+		return nil, ErrInvalidRange
+	}
+	origin := types.BytesToHash(req.Origin).Bytes()
+	limit := types.BytesToHash(req.Limit).Bytes()
+	if len(req.Limit) == 0 {
 		// Default to full range.
 		limit = bytes.Repeat([]byte{0xff}, types.HashLength)
 	}
+	if bytes.Compare(origin, limit) > 0 {
+		return nil, ErrInvalidRange
+	}
 
 	for i, account := range req.Accounts {
+		if i >= MaxStorageRangeCount {
+			break
+		}
 		if totalSize >= HardResponseLimit {
 			break
 		}
 
 		var slots []StorageData
+		truncated := false
 
 		iterOrigin := origin
 		// Only the first account uses the specified origin; subsequent accounts
@@ -179,9 +190,11 @@ func (h *ServerHandler) HandleGetStorageRanges(req *GetStorageRangesPacket) (*St
 		err := h.backend.StorageIterator(req.Root, account, iterOrigin, func(hash types.Hash, body []byte) bool {
 			// Stop if we are past the limit hash.
 			if len(limit) >= types.HashLength && bytes.Compare(hash[:], limit[:types.HashLength]) > 0 {
+				truncated = true
 				return false
 			}
 			if len(slots) >= MaxStorageRangeCount {
+				truncated = true
 				return false
 			}
 
@@ -210,7 +223,7 @@ func (h *ServerHandler) HandleGetStorageRanges(req *GetStorageRangesPacket) (*St
 
 		// Prove both the requested origin (including absence) and the last
 		// slot. A count-limited response needs the same proof as a byte cap.
-		if totalSize >= softLimit || len(slots) >= MaxStorageRangeCount || len(req.Origin) > 0 {
+		if truncated || totalSize >= softLimit || len(slots) >= MaxStorageRangeCount || len(req.Origin) > 0 {
 			originProof, err := h.backend.StorageProof(req.Root, account, types.BytesToHash(iterOrigin))
 			if err != nil {
 				return nil, err
@@ -219,9 +232,10 @@ func (h *ServerHandler) HandleGetStorageRanges(req *GetStorageRangesPacket) (*St
 			if len(slots) > 0 {
 				lastSlot := slots[len(slots)-1].Hash
 				slotProof, err := h.backend.StorageProof(req.Root, account, lastSlot)
-				if err == nil {
-					proof = append(proof, slotProof...)
+				if err != nil {
+					return nil, err
 				}
+				proof = append(proof, slotProof...)
 			}
 			break
 		}
@@ -342,11 +356,18 @@ func (h *ServerHandler) Protocol() p2p.Protocol {
 // appropriate Handle* method and writes the response back. The loop exits when
 // the transport is closed or an unrecoverable error occurs.
 func (h *ServerHandler) runPeer(peer *peermgr.Peer, t wire.Transport) error {
-	client := &Client{id: peer.ID(), transport: t, pending: make(map[uint64]pendingResponse)}
+	client := &Client{id: peer.ID(), transport: t, pending: make(map[uint64]pendingResponse), done: make(chan struct{})}
 	h.mu.Lock()
 	h.clients[peer.ID()] = client
 	h.mu.Unlock()
-	defer func() { h.mu.Lock(); delete(h.clients, peer.ID()); h.mu.Unlock() }()
+	defer func() {
+		close(client.done)
+		h.mu.Lock()
+		if h.clients[peer.ID()] == client {
+			delete(h.clients, peer.ID())
+		}
+		h.mu.Unlock()
+	}()
 	for {
 		msg, err := t.ReadMsg()
 		if err != nil {
@@ -366,6 +387,9 @@ func (h *ServerHandler) runPeer(peer *peermgr.Peer, t wire.Transport) error {
 
 // handleSnapMsg decodes a single snap/1 message and writes the response.
 func (h *ServerHandler) handleSnapMsg(t wire.Transport, msg wire.Msg) error {
+	if len(msg.Payload) > HardResponseLimit {
+		return ErrRequestTooLarge
+	}
 	switch msg.Code {
 	case GetAccountRangeMsg:
 		var req GetAccountRangePacket

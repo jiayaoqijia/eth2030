@@ -57,6 +57,13 @@ func (s *ExecutionSyncer) Start() {
 	if s.running {
 		return
 	}
+	if s.done != nil {
+		select {
+		case <-s.done:
+		default:
+			return
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel, s.done, s.running = cancel, make(chan struct{}), true
 	go s.loop(ctx, s.done)
@@ -64,17 +71,15 @@ func (s *ExecutionSyncer) Start() {
 
 func (s *ExecutionSyncer) Stop() {
 	s.mu.Lock()
-	if !s.running {
+	if s.done == nil {
 		s.mu.Unlock()
 		return
 	}
 	cancel, done := s.cancel, s.done
+	s.running = false
 	cancel()
 	s.mu.Unlock()
 	<-done
-	s.mu.Lock()
-	s.running = false
-	s.mu.Unlock()
 }
 
 func (s *ExecutionSyncer) Request(target ExecutionTarget, startingHeight ...uint64) {
@@ -113,6 +118,42 @@ func (s *ExecutionSyncer) Status() (ExecutionTarget, bool, error) {
 	return s.target, s.complete, s.lastErr
 }
 
+// ApplyKnown serializes a synchronous FCU with worker publication. Failed FCUs
+// leave the last accepted target unchanged and cannot populate a VALID cache.
+func (s *ExecutionSyncer) ApplyKnown(target ExecutionTarget) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.apply != nil {
+		if err := s.apply(target); err != nil {
+			return err
+		}
+	}
+	if s.requestCancel != nil {
+		s.requestCancel()
+	}
+	s.target, s.complete, s.lastErr = target, true, nil
+	return nil
+}
+
+func (s *ExecutionSyncer) AdoptFinalized(ctx context.Context, hash types.Hash, adopt func() error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if s.target.Finalized != hash {
+		return context.Canceled
+	}
+	return adopt()
+}
+
+func (s *ExecutionSyncer) validated(hash types.Hash) bool {
+	if chain, ok := s.chain.(interface{ HasValidatedBlock(types.Hash) bool }); ok {
+		return chain.HasValidatedBlock(hash)
+	}
+	return s.chain.GetBlock(hash) != nil
+}
+
 func (s *ExecutionSyncer) loop(ctx context.Context, done chan struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(time.Second)
@@ -148,14 +189,18 @@ func (s *ExecutionSyncer) synchronize(ctx context.Context, target ExecutionTarge
 	var blocks []*types.Block
 	next := target.Head
 	// Bound adversarial ancestry and memory while retaining retryable failure.
-	for s.chain.GetBlock(next) == nil {
+	for !s.validated(next) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if len(blocks) >= 65536 {
 			return fmt.Errorf("beacon execution sync: ancestry exceeds limit")
 		}
-		blk, err := s.fetcher.FetchBlock(ctx, next)
+		blk := s.chain.GetBlock(next)
+		var err error
+		if blk == nil {
+			blk, err = s.fetcher.FetchBlock(ctx, next)
+		}
 		if err != nil {
 			return err
 		}
@@ -194,7 +239,7 @@ func (s *ExecutionSyncer) synchronize(ctx context.Context, target ExecutionTarge
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if s.chain.GetBlock(blocks[i].Hash()) == nil {
+		if !s.validated(blocks[i].Hash()) {
 			insert := s.chain.InsertBlock
 			if chain, ok := s.chain.(interface{ InsertSyncedBlock(*types.Block) error }); ok {
 				insert = chain.InsertSyncedBlock

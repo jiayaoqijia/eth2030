@@ -203,8 +203,21 @@ func (p *EngineProbe) ProcessWith(pl *engine.ExecutionPayloadV5, beaconRoot type
 		return status, err
 	}
 	if status.Status == engine.StatusValid {
-		if status.LatestValidHash == nil || *status.LatestValidHash != pl.BlockHash || p.HeadHash() != pl.BlockHash {
+		if status.LatestValidHash == nil || *status.LatestValidHash != pl.BlockHash {
 			return status, fmt.Errorf("Engine accepted %s with latestValidHash %v and head %s", pl.BlockHash.Hex(), status.LatestValidHash, p.HeadHash().Hex())
+		}
+		for _, server := range []*httptest.Server{p.receiver, p.proposer} {
+			var selected engine.ForkchoiceUpdatedResult
+			fc := engine.ForkchoiceStateV1{HeadBlockHash: pl.BlockHash}
+			if err := engineCall(server, "engine_forkchoiceUpdatedV3", &selected, fc, nil); err != nil {
+				return status, err
+			}
+			if selected.PayloadStatus.Status != engine.StatusValid {
+				return status, fmt.Errorf("forkchoice did not select validated payload")
+			}
+		}
+		if p.HeadHash() != pl.BlockHash {
+			return status, fmt.Errorf("forkchoice head mismatch")
 		}
 		p.s.now = pl.Timestamp
 		p.s.syncPool(p.HeadBlock())

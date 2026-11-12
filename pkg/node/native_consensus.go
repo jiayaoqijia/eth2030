@@ -3,7 +3,9 @@ package node
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -41,7 +43,11 @@ func (n *Node) initNativeConsensus() error {
 		checkpoint = genesis
 	}
 	checkpointSlot := (checkpoint.Time() - genesis.Time()) * 1000 / cfg.SlotMillis
-	runtime, err := consensus.NewNodeRuntime(cfg, genesis.Hash(), time.Unix(int64(genesis.Time()), 0), checkpoint.Hash(), checkpointSlot, func(uint64) { _ = n.observeNativeHead() }, n.applyNativeFinality)
+	runtime, err := consensus.NewNodeRuntime(cfg, genesis.Hash(), time.Unix(int64(genesis.Time()), 0), checkpoint.Hash(), checkpointSlot, func(uint64) {
+		if err := n.observeNativeHead(); err != nil {
+			slog.Debug("native observer head update", "err", err)
+		}
+	}, nil)
 	if err != nil {
 		return err
 	}
@@ -54,26 +60,55 @@ func (n *Node) observeNativeHead() error {
 	if n.nativeConsensus == nil {
 		return nil
 	}
-	finalized := n.nativeConsensus.Status().FinalizedRoot
-	var chain []*types.Block
-	for block := n.blockchain.CurrentBlock(); block != nil && block.Hash() != finalized; block = n.blockchain.GetBlock(block.ParentHash()) {
-		chain = append(chain, block)
-		if len(chain) > 8192 {
-			return fmt.Errorf("native consensus: history limit")
-		}
+	n.nativeObserveMu.Lock()
+	defer n.nativeObserveMu.Unlock()
+	status := n.nativeConsensus.Status()
+	clFinal := n.blockchain.CurrentFinalBlock()
+	if clFinal == nil {
+		clFinal = n.blockchain.Genesis()
 	}
-	for i := len(chain) - 1; i >= 0; i-- {
-		block := chain[i]
+	clSlot := n.nativeConsensus.SlotAt(time.Unix(int64(clFinal.Time()), 0))
+	head := n.blockchain.CurrentBlock()
+	collect := func(anchor types.Hash) ([]*types.Block, bool) {
+		var path []*types.Block
+		for block := head; block != nil; block = n.blockchain.GetBlock(block.ParentHash()) {
+			if block.Hash() == anchor {
+				return path, true
+			}
+			if len(path) >= 8192 {
+				return nil, false
+			}
+			path = append(path, block)
+			if block.NumberU64() == 0 {
+				break
+			}
+		}
+		return nil, false
+	}
+	path, found := collect(status.FinalizedRoot)
+	if !found || clSlot > status.FinalizedSlot {
+		path, found = collect(clFinal.Hash())
+		if !found {
+			return fmt.Errorf("native observer: CL checkpoint ancestry unavailable")
+		}
+		n.nativeConsensus.ResetCheckpoint(clFinal.Hash(), clSlot)
+	}
+	for i := len(path) - 1; i >= 0; i-- {
+		block := path[i]
 		if err := n.nativeConsensus.ObserveBlock(block.Hash(), block.ParentHash(), n.nativeConsensus.SlotAt(time.Unix(int64(block.Time()), 0))); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-func (n *Node) applyNativeFinality(finalized, justified types.Hash) error {
-	return n.blockchain.ApplyForkchoice(n.blockchain.CurrentBlock().Hash(), justified, finalized)
+
+// NativeConsensusDomain binds research votes to this chain, timing and registry.
+func (n *Node) NativeConsensusDomain() (types.Hash, bool) {
+	if n.nativeConsensus == nil {
+		return types.Hash{}, false
+	}
+	return n.nativeConsensus.Domain(), true
 }
-func (a *nodeDepsAdapter) ExternalForkchoiceAllowed() bool { return a.n.nativeConsensus == nil }
 
 // NativeConsensusStatus exposes actual slot, signature and finality state.
 func (n *Node) NativeConsensusStatus() (consensus.NativeStatus, bool) {
@@ -88,7 +123,7 @@ func (n *Node) SubmitNativeVote(vote consensus.NativeVote) error {
 		return fmt.Errorf("native consensus is disabled")
 	}
 	if err := n.observeNativeHead(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", consensus.ErrNativeUnready, err)
 	}
 	return n.nativeConsensus.Submit(vote)
 }
@@ -96,7 +131,10 @@ func (n *Node) SubmitNativeVote(vote consensus.NativeVote) error {
 // BroadcastNativeVote is the validator-facing ingress. Keys remain outside
 // the node; only already signed, registered-validator votes are accepted.
 func (n *Node) BroadcastNativeVote(ctx context.Context, vote consensus.NativeVote) error {
-	if err := n.SubmitNativeVote(vote); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := n.SubmitNativeVote(vote); err != nil && !errors.Is(err, consensus.ErrNativeDuplicateVote) {
 		return err
 	}
 	data, err := json.Marshal(vote)
@@ -122,7 +160,7 @@ func (n *Node) BroadcastNativeVote(ctx context.Context, vote consensus.NativeVot
 	return nil
 }
 func (n *Node) nativeProtocol() p2p.Protocol {
-	return p2p.Protocol{Name: "ncs", Version: 1, Length: 1, Run: func(peer *peermgr.Peer, transport wire.Transport) error {
+	return p2p.Protocol{Name: "ncs", Version: 2, Length: 1, Run: func(peer *peermgr.Peer, transport wire.Transport) error {
 		n.nativePeers.mu.Lock()
 		n.nativePeers.peers[peer.ID()] = transport
 		n.nativePeers.mu.Unlock()
@@ -140,6 +178,9 @@ func (n *Node) nativeProtocol() p2p.Protocol {
 				return err
 			}
 			if err := n.SubmitNativeVote(vote); err != nil {
+				if errors.Is(err, consensus.ErrNativeDuplicateVote) || errors.Is(err, consensus.ErrNativeStaleVote) || errors.Is(err, consensus.ErrNativeUnready) {
+					continue
+				}
 				return err
 			}
 		}

@@ -450,7 +450,13 @@ func (srv *Server) setupConn(ct wire.ConnTransport, remote *ecdsa.PublicKey) {
 		default:
 		}
 
-		remoteHello, err := wire.PerformHandshake(tr, srv.localHello())
+		var remoteHello *wire.HelloPacket
+		var err error
+		if encrypted != nil {
+			remoteHello, err = wire.PerformRLPxHandshake(encrypted, srv.localHello())
+		} else {
+			remoteHello, err = wire.PerformHandshake(tr, srv.localHello())
+		}
 		if err != nil {
 			tr.Close()
 			return
@@ -490,6 +496,22 @@ func (srv *Server) setupConn(ct wire.ConnTransport, remote *ecdsa.PublicKey) {
 	}()
 
 	protos := srv.config.Protocols
+	if !srv.config.DisableHandshake {
+		selected := make(map[string]Protocol)
+		for _, local := range protos {
+			for _, remote := range peerCaps {
+				if local.Name == remote.Name && local.Version == remote.Version {
+					if prior, ok := selected[local.Name]; !ok || local.Version > prior.Version {
+						selected[local.Name] = local
+					}
+				}
+			}
+		}
+		protos = nil
+		for _, proto := range selected {
+			protos = append(protos, proto)
+		}
+	}
 	if len(protos) == 0 {
 		// No protocol handler; wait until quit.
 		<-srv.quit
@@ -497,7 +519,7 @@ func (srv *Server) setupConn(ct wire.ConnTransport, remote *ecdsa.PublicKey) {
 	}
 
 	// Single protocol: run directly (backwards compatible with existing tests).
-	if len(protos) == 1 {
+	if len(protos) == 1 && encrypted == nil {
 		proto := protos[0]
 		if proto.Run != nil {
 			err := proto.Run(peer, tr)
@@ -511,7 +533,11 @@ func (srv *Server) setupConn(ct wire.ConnTransport, remote *ecdsa.PublicKey) {
 	}
 
 	// Multiple protocols: use multiplexer.
-	mux := NewMultiplexer(tr, protos)
+	baseOffset := uint64(0)
+	if encrypted != nil {
+		baseOffset = 0x10
+	}
+	mux := newMultiplexer(tr, protos, baseOffset)
 
 	// Start the read loop in the background.
 	readErr := make(chan error, 1)
@@ -530,6 +556,7 @@ func (srv *Server) setupConn(ct wire.ConnTransport, remote *ecdsa.PublicKey) {
 				adapter := &muxTransportAdapter{mux: mux, rw: rw}
 				if err := rw.proto.Run(peer, adapter); err != nil {
 					score.BadResponse()
+					mux.Close()
 				} else {
 					score.GoodResponse()
 				}

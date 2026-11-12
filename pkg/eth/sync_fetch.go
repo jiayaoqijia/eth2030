@@ -3,6 +3,7 @@ package eth
 import (
 	"context"
 	"fmt"
+	coreblock "github.com/eth2030/eth2030/core/block"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -10,7 +11,7 @@ import (
 )
 
 type syncRequestKey struct {
-	peer string
+	peer *EthPeer
 	id   uint64
 }
 
@@ -26,7 +27,7 @@ type syncRequest struct {
 
 // deliverSyncResponse correlates both the peer and request ID. Unsolicited or
 // late responses cannot satisfy another peer's outstanding request.
-func (h *Handler) deliverSyncResponse(peer string, id, code uint64, response syncResponse) {
+func (h *Handler) deliverSyncResponse(peer *EthPeer, id, code uint64, response syncResponse) {
 	h.syncMu.Lock()
 	defer h.syncMu.Unlock()
 	if req := h.syncRequests[syncRequestKey{peer, id}]; req != nil && req.code == code {
@@ -38,10 +39,13 @@ func (h *Handler) deliverSyncResponse(peer string, id, code uint64, response syn
 }
 
 func (h *Handler) syncRequest(ctx context.Context, ep *EthPeer, code uint64, makePacket func(uint64) any) (syncResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return syncResponse{}, err
+	}
 	stopClose := context.AfterFunc(ctx, func() { _ = ep.transport.Close() })
 	defer stopClose()
 	id := ep.nextRequestID()
-	key := syncRequestKey{ep.ID(), id}
+	key := syncRequestKey{ep, id}
 	req := &syncRequest{code: code + 1, response: make(chan syncResponse, 1)}
 	h.syncMu.Lock()
 	if h.syncRequests == nil {
@@ -50,10 +54,14 @@ func (h *Handler) syncRequest(ctx context.Context, ep *EthPeer, code uint64, mak
 	h.syncRequests[key] = req
 	h.syncMu.Unlock()
 	defer func() { h.syncMu.Lock(); delete(h.syncRequests, key); h.syncMu.Unlock() }()
-	if err := ep.sendMessage(code, makePacket(id)); err != nil {
+	err := ep.sendMessage(code, makePacket(id))
+	stopClose() // cancelling a response wait must not disconnect a healthy peer
+	if err != nil {
 		return syncResponse{}, err
 	}
 	select {
+	case <-ep.done:
+		return syncResponse{}, fmt.Errorf("eth: peer disconnected")
 	case <-ctx.Done():
 		return syncResponse{}, ctx.Err()
 	case response := <-req.response:
@@ -106,5 +114,9 @@ func (h *Handler) fetchPeerBlock(ctx context.Context, ep *EthPeer, hash types.Ha
 		return nil, fmt.Errorf("eth: missing body for %s", hash)
 	}
 	body := bodies.bodies[0]
-	return types.NewBlock(headers.headers[0], &types.Body{Transactions: body.Transactions, Uncles: body.Uncles, Withdrawals: body.Withdrawals}), nil
+	block := types.NewBlock(headers.headers[0], &types.Body{Transactions: body.Transactions, Uncles: body.Uncles, Withdrawals: body.Withdrawals})
+	if err := coreblock.NewBlockValidator(nil).ValidateBody(block); err != nil {
+		return nil, err
+	}
+	return block, nil
 }

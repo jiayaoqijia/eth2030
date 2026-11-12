@@ -227,6 +227,7 @@ type Node struct {
 	executionSync   *syncbeacon.ExecutionSyncer
 	nativeConsensus *consensus.NodeRuntime
 	nativePeers     *nativeConsensusPeers
+	nativeObserveMu sync.Mutex
 	blobSyncMgr     *syncbeacon.BlobSyncManager
 
 	// Engine payload chunker (streaming large payloads to CL).
@@ -304,6 +305,12 @@ func New(config *Config) (*Node, error) {
 		return nil, fmt.Errorf("init database: %w", err)
 	}
 	n.db = db
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = n.Stop()
+		}
+	}()
 
 	// Initialize genesis state before resolving the genesis block so that
 	// SetupGenesisBlock can populate alloc accounts into it.
@@ -593,6 +600,7 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize ETH/68 protocol handler for block and transaction exchange.
 	n.ethHandler = eth.NewHandler(bc, n.txPool, config.NetworkID)
+	n.ethHandler.SetForkchoiceControlled(true)
 
 	// Reset the tx pool after P2P block insertion to evict confirmed txs.
 	n.ethHandler.SetOnBlockInserted(func() {
@@ -602,7 +610,13 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize P2P server with bootnodes, discovery port, and NAT.
 	// Register the ETH protocol so peers can exchange blocks and transactions.
+	nodeKey, err := loadNodeKey(config.ResolvePath("nodekey"))
+	if err != nil {
+		return nil, fmt.Errorf("node identity: %w", err)
+	}
 	p2pCfg := p2p.Config{
+		EnableRLPx:     true,
+		RLPxPrivateKey: nodeKey,
 		ListenAddr:     config.P2PAddr(),
 		MaxPeers:       config.MaxPeers,
 		BootstrapNodes: config.Bootnodes,
@@ -938,6 +952,7 @@ func New(config *Config) (*Node, error) {
 		n.engineServer.SetJWTSecret([32]byte(secret))
 	}
 
+	initialized = true
 	return n, nil
 }
 
@@ -978,7 +993,15 @@ func (n *Node) Start() error {
 	}
 
 	// Start P2P server.
+	n.executionSync.Start()
+	if n.nativeConsensus != nil {
+		n.nativeConsensus.Start()
+	}
 	if err := n.p2pServer.Start(); err != nil {
+		n.executionSync.Stop()
+		if n.nativeConsensus != nil {
+			n.nativeConsensus.Stop()
+		}
 		return fmt.Errorf("start p2p: %w", err)
 	}
 	slog.Info("P2P server listening", "addr", n.p2pServer.ListenAddr())
@@ -989,10 +1012,9 @@ func (n *Node) Start() error {
 	}
 
 	// Start the CL-driven execution sync worker.
+	n.executionSync.Start()
 	if n.nativeConsensus != nil {
 		n.nativeConsensus.Start()
-	} else {
-		n.executionSync.Start()
 	}
 
 	// Bootstrap peers from DNS discovery (EIP-1459) if configured.
@@ -1265,13 +1287,16 @@ func genesisForNetwork(network string) *coreconfig.Genesis {
 // makeGenesisBlock creates a minimal genesis block.
 func makeGenesisBlock() *types.Block {
 	header := &types.Header{
-		Number:     big.NewInt(0),
-		GasLimit:   30_000_000,
-		GasUsed:    0,
-		Time:       0,
-		Difficulty: new(big.Int),
-		BaseFee:    big.NewInt(1_000_000_000), // 1 gwei
-		UncleHash:  types.EmptyUncleHash,
+		Root:        types.EmptyRootHash,
+		TxHash:      types.EmptyRootHash,
+		ReceiptHash: types.EmptyRootHash,
+		Number:      big.NewInt(0),
+		GasLimit:    30_000_000,
+		GasUsed:     0,
+		Time:        0,
+		Difficulty:  new(big.Int),
+		BaseFee:     big.NewInt(1_000_000_000), // 1 gwei
+		UncleHash:   types.EmptyUncleHash,
 	}
 	return types.NewBlock(header, nil)
 }

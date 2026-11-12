@@ -83,12 +83,13 @@ func TestNodeNativeConsensusWireLifecycle(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if _, err := a.engBackend.ForkchoiceUpdated(payload.ForkchoiceStateV1{HeadBlockHash: blocks[2].Hash()}, nil); err == nil {
-		t.Fatal("external CL overrode native mode")
+	if _, err := a.engBackend.ForkchoiceUpdated(payload.ForkchoiceStateV1{HeadBlockHash: blocks[2].Hash()}, nil); err != nil {
+		t.Fatal(err)
 	}
+	domain, _ := a.NativeConsensusDomain()
 	for target := 1; target <= 2; target++ {
 		for id := 0; id < 2; id++ {
-			vote, err := consensus.SignNativeVote(blocks[0].Hash(), blocks[target-1].Hash(), blocks[target].Hash(), uint64(target-1), uint64(target), uint64(target), uint64(id), keys[id])
+			vote, err := consensus.SignNativeVote(domain, blocks[target-1].Hash(), blocks[target].Hash(), uint64(target-1), uint64(target), uint64(target), uint64(id), keys[id])
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -109,8 +110,11 @@ func TestNodeNativeConsensusWireLifecycle(t *testing.T) {
 	if !enabled || status.FinalizedRoot != blocks[1].Hash() || status.Verified != 4 {
 		t.Fatalf("peer votes did not drive native finality: %+v", status)
 	}
-	if b.blockchain.CurrentFinalBlock().Hash() != blocks[1].Hash() {
-		t.Fatal("native finality did not reach execution chain")
+	if b.blockchain.CurrentFinalBlock() != nil {
+		t.Fatal("research observer changed CL finality")
+	}
+	if _, err := b.engBackend.ForkchoiceUpdated(payload.ForkchoiceStateV1{HeadBlockHash: blocks[2].Hash(), SafeBlockHash: blocks[2].Hash(), FinalizedBlockHash: blocks[1].Hash()}, nil); err != nil {
+		t.Fatal(err)
 	}
 	if err := b.Stop(); err != nil {
 		t.Fatal(err)

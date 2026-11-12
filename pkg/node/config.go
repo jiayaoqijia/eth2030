@@ -28,8 +28,8 @@ type Config struct {
 
 	// SyncMode selects the sync strategy (full, snap).
 	SyncMode string
-	// NativeConsensusFile opts into the research 3SF/PQ lane and disables
-	// external Engine forkchoice authority. JSON contains timing and public keys.
+	// NativeConsensusFile enables the research 3SF/PQ observer. It does not
+	// replace CL forkchoice authority. JSON contains timing and public keys.
 	NativeConsensusFile string
 
 	// GCMode controls state pruning: "full" (default) or "archive" (no pruning).
