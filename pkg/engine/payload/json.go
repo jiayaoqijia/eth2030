@@ -515,6 +515,8 @@ type getPayloadV6ResponseJSON struct {
 	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`
 	ExecutionRequests []hexBytes          `json:"executionRequests"`
+	SSZPayload        *hexBytes           `json:"sszPayload,omitempty"`
+	SSZBlockHash      *types.Hash         `json:"sszBlockHash,omitempty"`
 }
 
 func (r GetPayloadV6Response) MarshalJSON() ([]byte, error) {
@@ -522,12 +524,19 @@ func (r GetPayloadV6Response) MarshalJSON() ([]byte, error) {
 	if blobsBundle == nil {
 		blobsBundle = &BlobsBundleV2{}
 	}
+	var sszPayload *hexBytes
+	if r.SSZPayload != nil {
+		h := hexBytes(r.SSZPayload)
+		sszPayload = &h
+	}
 	return json.Marshal(getPayloadV6ResponseJSON{
 		ExecutionPayload:  r.ExecutionPayload,
 		BlockValue:        newHexBig(r.BlockValue),
 		BlobsBundle:       blobsBundle,
 		Override:          r.Override,
 		ExecutionRequests: toHexBytesSlice(r.ExecutionRequests),
+		SSZPayload:        sszPayload,
+		SSZBlockHash:      r.SSZBlockHash,
 	})
 }
 
@@ -541,6 +550,10 @@ func (r *GetPayloadV6Response) UnmarshalJSON(data []byte) error {
 	r.BlobsBundle = j.BlobsBundle
 	r.Override = j.Override
 	r.ExecutionRequests = fromHexBytesSlice(j.ExecutionRequests)
+	if j.SSZPayload != nil {
+		r.SSZPayload = []byte(*j.SSZPayload)
+	}
+	r.SSZBlockHash = j.SSZBlockHash
 	return nil
 }
 

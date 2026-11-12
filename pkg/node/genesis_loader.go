@@ -51,6 +51,7 @@ type chainConfigJSON struct {
 	AmsterdamTime        *uint64 `json:"amsterdamTime"`
 	GlamsterdanTime      *uint64 `json:"glamsterdanTime"`
 	HogotaTime           *uint64 `json:"hogotaTime"`
+	SSZBlockTime         *uint64 `json:"sszBlockTime"`
 	IPlusTime            *uint64 `json:"iPlusTime"`
 	OsakaTime            *uint64 `json:"osakaTime"`
 	BPO1Time             *uint64 `json:"bpo1Time"`
@@ -246,6 +247,7 @@ func loadGenesisFile(cfg *Config) (*coreconfig.Genesis, error) {
 	chainCfg.AmsterdamTime = gj.Config.AmsterdamTime
 	chainCfg.GlamsterdanTime = gj.Config.GlamsterdanTime
 	chainCfg.HogotaTime = gj.Config.HogotaTime
+	chainCfg.SSZBlockTime = gj.Config.SSZBlockTime
 	chainCfg.IPlusTime = gj.Config.IPlusTime
 	chainCfg.OsakaTime = gj.Config.OsakaTime
 	chainCfg.BPO1Time = gj.Config.BPO1Time

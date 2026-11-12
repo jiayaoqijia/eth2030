@@ -31,6 +31,9 @@ const (
 	// DataColumnSidecar propagates data column sidecars (EIP-7594/Fulu),
 	// one gossipsub topic per subnet: data_column_sidecar_<subnet_id>.
 	DataColumnSidecar
+	// InclusionList propagates signed inclusion lists (EIP-7805 FOCIL),
+	// one global topic per the spec.
+	InclusionList
 	// SyncCommitteeContribution propagates sync committee contributions.
 	SyncCommitteeContribution
 	// STARKMempoolTick propagates recursive STARK mempool aggregation ticks.
@@ -60,6 +63,7 @@ var gossipTopicNames = map[GossipTopic]string{
 	AttesterSlashing:          "attester_slashing",
 	BlobSidecar:               "blob_sidecar",
 	DataColumnSidecar:         "data_column_sidecar",
+	InclusionList:             "inclusion_list",
 	SyncCommitteeContribution: "sync_committee_contribution",
 	STARKMempoolTick:          "stark_mempool_tick",
 	PQAggRequest:              "pq_agg_request",

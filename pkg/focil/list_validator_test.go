@@ -124,14 +124,19 @@ func TestValidateListValid(t *testing.T) {
 	}
 }
 
-func TestValidateListValidNextSlot(t *testing.T) {
+func TestValidateListValidPreviousSlot(t *testing.T) {
 	v := NewInclusionListValidator(DefaultListValidatorConfig())
-	il := makeIL(101, 5, 3, 21000)
+	il := makeIL(99, 5, 3, 21000)
 	state := newMockHeadState(100, 5)
 
-	// List for slot head+1 should be accepted.
+	// Per EIP-7805 the IL slot matches the current or previous slot: a
+	// list for head-1 is accepted, head+1 is not.
 	if err := v.ValidateList(il, state); err != nil {
-		t.Errorf("valid next-slot list: %v", err)
+		t.Errorf("valid previous-slot list: %v", err)
+	}
+	next := makeIL(101, 5, 3, 21000)
+	if err := v.ValidateList(next, state); err == nil {
+		t.Error("next-slot list must be rejected")
 	}
 }
 

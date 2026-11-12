@@ -42,6 +42,13 @@ type Receipt struct {
 	BlockHash        Hash
 	BlockNumber      *big.Int
 	TransactionIndex uint
+
+	// EIP-8141 frame transaction fields (derived, not part of the
+	// consensus receipts-root encoding): Payer is the account that paid the
+	// gas per the receipt format [cumulative_gas_used, payer,
+	// [frame_receipt, ...]]; FrameResults carries the per-frame outcomes.
+	Payer        Address
+	FrameResults []FrameResult
 }
 
 // NewReceipt creates a new receipt with the given status and cumulative gas.

@@ -2,6 +2,7 @@ package eiptest_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -198,4 +199,93 @@ func TestEIP7807_NativeRequestsThroughEngine(t *testing.T) {
 	if len(next.ExecutionRequests) != 0 {
 		t.Fatal("executed requests reappeared in a later block")
 	}
+}
+
+// TestEIP7807_SSZEngineActivation drives the EIP-7807 SSZ activation surface
+// end-to-end: with SSZ blocks active, getPayloadV7 returns the SSZ payload
+// encoding and its hash tree root, engine_newPayloadV7 accepts a payload
+// whose SSZ binding matches, and rejects a tampered SSZ binding as INVALID.
+func TestEIP7807_SSZEngineActivation(t *testing.T) {
+	s := eiptest.New(t,
+		eiptest.ForkAt(eiptest.ForkAmsterdam, 0),
+		eiptest.ForkAt(eiptest.ForkSSZBlocks, 0),
+	)
+	p := s.Engine()
+
+	// Build a payload carrying one transfer.
+	tx := eiptest.DynamicFee(s.Config().ChainID, s.Alice(), 0,
+		eiptest.ToPtr(s.Bob().Address), eiptest.Wei(7), nil, 21_000, bigFeeCap, bigTipCap)
+	p.Submit(tx)
+	payloadID, err := p.FCU()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// getPayloadV7 returns the SSZ binding.
+	var resp engine.GetPayloadV6Response
+	if err := p.Call("engine_getPayloadV7", &resp, payloadID); err != nil {
+		t.Fatalf("engine_getPayloadV7: %v", err)
+	}
+	if resp.SSZBlockHash == nil || len(resp.SSZPayload) == 0 {
+		t.Fatal("getPayloadV7 did not return the SSZ activation fields")
+	}
+	sszBytes, err := decodeHexJSON(resp.SSZPayload)
+	if err != nil {
+		t.Fatalf("sszPayload is not valid hex: %v", err)
+	}
+	var decoded types.ExecutionPayloadSSZ
+	if err := decoded.UnmarshalSSZ(sszBytes); err != nil {
+		t.Fatalf("sszPayload does not decode: %v", err)
+	}
+	root, err := decoded.HashTreeRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != *resp.SSZBlockHash {
+		t.Fatal("sszBlockHash does not match the sszPayload hash tree root")
+	}
+
+	// newPayloadV7 with the matching SSZ binding executes the payload.
+	payload := *resp.ExecutionPayload
+	payload.ExecutionRequests = resp.ExecutionRequests
+	req := engine.NewPayloadV7Request{
+		ExecutionPayload:      payload,
+		ParentBeaconBlockRoot: types.Hash{1},
+		SSZPayload:            encodeHexJSON(sszBytes),
+		SSZBlockHash:          *resp.SSZBlockHash,
+	}
+	var status engine.PayloadStatusV1
+	if err := p.Call("engine_newPayloadV7", &status, req); err != nil {
+		t.Fatalf("engine_newPayloadV7: %v", err)
+	}
+	p.ExpectStatusValid(t, status)
+
+	// A tampered SSZ payload is rejected as INVALID before execution.
+	tampered := append([]byte(nil), sszBytes...)
+	tampered[len(tampered)-4] ^= 0xFF
+	badReq := req
+	badReq.SSZPayload = encodeHexJSON(tampered)
+	var badStatus engine.PayloadStatusV1
+	if err := p.Call("engine_newPayloadV7", &badStatus, badReq); err != nil {
+		t.Fatalf("engine_newPayloadV7 (tampered): %v", err)
+	}
+	status = badStatus
+	if status.Status != engine.StatusInvalid || status.ValidationError == nil ||
+		!strings.Contains(*status.ValidationError, "ssz block hash mismatch") {
+		t.Fatalf("tampered SSZ binding not rejected: %+v", status)
+	}
+}
+
+// decodeHexJSON decodes a 0x-hex JSON string ("0x…") into raw bytes.
+func decodeHexJSON(raw json.RawMessage) ([]byte, error) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, err
+	}
+	return hex.DecodeString(strings.TrimPrefix(s, "0x"))
+}
+
+// encodeHexJSON encodes raw bytes as a 0x-hex JSON string.
+func encodeHexJSON(data []byte) json.RawMessage {
+	return json.RawMessage(`"` + "0x" + hex.EncodeToString(data) + `"`)
 }

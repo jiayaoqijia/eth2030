@@ -37,6 +37,7 @@ import (
 	dasvalidator "github.com/eth2030/eth2030/das/validator"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/eth"
+	"github.com/eth2030/eth2030/focil"
 	"github.com/eth2030/eth2030/light"
 	"github.com/eth2030/eth2030/metrics"
 	nodebackend "github.com/eth2030/eth2030/node/backend"
@@ -251,6 +252,8 @@ type Node struct {
 
 	// EP-3: STARK mempool P2P subsystem.
 	topicMgr         *p2p.TopicManager
+	focilILs         *focil.ILStore
+	focilGossip      *focil.GossipValidator
 	starkAgg         *txpool.STARKAggregator
 	starkFrameProver proofs.ValidationFrameProver // non-nil when StarkValidationFrames=true
 	currentSlot      atomic.Uint64                // updated on each FCU; used for peer-tick TTL eviction
@@ -505,6 +508,30 @@ func New(config *Config) (*Node, error) {
 		}
 	}); err != nil {
 		slog.Warn("stark mempool tick subscribe failed", "err", err)
+	}
+
+	// EIP-7805 FOCIL: subscribe the inclusion_list gossip topic. Received
+	// signed ILs go through the spec CL P2P validation rules before entering
+	// the node's IL store. The EL-side context cannot hold the beacon
+	// committee, so rules 2 and 5 and the public-key lookup are resolved by
+	// the injectable hooks when a committee source is configured; slot and
+	// size caps plus the anti-equivocation store always apply.
+	n.focilILs = focil.NewILStore()
+	n.focilGossip = focil.NewGossipValidator(n.focilILs, &focil.GossipContext{
+		CurrentSlot: func() uint64 { return n.currentSlot.Load() },
+	})
+	if err := n.topicMgr.Subscribe(p2p.InclusionList, func(_ p2p.GossipTopic, _ p2p.MessageID, data []byte) {
+		var signed focil.SignedInclusionList
+		if err := signed.UnmarshalBinary(data); err != nil {
+			slog.Debug("inclusion list gossip decode error", "err", err)
+			return
+		}
+		if _, err := n.focilGossip.Validate(&signed); err != nil {
+			slog.Debug("inclusion list gossip rejected", "err", err)
+			return
+		}
+	}); err != nil {
+		slog.Warn("inclusion list gossip subscribe failed", "err", err)
 	}
 
 	// EP-3 US-PQ-6: compile AA proof circuit on startup (non-fatal; logs result).

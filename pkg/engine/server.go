@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -291,6 +292,71 @@ func (api *EngineAPI) GetPayloadV6(payloadID PayloadID) (*GetPayloadV6Response, 
 	return resp, nil
 }
 
+// payloadV7Backend is implemented by backends that support the EIP-7807
+// SSZ payload surface.
+type payloadV7Backend interface {
+	GetPayloadV7ByID(PayloadID) (*GetPayloadV6Response, error)
+}
+
+// GetPayloadV7 retrieves a previously built payload with the EIP-7807 SSZ
+// activation fields (sszPayload + sszBlockHash) when SSZ blocks are active.
+func (api *EngineAPI) GetPayloadV7(payloadID PayloadID) (*GetPayloadV6Response, error) {
+	v7, ok := api.backend.(payloadV7Backend)
+	if !ok {
+		return nil, ErrUnsupportedFork
+	}
+	return v7.GetPayloadV7ByID(payloadID)
+}
+
+// NewPayloadV7Request carries a V5 payload plus the EIP-7807 SSZ binding:
+// the SSZ payload encoding and its hash tree root (the SSZ execution block
+// hash). The EL verifies the SSZ binding before executing the payload.
+type NewPayloadV7Request struct {
+	ExecutionPayload      ExecutionPayloadV5 `json:"executionPayload"`
+	BlobVersionedHashes   []types.Hash       `json:"expectedBlobVersionedHashes"`
+	ParentBeaconBlockRoot types.Hash         `json:"parentBeaconBlockRoot"`
+	SSZPayload            json.RawMessage    `json:"sszPayload"`
+	SSZBlockHash          types.Hash         `json:"sszBlockHash"`
+}
+
+// NewPayloadV7 validates an SSZ-bound payload (EIP-7807) and executes it
+// through the Amsterdam path. The SSZ payload must decode and its hash tree
+// root must match sszBlockHash; otherwise the payload is INVALID.
+func (api *EngineAPI) NewPayloadV7(req NewPayloadV7Request) (PayloadStatusV1, error) {
+	sszBytes, err := decodeHexParam(req.SSZPayload)
+	if err != nil {
+		errMsg := "invalid sszPayload encoding: " + err.Error()
+		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &errMsg}, nil
+	}
+	var decoded types.ExecutionPayloadSSZ
+	if err := decoded.UnmarshalSSZ(sszBytes); err != nil {
+		errMsg := "invalid sszPayload encoding: " + err.Error()
+		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &errMsg}, nil
+	}
+	root, err := decoded.HashTreeRoot()
+	if err != nil {
+		errMsg := "ssz payload hash error: " + err.Error()
+		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &errMsg}, nil
+	}
+	if root != req.SSZBlockHash {
+		errMsg := "ssz block hash mismatch: header=" + req.SSZBlockHash.Hex() + " computed=" + root.Hex()
+		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &errMsg}, nil
+	}
+	// Cross-check the SSZ container against the JSON payload it binds.
+	if decoded.ExecutionSSZFields.StateRoot != req.ExecutionPayload.StateRoot ||
+		decoded.ExecutionSSZFields.Number != req.ExecutionPayload.BlockNumber ||
+		decoded.ExecutionSSZFields.Timestamp != req.ExecutionPayload.Timestamp {
+		errMsg := "ssz payload does not match the submitted payload fields"
+		return PayloadStatusV1{Status: StatusInvalid, ValidationError: &errMsg}, nil
+	}
+	return api.NewPayloadV5(
+		req.ExecutionPayload,
+		req.BlobVersionedHashes,
+		req.ParentBeaconBlockRoot,
+		req.ExecutionPayload.ExecutionRequests,
+	)
+}
+
 // ForkchoiceUpdatedV4 processes a forkchoice update with V4 payload attributes (Amsterdam).
 func (api *EngineAPI) ForkchoiceUpdatedV4(
 	state ForkchoiceStateV1,
@@ -322,6 +388,8 @@ func (api *EngineAPI) ExchangeCapabilities(requested []string) []string {
 		"engine_getPayloadV4",
 		"engine_getPayloadV5",
 		"engine_getPayloadV6",
+		"engine_getPayloadV7",
+		"engine_newPayloadV7",
 		"engine_exchangeCapabilities",
 		"engine_getClientVersionV1",
 		"engine_getBlobsV1",
@@ -586,4 +654,13 @@ func validateBlobHashes(payload *ExecutionPayloadV3, expected []types.Hash) erro
 		}
 	}
 	return nil
+}
+
+// decodeHexParam decodes a 0x-hex JSON string parameter into raw bytes.
+func decodeHexParam(raw json.RawMessage) ([]byte, error) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, err
+	}
+	return hex.DecodeString(strings.TrimPrefix(s, "0x"))
 }

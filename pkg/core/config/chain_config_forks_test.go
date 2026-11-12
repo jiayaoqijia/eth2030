@@ -9,9 +9,9 @@ func TestForkScheduleLength(t *testing.T) {
 	cfg := MainnetConfig
 	schedule := cfg.ForkSchedule()
 
-	// Mainnet should have 16 forks (Homestead through Hogota).
-	if len(schedule) != 16 {
-		t.Fatalf("expected 16 forks in schedule, got %d", len(schedule))
+	// Mainnet should have 17 forks (Homestead through SSZBlocks).
+	if len(schedule) != 17 {
+		t.Fatalf("expected 17 forks in schedule, got %d", len(schedule))
 	}
 
 	// First fork should be Homestead.
@@ -19,9 +19,9 @@ func TestForkScheduleLength(t *testing.T) {
 		t.Fatalf("expected first fork Homestead, got %s", schedule[0].Name)
 	}
 
-	// Last fork should be Hogota.
-	if schedule[len(schedule)-1].Name != "Hogota" {
-		t.Fatalf("expected last fork Hogota, got %s", schedule[len(schedule)-1].Name)
+	// Last fork should be SSZBlocks (EIP-7807 activation, scheduled last).
+	if schedule[len(schedule)-1].Name != "SSZBlocks" {
+		t.Fatalf("expected last fork SSZBlocks, got %s", schedule[len(schedule)-1].Name)
 	}
 }
 

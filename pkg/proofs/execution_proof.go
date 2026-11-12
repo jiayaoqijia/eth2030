@@ -9,6 +9,7 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 )
@@ -31,7 +32,12 @@ type BlockExecutionProof struct {
 	TxTraces      []TxTrace                  // Per-transaction execution traces.
 	AccessLog     *StateAccessLog            // All state reads/writes during execution.
 	MerkleProofs  map[types.Address][][]byte // Merkle proof per accessed account.
-	Commitment    types.Hash                 // Hash binding all proof components.
+	// BALHash anchors the proof to the block's real state-access record:
+	// keccak256(rlp(block access list)) per EIP-7928, matching the header's
+	// block-access-list-hash when the block is post-Amsterdam. Zero for
+	// proofs generated without a BAL.
+	BALHash    types.Hash
+	Commitment types.Hash // Hash binding all proof components.
 }
 
 // TxTrace records the execution trace of a single transaction.
@@ -213,7 +219,7 @@ func GenerateExecutionProof(block *types.Block, stateRoot types.Hash) (*BlockExe
 	merkleProofs := buildMerkleProofs(stateRoot, accessLog)
 
 	// Compute the proof commitment.
-	commitment := computeExecutionCommitment(block.Hash(), stateRoot, postState, accessLog)
+	commitment := computeExecutionCommitment(block.Hash(), stateRoot, postState, types.Hash{}, accessLog)
 
 	return &BlockExecutionProof{
 		BlockHash:     block.Hash(),
@@ -248,7 +254,7 @@ func VerifyExecutionProof(proof *BlockExecutionProof, stateRoot types.Hash) (boo
 
 	// Recompute the commitment.
 	expected := computeExecutionCommitment(
-		proof.BlockHash, stateRoot, proof.PostStateRoot, proof.AccessLog,
+		proof.BlockHash, stateRoot, proof.PostStateRoot, proof.BALHash, proof.AccessLog,
 	)
 	if expected != proof.Commitment {
 		return false, ErrExecProofTampered
@@ -464,12 +470,101 @@ func verifyAccountProof(stateRoot types.Hash, addr types.Address, proofPath [][]
 }
 
 // computeExecutionCommitment creates a binding commitment over all proof components.
-func computeExecutionCommitment(blockHash, stateRoot, postState types.Hash, accessLog *StateAccessLog) types.Hash {
+func computeExecutionCommitment(blockHash, stateRoot, postState, balHash types.Hash, accessLog *StateAccessLog) types.Hash {
 	digest := accessLog.Digest()
 	return crypto.Keccak256Hash(
 		blockHash[:],
 		stateRoot[:],
 		postState[:],
+		balHash[:],
 		digest[:],
 	)
+}
+
+// GenerateExecutionProofWithBAL builds an execution proof anchored to the
+// block's real state-access record: the block access list (EIP-7928). The
+// per-account reads/writes, balance, nonce, and code changes come from the
+// BAL entries grouped by access index (0 = pre-execution, 1..n =
+// transactions, n+1 = post-execution), and the proof commits to the BAL
+// hash — the same keccak256(rlp(bal)) the header commits to — so a verifier
+// can check the proof against the header without re-executing.
+func GenerateExecutionProofWithBAL(
+	block *types.Block,
+	preStateRoot types.Hash,
+	bal *bal.BlockAccessList,
+) (*BlockExecutionProof, error) {
+	if block == nil {
+		return nil, ErrExecProofNilBlock
+	}
+	if preStateRoot.IsZero() {
+		return nil, ErrExecProofStateRootNil
+	}
+	if bal == nil || len(bal.Entries) == 0 {
+		return nil, ErrExecProofAccessEmpty
+	}
+
+	accessLog := NewStateAccessLog()
+	txs := block.Transactions()
+	traces := make([]TxTrace, len(txs))
+	for i := range traces {
+		traces[i] = TxTrace{TxIndex: uint(i)}
+		if i < len(txs) {
+			traces[i].TxHash = txs[i].Hash()
+		}
+	}
+
+	recordAccess := func(trace *TxTrace, addr types.Address, slot, value types.Hash, isWrite bool) {
+		access := StateAccess{Address: addr, Slot: slot, Value: value, IsWrite: isWrite}
+		if isWrite {
+			trace.StateWrites = append(trace.StateWrites, access)
+			accessLog.RecordWrite(addr, slot, value, value)
+		} else {
+			trace.StateReads = append(trace.StateReads, access)
+			accessLog.RecordRead(addr, slot, value)
+		}
+	}
+
+	for i := range bal.Entries {
+		entry := &bal.Entries[i]
+		// AccessIndex 0 = pre-execution, 1..n = transaction i-1, n+1 = post.
+		var trace *TxTrace
+		if entry.AccessIndex >= 1 && uint64(len(traces)) >= entry.AccessIndex {
+			trace = &traces[entry.AccessIndex-1]
+		}
+		for _, read := range entry.StorageReads {
+			if trace != nil {
+				recordAccess(trace, entry.Address, read.Slot, read.Slot, false)
+			} else {
+				accessLog.RecordRead(entry.Address, read.Slot, read.Slot)
+			}
+		}
+		for _, change := range entry.StorageChanges {
+			if trace != nil {
+				recordAccess(trace, entry.Address, change.Slot, change.NewValue, true)
+			} else {
+				accessLog.RecordWrite(entry.Address, change.Slot, change.OldValue, change.NewValue)
+			}
+		}
+		// Account-level changes count as account accesses in the log.
+		if entry.BalanceChange != nil || entry.NonceChange != nil || entry.CodeChange != nil {
+			accessLog.trackAddress(entry.Address)
+		}
+	}
+
+	postState := computePostState(preStateRoot, accessLog)
+	merkleProofs := buildMerkleProofs(preStateRoot, accessLog)
+	balHash := bal.Hash()
+	commitment := computeExecutionCommitment(block.Hash(), preStateRoot, postState, balHash, accessLog)
+
+	return &BlockExecutionProof{
+		BlockHash:     block.Hash(),
+		BlockNumber:   block.NumberU64(),
+		StateRoot:     preStateRoot,
+		PostStateRoot: postState,
+		TxTraces:      traces,
+		AccessLog:     accessLog,
+		MerkleProofs:  merkleProofs,
+		BALHash:       balHash,
+		Commitment:    commitment,
+	}, nil
 }

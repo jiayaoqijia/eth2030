@@ -121,11 +121,16 @@ func (v *InclusionListValidator) ValidateList(list *InclusionList, headState Hea
 	if list.Slot == 0 {
 		return ErrValidatorZeroSlot
 	}
+	if list.TotalBytes() > MAX_BYTES_PER_INCLUSION_LIST {
+		return fmt.Errorf("%w: %d bytes, max %d",
+			ErrValidatorListTooLarge, list.TotalBytes(), MAX_BYTES_PER_INCLUSION_LIST)
+	}
 
-	// Validate head state context if provided.
+	// Validate head state context if provided. Per EIP-7805 the IL slot
+	// must match the current or previous slot.
 	if headState != nil {
 		headSlot := headState.Slot()
-		if list.Slot != headSlot && list.Slot != headSlot+1 {
+		if list.Slot != headSlot && list.Slot+1 != headSlot {
 			return fmt.Errorf("%w: list slot %d, head slot %d",
 				ErrValidatorSlotMismatch, list.Slot, headSlot)
 		}

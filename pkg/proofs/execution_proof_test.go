@@ -351,7 +351,7 @@ func TestVerifyExecutionProof_TamperedMerkleProof(t *testing.T) {
 
 	// Recompute commitment so it doesn't fail on commitment check first.
 	proof.Commitment = computeExecutionCommitment(
-		proof.BlockHash, stateRoot, proof.PostStateRoot, proof.AccessLog,
+		proof.BlockHash, stateRoot, proof.PostStateRoot, types.Hash{}, proof.AccessLog,
 	)
 
 	valid, err := VerifyExecutionProof(proof, stateRoot)

@@ -71,8 +71,8 @@ func TestContractsPipeline(t *testing.T) {
 		t.Fatal("Named accessor diverges from Runtime() lookup")
 	}
 	// Names list is stable.
-	if len(contracts.Names()) != 7 {
-		t.Fatalf("scenario contract count = %d, want 3", len(contracts.Names()))
+	if len(contracts.Names()) != 9 {
+		t.Fatalf("scenario contract count = %d, want 9", len(contracts.Names()))
 	}
 }
 

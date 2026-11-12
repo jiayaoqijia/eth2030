@@ -821,6 +821,14 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 	// This is the pre-refund gas used, which should match header.GasUsed.
 	receipt.BlockGasUsed = result.BlockGasUsed
 
+	// EIP-8141: record the gas payer and per-frame results for frame
+	// transactions per the receipt format [cumulative_gas_used, payer,
+	// [frame_receipt, ...]].
+	if result.Payer != (types.Address{}) || len(result.FrameResults) > 0 {
+		receipt.Payer = result.Payer
+		receipt.FrameResults = result.FrameResults
+	}
+
 	// Collect logs from state and compute bloom filter.
 	receipt.Logs = statedb.GetLogs(tx.Hash())
 	receipt.Bloom = types.LogsBloom(receipt.Logs)
@@ -1256,6 +1264,11 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		returnData   []byte
 		gasRemaining uint64
 		contractAddr types.Address
+
+		// EIP-8141: frame gas payer and per-frame outcomes, surfaced on the
+		// execution result and receipt.
+		framePayer   types.Address
+		frameResults []types.FrameResult
 	)
 
 	// EIP-8141: frame transaction execution context (set when executing a FrameTx).
@@ -1387,13 +1400,15 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 			if frameCtx.SenderApproved {
 				statedb.SetNonce(msg.FrameSender, msg.Nonce+1)
 			}
+			framePayer = frameCtx.Payer
+			frameResults = frameCtx.FrameResults
 
-			// EIP-8141: transfer gas cost from sender to payer for sponsored tx (GAP-1).
-			// For frame txs, gas deduction happens inside APPROVE (not upfront),
-			// so we only do the transfer if the sender was pre-charged (non-frame txs).
+			// EIP-8141: collect the total gas cost from the payer. Frame txs
+			// are never pre-charged; the APPROVE(1)/(2) balance check in the
+			// VM gates the approval, and the gas cost is collected here.
+			// Unused gas is refunded to the payer further below.
 			gasCostTransfer := new(big.Int).Add(gasCost, calldataGasCost)
-			if msg.TxType != types.FrameTxType && frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
-				statedb.AddBalance(msg.From, gasCostTransfer)
+			if frameCtx.PayerApproved && frameCtx.Payer != (types.Address{}) {
 				statedb.SubBalance(frameCtx.Payer, gasCostTransfer)
 				// AA-1.3: if the payer's balance went negative, they failed to cover
 				// gas — slash the paymaster.
@@ -1506,6 +1521,8 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		Err:             execErr,
 		ReturnData:      returnData,
 		ContractAddress: contractAddr,
+		Payer:           framePayer,
+		FrameResults:    frameResults,
 	}, nil
 }
 

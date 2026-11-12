@@ -55,6 +55,11 @@ func NewStableContainer(capacity int) *StableContainer {
 	if capacity <= 0 {
 		capacity = 1
 	}
+	// EIP-7495 caps active_fields at 256 bits so the mix-in fits a single
+	// 32-byte chunk; larger capacities are clamped.
+	if capacity > 256 {
+		capacity = 256
+	}
 	return &StableContainer{
 		capacity: capacity,
 		fields:   make([]FieldDef, 0, capacity),
@@ -143,17 +148,17 @@ func (sc *StableContainer) ActiveBitvector() []byte {
 	return MarshalBitvector(bits)
 }
 
-// HashTreeRoot computes the EIP-7495 hash tree root of the container.
+// HashTreeRoot computes the EIP-7495 hash tree root of the container:
 //
-// Algorithm:
-//  1. For each field index 0..capacity-1, use the field's hash tree root
-//     if the field is active, or a zero hash if inactive or undefined.
-//  2. Merkleize these capacity chunks (standard SSZ container merkleization
-//     padded to the next power of two of capacity).
-//  3. Mix in the active bitvector by hashing the bitvector into a 32-byte
-//     chunk and combining: hash(merkle_root, bitvector_root).
+//	mix_in_active_fields(merkleize_progressive([field roots]), active_fields)
+//
+// Field i occupies progressive-tree position i (stable generalized index
+// across versions); inactive fields contribute zero chunks. The active
+// fields bitvector is mixed in as its packed-bits chunk per
+// mix_in_active_fields(root, pack_bits(active_fields)).
 func (sc *StableContainer) HashTreeRoot() [32]byte {
-	// Build capacity-length chunk list.
+	// Build the capacity-length chunk list; active_fields cannot end in 0
+	// per the EIP's illegal-type rules, so the last position is meaningful.
 	chunks := make([][32]byte, sc.capacity)
 	for i := 0; i < len(sc.values) && i < sc.capacity; i++ {
 		if sc.active[i] {
@@ -162,18 +167,18 @@ func (sc *StableContainer) HashTreeRoot() [32]byte {
 		// Inactive fields remain zero.
 	}
 
-	// Merkleize with capacity as limit. Capacity is used directly
-	// (Merkleize rounds up to the next power of two internally).
-	merkleRoot := Merkleize(chunks, sc.capacity)
+	// Progressive Merkleization per EIP-7916: stable gindices as the field
+	// count grows across versions.
+	merkleRoot := merkleizeProgressive(chunks, 1)
 
-	// Compute the bitvector root. The bitvector is packed into bytes
-	// and then treated as a chunk list and Merkleized.
+	// mix_in_active_fields: hash(root, pack_bits(active_fields)). For
+	// capacity <= 256 the packed bits fit a single 32-byte chunk;
+	// ActiveBitvector already returns the packed bytes.
 	bvBytes := sc.ActiveBitvector()
-	bvChunks := Pack(bvBytes)
-	bvRoot := Merkleize(bvChunks, 0)
+	var packedChunk [32]byte
+	copy(packedChunk[:], bvBytes)
 
-	// Final root = hash(merkle_root, bitvector_root).
-	return hash(merkleRoot, bvRoot)
+	return hash(merkleRoot, packedChunk)
 }
 
 // Field returns the definition of the field at index.

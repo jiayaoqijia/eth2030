@@ -3,6 +3,8 @@ package backend
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/bls"
 	"github.com/eth2030/eth2030/engine/payload"
@@ -489,4 +492,59 @@ func expandBlobCellProofs(blobs [][]byte, warnLabel string) ([][]byte, int) {
 		}
 	}
 	return proofs, totalProofs
+}
+
+// GetPayloadV7ByID retrieves a previously built payload for getPayloadV7.
+// When EIP-7807 SSZ blocks are active at the payload timestamp, the response
+// additionally carries the SSZ payload encoding and its hash tree root —
+// the SSZ execution block hash the CL commits to.
+func (b *EngineBackend) GetPayloadV7ByID(id payload.PayloadID) (*payload.GetPayloadV6Response, error) {
+	resp, err := b.GetPayloadV6ByID(id)
+	if err != nil {
+		return nil, err
+	}
+	p, err := b.awaitPayload(id)
+	if err != nil {
+		return resp, nil
+	}
+	if p.block == nil || !b.node.Blockchain().Config().IsSSZBlock(p.block.Time()) {
+		return resp, nil
+	}
+	requests := types.Requests(nil)
+	balRLP := []byte(nil)
+	if p.result != nil {
+		requests = p.result.Requests
+		if p.result.BlockAccessList != nil {
+			balRLP, _ = p.result.BlockAccessList.EncodeRLP()
+		}
+	}
+	receipts := p.receipts
+	excessRegular := uint64(0)
+	if p.block.Header().CalldataExcessGas != nil {
+		excessRegular = *p.block.Header().CalldataExcessGas
+	}
+	ctx := types.ExecutionSSZContext{
+		BlobGasLimit:     gas.FusakaMaxBlobGasPerBlock,
+		BlobBaseFee:      gas.CalcBlobBaseFeeV2(*p.block.Header().ExcessBlobGas, p.block.Header().BaseFee),
+		ExcessRegularGas: excessRegular,
+		Requests:         requests,
+		BlockAccessList:  balRLP,
+		SlotNumber:       p.slot,
+	}
+	payloadSSZ, err := types.NewExecutionPayloadSSZ(p.block, receipts, ctx)
+	if err != nil {
+		slog.Debug("GetPayloadV7ByID: ssz build failed", "err", err, "receipts", len(receipts), "balRLP", len(balRLP))
+		return resp, nil
+	}
+	enc, err := payloadSSZ.MarshalSSZ()
+	if err != nil {
+		return resp, nil
+	}
+	root, err := payloadSSZ.HashTreeRoot()
+	if err != nil {
+		return resp, nil
+	}
+	resp.SSZPayload = json.RawMessage(`"` + "0x" + hex.EncodeToString(enc) + `"`)
+	resp.SSZBlockHash = &root
+	return resp, nil
 }

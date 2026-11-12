@@ -155,6 +155,7 @@ const (
 	ReceiptsMsg                   = ethproto.ReceiptsMsg
 	GetBlockAccessListsMsg        = ethproto.GetBlockAccessListsMsg
 	BlockAccessListsMsg           = ethproto.BlockAccessListsMsg
+	InclusionList                 = gossip.InclusionList
 )
 
 // ethproto type aliases.

@@ -26,6 +26,7 @@ const (
 	ForkGlamsterdan Fork = "Glamsterdan"
 	ForkHogota      Fork = "Hogota"
 	ForkIPlus       Fork = "IPlus"
+	ForkSSZBlocks   Fork = "SSZBlocks"
 	ForkBPO1        Fork = "BPO1"
 	ForkBPO2        Fork = "BPO2"
 )
@@ -50,6 +51,8 @@ func forkTimeField(cfg *config.ChainConfig, fork Fork) (**uint64, error) {
 		return &cfg.HogotaTime, nil
 	case ForkIPlus:
 		return &cfg.IPlusTime, nil
+	case ForkSSZBlocks:
+		return &cfg.SSZBlockTime, nil
 	case ForkBPO1:
 		return &cfg.BPO1Time, nil
 	case ForkBPO2:
