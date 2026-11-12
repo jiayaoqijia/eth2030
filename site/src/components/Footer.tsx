@@ -23,6 +23,11 @@ export default function Footer() {
             <h4 className="text-sm font-semibold text-eth-text uppercase tracking-wider mb-3">Links</h4>
             <ul className="space-y-2">
               <li>
+                <Link href="/roadmap/" className="text-sm text-eth-dim hover:text-eth-purple transition-colors">
+                  Roadmap
+                </Link>
+              </li>
+              <li>
                 <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer"
                    className="text-sm text-eth-dim hover:text-eth-purple transition-colors">
                   GitHub

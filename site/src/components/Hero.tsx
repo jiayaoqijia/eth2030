@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import GlitchText from '@/components/ui/GlitchText';
 import MatrixRain from '@/components/ui/MatrixRain';
 import { motion } from 'framer-motion';
@@ -6,7 +7,7 @@ import { GITHUB_URL, DOCS_URL } from '@/lib/constants';
 
 export default function Hero() {
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 overflow-hidden">
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 py-24 overflow-hidden">
       <MatrixRain />
 
       <div
@@ -61,6 +62,15 @@ export default function Hero() {
           transition={{ duration: 0.6, delay: 0.8 }}
           className="mt-10 flex flex-col sm:flex-row gap-4 justify-center"
         >
+          <Link
+            href="/roadmap/"
+            className="px-8 py-3 rounded-lg bg-eth-teal/10 border border-eth-teal/50
+                       text-eth-teal font-semibold hover:bg-eth-teal/20
+                       hover:shadow-[0_0_20px_#2de2e633] transition-all duration-300
+                       text-center"
+          >
+            Roadmap
+          </Link>
           <a
             href={GITHUB_URL}
             target="_blank"

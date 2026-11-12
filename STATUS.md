@@ -1,5 +1,9 @@
 # Project Status
 
+## Homepage Roadmap Entry (2026-11-13)
+
+- Added direct Roadmap links to the homepage hero and footer. The site build and export checks passed; browser verification confirmed the hero link is visible at mobile width and opens `/roadmap/`.
+
 ## Roadmap Homepage Integration (2026-11-13)
 
 - Promoted the six-card roadmap prototype to `/roadmap/` and integrated a compact six-card summary into the homepage. The homepage displays non-complete tracker entries only, with direct links to the corresponding detailed card; the detailed page retains the full node and status display.
