@@ -1,6 +1,8 @@
 package state
 
 import (
+	"bytes"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -8,6 +10,64 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 )
+
+type failSnapshotBatchDB struct {
+	rawdb.Database
+	writes int
+	err    error
+}
+
+type failSnapshotBatch struct {
+	rawdb.Batch
+	db *failSnapshotBatchDB
+}
+
+func (db *failSnapshotBatchDB) NewBatch() rawdb.Batch {
+	return &failSnapshotBatch{Batch: db.Database.NewBatch(), db: db}
+}
+
+func (b *failSnapshotBatch) Write() error {
+	b.db.writes++
+	if b.db.writes == 2 {
+		return b.db.err
+	}
+	return b.Batch.Write()
+}
+
+func TestSnapshotBatchFailureDoesNotPublish(t *testing.T) {
+	source := NewMemoryStateDB()
+	source.SetCode(types.BytesToAddress([]byte{1}), bytes.Repeat([]byte{1}, snapshotBatchLimit))
+	source.SetCode(types.BytesToAddress([]byte{2}), bytes.Repeat([]byte{2}, snapshotBatchLimit))
+	snap, err := ExportStateSnapshot(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("batch failure")
+	db := &failSnapshotBatchDB{Database: rawdb.NewMemoryDB(), err: failure}
+	root := source.GetRoot()
+	if err := StoreStateSnapshot(db, root, snap); !errors.Is(err, failure) || db.writes != 2 {
+		t.Fatalf("expected second batch failure, writes=%d err=%v", db.writes, err)
+	}
+	if _, err := LoadStateSnapshot(db, root); err == nil {
+		t.Fatal("partially stored snapshot was published")
+	}
+}
+
+func TestSnapshotValidationRootMatchesNativeTrie(t *testing.T) {
+	entries := make(map[types.Hash][]byte)
+	for i := 0; i < 500; i++ {
+		key := crypto.Keccak256Hash([]byte{byte(i >> 8), byte(i)})
+		entries[key] = bytes.Repeat([]byte{byte(i%255 + 1)}, i%96+1)
+	}
+	got, err := snapshotValidationRoot(entries)
+	if err != nil || got != snapshotTrie(entries).Hash() {
+		t.Fatalf("streamed root differs from native trie: root=%s err=%v", got, err)
+	}
+	entries[types.Hash{}] = nil
+	if _, err := snapshotValidationRoot(entries); err == nil {
+		t.Fatal("accepted an empty snapshot trie value")
+	}
+}
 
 func TestSnapStateExecutionAndReopen(t *testing.T) {
 	addr := types.BytesToAddress([]byte{1})

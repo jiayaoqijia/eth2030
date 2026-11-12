@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"math/big"
+	"sort"
 
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/rlp"
 	"github.com/eth2030/eth2030/trie/mpt"
+	gethtrie "github.com/ethereum/go-ethereum/trie"
 )
 
 // StateSnapshot uses secure trie keys. Snap peers do not supply account or
@@ -34,12 +36,31 @@ func snapshotTrie(entries map[types.Hash][]byte) *mpt.Trie {
 
 func (s *StateSnapshot) Root() types.Hash { return snapshotTrie(s.Accounts).Hash() }
 
+func snapshotValidationRoot(entries map[types.Hash][]byte) (types.Hash, error) {
+	keys := make([]types.Hash, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return bytes.Compare(keys[i][:], keys[j][:]) < 0 })
+	tr := gethtrie.NewStackTrie(nil)
+	for _, key := range keys {
+		if err := tr.Update(key[:], entries[key]); err != nil {
+			return types.Hash{}, err
+		}
+	}
+	return types.Hash(tr.Hash()), nil
+}
+
 // Validate verifies completeness, not just inclusion of individual leaves.
 func (s *StateSnapshot) Validate(root types.Hash) error {
 	if s == nil {
 		return fmt.Errorf("snapshot: nil snapshot")
 	}
-	if s.Root() != root {
+	accountRoot, err := snapshotValidationRoot(s.Accounts)
+	if err != nil {
+		return fmt.Errorf("snapshot: invalid account trie: %w", err)
+	}
+	if accountRoot != root {
 		return fmt.Errorf("snapshot: account root mismatch")
 	}
 	for hash, body := range s.Accounts {
@@ -50,7 +71,11 @@ func (s *StateSnapshot) Validate(root types.Hash) error {
 		if len(acc.Root) != 32 || len(acc.CodeHash) != 32 || acc.Balance == nil || acc.Balance.Sign() < 0 || acc.Balance.BitLen() > 256 {
 			return fmt.Errorf("snapshot: invalid account %s", hash)
 		}
-		if snapshotTrie(s.Storage[hash]).Hash() != types.BytesToHash(acc.Root) {
+		storageRoot, err := snapshotValidationRoot(s.Storage[hash])
+		if err != nil {
+			return fmt.Errorf("snapshot: invalid storage trie for %s: %w", hash, err)
+		}
+		if storageRoot != types.BytesToHash(acc.Root) {
 			return fmt.Errorf("snapshot: storage root mismatch for %s", hash)
 		}
 		for _, value := range s.Storage[hash] {
@@ -99,6 +124,8 @@ func (s *StateSnapshot) copy() *StateSnapshot {
 
 func snapshotPrefix(root types.Hash) []byte { return append([]byte("snap-state/"), root[:]...) }
 
+const snapshotBatchLimit = 4 * 1024 * 1024
+
 // StoreStateSnapshot publishes a root only after all leaves, storage and code
 // validate. An interrupted write has no completion marker and is not adoptable.
 func StoreStateSnapshot(db rawdb.Database, root types.Hash, s *StateSnapshot) error {
@@ -107,27 +134,41 @@ func StoreStateSnapshot(db rawdb.Database, root types.Hash, s *StateSnapshot) er
 	}
 	prefix := snapshotPrefix(root)
 	batch := db.NewBatch()
+	put := func(key, value []byte) error {
+		if err := batch.Put(key, value); err != nil {
+			return err
+		}
+		if batch.ValueSize() >= snapshotBatchLimit {
+			if err := batch.Write(); err != nil {
+				return err
+			}
+			batch.Reset()
+		}
+		return nil
+	}
 	for k, v := range s.Accounts {
 		key := append(append(bytes.Clone(prefix), 'a'), k[:]...)
-		if err := batch.Put(key, v); err != nil {
+		if err := put(key, v); err != nil {
 			return err
 		}
 	}
 	for a, slots := range s.Storage {
 		for k, v := range slots {
 			key := append(append(append(bytes.Clone(prefix), 's'), a[:]...), k[:]...)
-			if err := batch.Put(key, v); err != nil {
+			if err := put(key, v); err != nil {
 				return err
 			}
 		}
 	}
 	for k, v := range s.Codes {
-		if err := batch.Put(append([]byte("snap-code/"), k[:]...), v); err != nil {
+		if err := put(append([]byte("snap-code/"), k[:]...), v); err != nil {
 			return err
 		}
 	}
-	if err := batch.Write(); err != nil {
-		return err
+	if batch.ValueSize() > 0 {
+		if err := batch.Write(); err != nil {
+			return err
+		}
 	}
 	return db.Put(append(prefix, 'v'), []byte{1})
 }

@@ -1,5 +1,11 @@
 # Project Status
 
+## Track 3 Snapshot Assembly Follow-up (2026-11-12)
+
+- Snapshot validation and trie-node reconstruction now use a streaming trie; node and snapshot writes flush in bounded batches, and the completion marker remains last. Tests compare trie roots with the native MPT and inject failures after partial writes.
+- The affected-package race run exposed a separate speculative-state cache race. Cache appends are now serialized and cache readers receive a slice copy; a concurrent regression checks that no results are lost.
+- The full downloaded snapshot, sorted hashes, execution overlays, serving snapshot and FileDB index still scale with state size. This reduces peak intermediate allocation but does not complete bounded-memory snap sync.
+
 ## Track 3 Snap Peer Failover (2026-11-12)
 
 - One fixed-pivot scheduler can now continue across connected snap peers without throwing away ranges already downloaded in the same attempt. Peers share storage roots only after account-range verification against the same pivot; a root mismatch is rejected even if concurrent verification races with pivot initialization.

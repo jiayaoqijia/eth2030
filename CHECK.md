@@ -7,6 +7,7 @@
 - [x] Verify finalized ancestry before reusing a completed snapshot after a CL finality advance.
 - [x] Continue a fixed-pivot download across peer failures, sharing only account roots authenticated against that pivot.
 - [x] Audit the candidate stack-trie builder: propagate node-writer failures and correct its bounded-memory claim.
+- [x] Stream snapshot validation and trie-node generation; write trie nodes and snapshot leaves in bounded batches with failure-before-publication tests.
 - [ ] Implement authenticated moving-pivot continuation and safe restart behavior with regression coverage.
 - [ ] Remove remaining sync scalability bottlenecks without weakening ancestry validation.
 - [ ] Validate real-client interoperability and record the actual scope and resource limits.

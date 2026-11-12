@@ -106,7 +106,10 @@ This implementation uses **snap/1 with a fixed finalized pivot per download**. S
 assembly and serving currently materialize state in memory; moving-pivot
 range reuse, mainnet-scale resource qualification, and snap/2 BAL-based sync
 are not implemented. The native FileDB also keeps its full key/value index in
-memory. A completed snapshot can survive a finalized advance, but this does not
+memory. Snapshot validation and node generation use a streaming trie with a
+sorted hash list, and nodes and snapshot records are written in bounded batches;
+the downloaded snapshot itself and its sorted hash list still scale with state
+size. A completed snapshot can survive a finalized advance, but this does not
 retarget an in-progress range download. If a peer ages out the pivot, the
 attempt fails and the worker retries the current CL target. This is a functional bootstrap path,
 not completed production/mainnet snap synchronization. The research observer

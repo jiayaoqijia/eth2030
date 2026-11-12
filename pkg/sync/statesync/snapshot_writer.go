@@ -3,14 +3,20 @@ package statesync
 import (
 	"bytes"
 	"fmt"
+	"sort"
 
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/rlp"
-	"github.com/eth2030/eth2030/trie/mpt"
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethrlp "github.com/ethereum/go-ethereum/rlp"
+	gethtrie "github.com/ethereum/go-ethereum/trie"
 )
+
+const trieNodeBatchLimit = 4 * 1024 * 1024
 
 // SnapshotWriter stages one fixed pivot. It only publishes the snapshot after
 // reconstructing and verifying all account/storage roots and code hashes.
@@ -72,24 +78,60 @@ func (w *SnapshotWriter) Finalize(root types.Hash) error {
 	if err := w.snapshot.Validate(root); err != nil {
 		return err
 	}
-	nodes := mpt.NewNodeDatabase(nil)
-	tries := []map[types.Hash][]byte{w.snapshot.Accounts}
-	for _, slots := range w.snapshot.Storage {
-		tries = append(tries, slots)
+	if err := w.writeTrie(w.snapshot.Accounts, root); err != nil {
+		return err
 	}
-	for _, entries := range tries {
-		tr := mpt.New()
-		for k, v := range entries {
-			if err := tr.Put(k[:], v); err != nil {
-				return err
-			}
+	for account, slots := range w.snapshot.Storage {
+		var decoded gethtypes.StateAccount
+		if err := gethrlp.DecodeBytes(w.snapshot.Accounts[account], &decoded); err != nil {
+			return err
 		}
-		if _, err := mpt.CommitTrie(tr, nodes); err != nil {
+		if err := w.writeTrie(slots, types.Hash(decoded.Root)); err != nil {
 			return err
 		}
 	}
-	if err := nodes.Commit(mpt.NewRawDBNodeWriter(w.db.Put)); err != nil {
-		return err
-	}
 	return state.StoreStateSnapshot(w.db, root, w.snapshot)
+}
+
+// writeTrie streams completed nodes to bounded batches. Leaves still reside in
+// the current snapshot and sorting retains one hash per leaf; neither the trie
+// nodes nor the write batch grow with the full state size.
+func (w *SnapshotWriter) writeTrie(entries map[types.Hash][]byte, expected types.Hash) error {
+	keys := make([]types.Hash, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return bytes.Compare(keys[i][:], keys[j][:]) < 0 })
+	batch := w.db.NewBatch()
+	var writeErr error
+	tr := gethtrie.NewStackTrie(func(_ []byte, hash gethcommon.Hash, blob []byte) {
+		if writeErr != nil {
+			return
+		}
+		key := append([]byte("t"), hash[:]...)
+		writeErr = batch.Put(key, bytes.Clone(blob))
+		if writeErr == nil && batch.ValueSize() >= trieNodeBatchLimit {
+			writeErr = batch.Write()
+			batch.Reset()
+		}
+	})
+	for _, key := range keys {
+		if err := tr.Update(key[:], entries[key]); err != nil {
+			return err
+		}
+		if writeErr != nil {
+			return writeErr
+		}
+	}
+	actual := types.Hash(tr.Hash())
+	if writeErr != nil {
+		return writeErr
+	}
+	if actual != expected {
+		return fmt.Errorf("snap: streamed trie root mismatch")
+	}
+	if batch.ValueSize() > 0 {
+		return batch.Write()
+	}
+	return nil
 }
