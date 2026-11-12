@@ -1,5 +1,11 @@
 # Project Status
 
+## EF Roadmap Six-Card Prototype (2026-11-12)
+
+- Added a local-only `/roadmap-prototype/` view using the EF-maintained November 2 Strawmap as its source. Six interactive fork cards open mapped tracker entries grouped by roadmap node, with source, code/test references and explicit historical-status limits.
+- The original drawing places leanVM PQ proofs in I* and ethp2p unification in L*, while the older tracker classifies them differently; the prototype follows the drawing and calls out the discrepancy. Longer-term items remain outside these six cards.
+- Validation: static site build and export checks, tracker path verification (371 paths, no missing), local Go build, and browser checks of all six cards, grouped entries and 390px/1440px layouts passed. This is a review prototype, not a deployed page or a new full conformance audit.
+
 ## Website Account and Content Refresh (2026-11-12)
 
 - Updated site repository links, clone instructions and issue contacts to `alt-research/eth2030`; aligned legal pages and deployment CNAME with the configured `eth2030.altllm.ai` domain. Updated the Go minimum to match `pkg/go.mod`.

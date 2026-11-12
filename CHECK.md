@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## EF Roadmap Six-Card Prototype (2026-11-12)
+
+- [x] Check the current EF Strawmap and map its six fork columns to the existing repository tracker.
+- [x] Build a responsive, interactive prototype with source attribution and clear evidence limitations.
+- [x] Build locally, inspect desktop and mobile, and verify card navigation and source links.
+- [x] Record the prototype scope and commit the prototype without publishing it.
+
 ## Website Account and Content Refresh (2026-11-12)
 
 - [x] Compare the deployed site and GitHub Pages configuration with current repository ownership and source.
