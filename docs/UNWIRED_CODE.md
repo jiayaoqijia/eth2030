@@ -1,5 +1,15 @@
 # Unwired Code Audit — Verified
 
+> **Track 3 update (2026-11-12):** The historical snap/beacon entries below are
+> superseded by [the implemented node sync paths and their verification](track3-node.md).
+> The node now uses a CL-driven execution sync worker, verified persistent snap
+> state, authenticated trie healing, and an explicit 3SF/PQ research observer.
+> The [corrective review](track3-review.md) supersedes the initial completion claim;
+> moving-pivot and bounded-memory production snap synchronization remain open.
+> Snapshot assembly remains in-memory and fixed-pivot; mainnet-scale and snap/2
+> qualification are separate work. Older tables in this audit retain their
+> original March 2026 context rather than serving as a current acceptance list.
+
 > **Methodology**: `go list` import-graph analysis identifies which packages have zero
 > importers in production code. A second pass checks whether the **same feature** is
 > already implemented inline in a wired package (making the orphan redundant) or whether

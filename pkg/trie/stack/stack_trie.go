@@ -1,8 +1,7 @@
 // stack_trie.go implements a stack-based trie for efficient sequential insertion.
 // It is used for computing transaction and receipt trie roots where keys are
-// processed in sorted (RLP-encoded index) order. Unlike the general Trie, the
-// StackTrie processes key-value pairs strictly in order and produces the root
-// hash in a streaming fashion, using O(depth) memory instead of O(n).
+// processed in sorted (RLP-encoded index) order. The implementation retains
+// inserted nodes until finalization; it does not provide bounded-memory streaming.
 package stack
 
 import (
@@ -51,7 +50,8 @@ type StackTrie struct {
 	kvCount   int
 
 	// Optional writer to persist nodes during commit.
-	writer NodeWriter
+	writer   NodeWriter
+	writeErr error
 }
 
 // NewStackTrie creates a new empty StackTrie. An optional NodeWriter can be
@@ -338,12 +338,12 @@ func (st *StackTrie) encodeBranchRLP(n *stackTrieNode) []byte {
 
 // persistNode writes a node to the optional writer, used during Commit.
 func (st *StackTrie) persistNode(hash, data []byte) {
-	if st.writer == nil || len(hash) != 32 {
+	if st.writer == nil || len(hash) != 32 || st.writeErr != nil {
 		return
 	}
 	var h types.Hash
 	copy(h[:], hash)
-	st.writer.Put(h, data)
+	st.writeErr = st.writer.Put(h, data)
 }
 
 // Commit finalizes the trie, computing the root hash and persisting all nodes
@@ -357,8 +357,11 @@ func (st *StackTrie) Commit() (types.Hash, error) {
 	rootHash := crypto.Keccak256Hash(rootEnc)
 
 	// Persist root node itself.
-	if st.writer != nil {
-		st.writer.Put(rootHash, rootEnc)
+	if st.writer != nil && st.writeErr == nil {
+		st.writeErr = st.writer.Put(rootHash, rootEnc)
+	}
+	if st.writeErr != nil {
+		return types.Hash{}, st.writeErr
 	}
 	return rootHash, nil
 }
@@ -374,6 +377,7 @@ func (st *StackTrie) Reset() {
 	st.lastKey = nil
 	st.finalized = false
 	st.kvCount = 0
+	st.writeErr = nil
 }
 
 // encodeRLPBytes encodes a byte slice as an RLP string.

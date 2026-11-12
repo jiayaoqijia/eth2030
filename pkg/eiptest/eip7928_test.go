@@ -58,7 +58,8 @@ func TestEIP7928_EngineRejectsInconsistentBAL(t *testing.T) {
 	s := eiptest.New(t, eiptest.ForkAt(eiptest.ForkAmsterdam, 0))
 	p := s.Engine()
 	head := p.HeadHash()
-	id, err := p.FCU()
+	attrs := p.Attributes()
+	id, err := p.FCUWith(attrs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,14 @@ func TestEIP7928_EngineRejectsInconsistentBAL(t *testing.T) {
 	}
 	altered := *resp.ExecutionPayload
 	altered.BlockAccessList = []byte(`"0xc0"`)
-	status, err := p.Process(&altered)
+	// EIP-7928 commits the BAL in the header hash. Recompute the advertised
+	// hash so this case reaches execution validation rather than stopping at
+	// the earlier payload-hash check.
+	header := s.Chain().GetBlock(resp.ExecutionPayload.BlockHash).Header()
+	emptyHash := bal.NewBlockAccessList().Hash()
+	header.BlockAccessListHash = &emptyHash
+	altered.BlockHash = header.Hash()
+	status, err := p.ProcessWith(&altered, attrs.ParentBeaconBlockRoot, resp.ExecutionRequests)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,4 +92,28 @@ func TestEIP7928_EngineRejectsInconsistentBAL(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.ExpectStatusValid(t, status)
+}
+
+func TestEngineRejectsBadHashBeforeUnknownParentSync(t *testing.T) {
+	s := eiptest.New(t, eiptest.ForkAt(eiptest.ForkAmsterdam, 0), eiptest.ForkAt(eiptest.ForkGlamsterdan, 0))
+	probe := s.Engine()
+	attrs := probe.Attributes()
+	id, err := probe.FCUWith(attrs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := probe.GetPayload(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := *built.ExecutionPayload
+	candidate.ParentHash = types.BytesToHash([]byte{0xff})
+	candidate.BlockHash = types.BytesToHash([]byte{0xaa})
+	status, err := probe.ProcessWith(&candidate, attrs.ParentBeaconBlockRoot, built.ExecutionRequests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != engine.StatusInvalid || status.ValidationError == nil || !strings.Contains(*status.ValidationError, "block hash") {
+		t.Fatalf("bad hash was hidden by SYNCING: %+v", status)
+	}
 }

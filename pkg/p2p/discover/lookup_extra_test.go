@@ -2,6 +2,7 @@ package discover
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 
 	"github.com/eth2030/eth2030/p2p/enode"
@@ -349,9 +350,7 @@ func TestIterativeLookup_DiscoversNewNodes(t *testing.T) {
 	target[31] = 10
 
 	// queryFn returns nodes closer to target.
-	queryCount := 0
 	result := tab.IterativeLookup(target, func(_ *enode.Node) []*enode.Node {
-		queryCount++
 		var resp []*enode.Node
 		for i := byte(8); i <= 12; i++ {
 			resp = append(resp, makeNode(i))
@@ -384,11 +383,11 @@ func TestIterativeLookup_MaxRounds(t *testing.T) {
 	var target enode.NodeID
 	target[31] = 20
 
-	roundCount := 0
+	var roundCount atomic.Uint32
 	result := tab.IterativeLookup(target, func(_ *enode.Node) []*enode.Node {
-		roundCount++
+		count := roundCount.Add(1)
 		// Always return new nodes to keep the lookup going.
-		return []*enode.Node{makeNode(byte(roundCount + 30))}
+		return []*enode.Node{makeNode(byte(count + 30))}
 	}, LookupConfig{MaxRounds: 2})
 
 	// The implementation increments round before the MaxRounds check and breaks

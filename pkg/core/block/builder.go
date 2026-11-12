@@ -159,6 +159,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 // BuildBlockWithResult returns the receipts, requests, and BAL from the build.
 func (b *BlockBuilder) BuildBlockWithResult(parent *types.Header, attrs *BuildBlockAttributes) (*types.Block, *execution.ProcessResult, error) {
+	getHash := b.getHashFnForParent(parent)
 	// Determine gas limit: use attributes if provided, otherwise derive from parent.
 	gasLimit := attrs.GasLimit
 	if gasLimit == 0 {
@@ -343,7 +344,7 @@ func (b *BlockBuilder) BuildBlockWithResult(parent *types.Header, attrs *BuildBl
 			}
 
 			snap := statedb.Snapshot()
-			receipt, used, applyErr := execution.ApplyTransactionWithBALGetHash(b.config, b.getHashFn(), statedb, header, ilTx, gp, execution.BalTrackerOrNil(tracker))
+			receipt, used, applyErr := execution.ApplyTransactionWithBALGetHash(b.config, getHash, statedb, header, ilTx, gp, execution.BalTrackerOrNil(tracker))
 			if applyErr != nil {
 				statedb.RevertToSnapshot(snap)
 				continue
@@ -475,7 +476,7 @@ func (b *BlockBuilder) BuildBlockWithResult(parent *types.Header, attrs *BuildBl
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
 		gpBefore := gp.Gas()
-		receipt, used, err := execution.ApplyTransactionWithBALGetHash(b.config, b.getHashFn(), statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
+		receipt, used, err := execution.ApplyTransactionWithBALGetHash(b.config, getHash, statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
@@ -619,7 +620,7 @@ func (b *BlockBuilder) BuildBlockWithResult(parent *types.Header, attrs *BuildBl
 	}
 	body := &types.Body{Transactions: txs, Withdrawals: withdrawals}
 
-	requests, err := execution.FinalizeBlockExecution(b.config, b.getHashFn(), statedb, header, withdrawals, receipts, blockBAL)
+	requests, err := execution.FinalizeBlockExecution(b.config, getHash, statedb, header, withdrawals, receipts, blockBAL)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -656,6 +657,7 @@ func exceedsTxGasCap(cfg *config.ChainConfig, timestamp uint64, tx *types.Transa
 // BuildBlockLegacy constructs a new block using the legacy interface (for backward
 // compatibility with existing tests). Transactions are provided directly.
 func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*types.Transaction, timestamp uint64, coinbase types.Address, extra []byte) (*types.Block, []*types.Receipt, error) {
+	getHash := b.getHashFnForParent(parent)
 	gasLimit := calcGasLimit(parent.GasLimit, parent.GasUsed)
 
 	header := &types.Header{
@@ -822,7 +824,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
-		receipt, used, err := execution.ApplyTransactionWithBALGetHash(b.config, b.getHashFn(), statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
+		receipt, used, err := execution.ApplyTransactionWithBALGetHash(b.config, getHash, statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
@@ -901,7 +903,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 	header.TxHash = deriveTxsRoot(txs)
 	header.ReceiptHash = deriveReceiptsRoot(receipts)
 
-	requests, err := execution.FinalizeBlockExecution(b.config, b.getHashFn(), statedb, header, nil, receipts, blockBAL)
+	requests, err := execution.FinalizeBlockExecution(b.config, getHash, statedb, header, nil, receipts, blockBAL)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1084,3 +1086,12 @@ func CalcGasLimit(parentGasLimit, parentGasUsed uint64) uint64 {
 
 // Suppress unused import.
 var _ = calldataFloorDelta
+
+func (b *BlockBuilder) getHashFnForParent(parent *types.Header) func(uint64) types.Hash {
+	if chain, ok := b.chain.(interface {
+		BranchHashFn(*types.Header) func(uint64) types.Hash
+	}); ok {
+		return chain.BranchHashFn(parent)
+	}
+	return b.getHashFn()
+}

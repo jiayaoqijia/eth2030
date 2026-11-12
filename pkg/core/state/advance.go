@@ -76,7 +76,7 @@ func (c *speculationCache) get(key types.Hash) ([]*SpeculativeState, bool) {
 
 	if elem, ok := c.items[key]; ok {
 		c.order.MoveToFront(elem)
-		return elem.Value.(*speculationEntry).specs, true
+		return append([]*SpeculativeState(nil), elem.Value.(*speculationEntry).specs...), true
 	}
 	return nil, false
 }
@@ -84,7 +84,22 @@ func (c *speculationCache) get(key types.Hash) ([]*SpeculativeState, bool) {
 func (c *speculationCache) put(key types.Hash, specs []*SpeculativeState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.putLocked(key, append([]*SpeculativeState(nil), specs...))
+}
 
+func (c *speculationCache) appendSpec(key types.Hash, spec *SpeculativeState) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.items[key]; ok {
+		c.order.MoveToFront(elem)
+		entry := elem.Value.(*speculationEntry)
+		entry.specs = append(entry.specs, spec)
+		return
+	}
+	c.putLocked(key, []*SpeculativeState{spec})
+}
+
+func (c *speculationCache) putLocked(key types.Hash, specs []*SpeculativeState) {
 	if elem, ok := c.items[key]; ok {
 		c.order.MoveToFront(elem)
 		elem.Value.(*speculationEntry).specs = specs
@@ -260,8 +275,7 @@ func (sa *StateAdvancer) SpeculateBlock(parentRoot types.Hash, txs [][]byte) (*S
 	}
 
 	// Cache the speculation.
-	existing, _ := sa.cache.get(parentRoot)
-	sa.cache.put(parentRoot, append(existing, spec))
+	sa.cache.appendSpec(parentRoot, spec)
 
 	// Register the new state for chained speculations.
 	sa.mu.Lock()

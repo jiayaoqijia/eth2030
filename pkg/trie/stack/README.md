@@ -1,12 +1,12 @@
 # trie/stack — Stack-based sequential Merkle Patricia Trie builder
 
-Computes Merkle Patricia Trie roots from key-value pairs inserted in strictly sorted order, using O(depth) memory — optimised for transaction trie and receipt trie root calculation.
+Computes Merkle Patricia Trie roots from key-value pairs inserted in strictly sorted order, for transaction trie and receipt trie root calculation.
 
 [← trie](../README.md)
 
 ## Overview
 
-`StackTrie` processes keys sequentially without constructing the full in-memory trie. It maintains a working stack of nodes that are collapsed (hashed and optionally persisted) as the key prefix diverges from previously inserted keys. This gives O(log n) time per insertion and O(depth) space for the whole trie.
+`StackTrie` accepts keys sequentially, but retains the trie nodes in memory until finalization. It is not a bounded-memory streaming trie builder.
 
 Keys must be inserted in ascending lexicographic order (enforced by comparing nibble-encoded keys). Inserting an out-of-order key returns `ErrStackTrieOutOfOrder`. Calling `Hash()` or `Commit()` finalises the trie; any subsequent `Update` call returns `ErrStackTrieFinalized`.
 
@@ -20,7 +20,7 @@ An optional `NodeWriter` interface can be passed to `NewStackTrie` to persist in
 
 | Type | Purpose |
 |------|---------|
-| `StackTrie` | O(depth)-memory sequential MPT builder |
+| `StackTrie` | Sequential MPT builder retaining nodes until finalization |
 | `NodeWriter` | Interface: `WriteNode(path, hash, data)` for node persistence |
 
 ### Key Functions

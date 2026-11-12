@@ -568,7 +568,14 @@ type SyncStatus struct {
 
 // syncing returns the sync status. Returns false when fully synced.
 func (api *EthAPI) syncing(req *Request) *Response {
-	// For now, we report as fully synced.
+	if backend, ok := api.backend.(interface {
+		SyncProgress() (bool, uint64, uint64, uint64)
+	}); ok {
+		active, start, current, highest := backend.SyncProgress()
+		if active {
+			return successResponse(req.ID, SyncStatus{StartingBlock: fmt.Sprintf("0x%x", start), CurrentBlock: fmt.Sprintf("0x%x", current), HighestBlock: fmt.Sprintf("0x%x", highest)})
+		}
+	}
 	return successResponse(req.ID, false)
 }
 

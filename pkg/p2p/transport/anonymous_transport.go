@@ -281,23 +281,38 @@ func (tm *TransportManager) SubmitAnonymous(tx *types.Transaction) (int, []error
 	if tx == nil {
 		return 0, []error{ErrAnonTransportNilTx}
 	}
-
 	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	var errs []error
+	if tm.closed {
+		tm.mu.RUnlock()
+		return 0, []error{ErrAnonTransportClosed}
+	}
+	type entry struct {
+		name      string
+		transport AnonymousTransport
+		stats     *TransportStats
+	}
+	entries := make([]entry, 0, len(tm.transports))
+	for name, transport := range tm.transports {
+		entries = append(entries, entry{name, transport, tm.stats[name]})
+	}
+	tm.mu.RUnlock()
 	submitted := 0
-	for name, t := range tm.transports {
-		if err := t.Submit(tx); err != nil {
-			errs = append(errs, err)
-			if s := tm.stats[name]; s != nil {
-				s.Errors++
+	var errs []error
+	for _, entry := range entries {
+		err := entry.transport.Submit(tx)
+		tm.mu.Lock()
+		if current := tm.stats[entry.name]; current != nil && current == entry.stats {
+			if err != nil {
+				current.Errors++
+			} else {
+				current.Submitted++
 			}
+		}
+		tm.mu.Unlock()
+		if err != nil {
+			errs = append(errs, err)
 		} else {
 			submitted++
-			if s := tm.stats[name]; s != nil {
-				s.Submitted++
-			}
 		}
 	}
 	return submitted, errs
@@ -305,8 +320,8 @@ func (tm *TransportManager) SubmitAnonymous(tx *types.Transaction) (int, []error
 
 // StartAll starts all registered transports.
 func (tm *TransportManager) StartAll() []error {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
 
 	var errs []error
 	for name, t := range tm.transports {

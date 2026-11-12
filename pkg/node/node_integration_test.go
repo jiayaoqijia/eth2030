@@ -97,6 +97,7 @@ func TestNodeConfigValidation(t *testing.T) {
 
 // TestNodeCreateWithNilConfig verifies that passing nil config uses defaults.
 func TestNodeCreateWithNilConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	n, err := New(nil)
 	if err != nil {
 		t.Fatalf("New(nil) error: %v", err)

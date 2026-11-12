@@ -717,6 +717,15 @@ func applyTransactionFull(config *corconfig.ChainConfig, getHash vm.GetHashFunc,
 // variants. tracker enables EIP-7928 BAL recording; slasher enables EIP-8141
 // paymaster slashing on bad gas settlement.
 func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
+	// EIP-2200 original storage is scoped to this transaction, not to the
+	// last disk/block commit. Builders and staged sync may execute many txs
+	// without a Commit between them.
+	if state, ok := statedb.(interface{ FinalizePreState() }); ok {
+		state.FinalizePreState()
+	}
+	if state, ok := statedb.(interface{ FinalizeTransaction() }); ok {
+		defer state.FinalizeTransaction()
+	}
 	// Enforce I+ fork guard for PQ transactions.
 	rules := config.Rules(header.Number, config.IsMerge(), header.Time)
 	if pq, ok := tx.Inner().(*types.PQTransaction); ok {

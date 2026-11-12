@@ -1,6 +1,7 @@
 package eiptest_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -107,12 +108,22 @@ func TestEIP7975_ReceiptsPaginationOverRealChain(t *testing.T) {
 			t.Fatalf("page %d receipts = %d, want %d", i, len(pkt.Receipts[i]), want)
 		}
 		for j, got := range pkt.Receipts[i] {
-			wantTx := provider.receipts[hashes[i]][j].TxHash
+			wantReceipt := provider.receipts[hashes[i]][j]
 			if i == 0 {
-				wantTx = provider.receipts[hashes[0]][j+2].TxHash // first page starts at index 2
+				wantReceipt = provider.receipts[hashes[0]][j+2] // first page starts at index 2
 			}
-			if got.TxHash != wantTx {
-				t.Fatalf("page %d receipt %d: served %s, want %s", i, j, got.TxHash.Hex(), wantTx.Hex())
+			// TxHash is derived metadata and is not carried by the receipt
+			// wire encoding. Compare the consensus encoding instead.
+			actual, err := got.EncodeRLP()
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected, err := wantReceipt.EncodeRLP()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(actual, expected) {
+				t.Fatalf("page %d receipt %d consensus bytes differ", i, j)
 			}
 		}
 	}

@@ -396,15 +396,26 @@ func TestConcurrentSpeculateBlock(t *testing.T) {
 	sa, parentRoot := setupAdvancer(t)
 
 	var wg sync.WaitGroup
+	errs := make(chan error, 20)
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			tx := []byte{byte(i + 1)}
-			sa.SpeculateBlock(parentRoot, [][]byte{tx})
+			_, err := sa.SpeculateBlock(parentRoot, [][]byte{tx})
+			errs <- err
 		}(i)
 	}
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent speculation failed: %v", err)
+		}
+	}
+	if specs, ok := sa.cache.get(parentRoot); !ok || len(specs) != 20 {
+		t.Fatalf("concurrent cache updates lost speculations: %d", len(specs))
+	}
 
 	// Should have some speculations cached.
 	if sa.ActiveSpeculations() == 0 {

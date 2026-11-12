@@ -1,5 +1,47 @@
 # Lean4 Verification Check-list
 
+## Track 3 Completion Follow-Up (2026-11-12)
+
+- [x] Trace bounded-memory snapshot download, execution and serving against the snap protocol and database implementations; the active FileDB also retains all values in memory.
+- [x] Preserve storage pagination on transient failure and avoid quadratic scans of completed storage tasks.
+- [x] Verify finalized ancestry before reusing a completed snapshot after a CL finality advance.
+- [x] Continue a fixed-pivot download across peer failures, sharing only account roots authenticated against that pivot.
+- [x] Audit the candidate stack-trie builder: propagate node-writer failures and correct its bounded-memory claim.
+- [x] Stream snapshot validation and trie-node generation; write trie nodes and snapshot leaves in bounded batches with failure-before-publication tests.
+- [x] Revalidate and recover a completely downloaded, not-yet-adopted snapshot after restart, including offline recovery and corruption/missing-node rejection.
+- [x] Persist downloaded bytecode by verified content hash and reuse it across attempts and restarts without publishing an incomplete state.
+- [x] Specify observable restart, moving-pivot, resource, independent-client, and mutation-test acceptance gates in `docs/track3-remaining-acceptance.md`.
+- [ ] Implement authenticated moving-pivot continuation and safe restart behavior with regression coverage.
+- [ ] Remove remaining sync scalability bottlenecks without weakening ancestry validation.
+- [ ] Validate real-client interoperability and record the actual scope and resource limits.
+- [ ] Run affected tests, race checks and builds; update status and commit task-owned changes.
+
+## Track 3 Adversarial Review (2026-11-12)
+
+- [x] Re-read specification and design contracts; audit every Track 3 production change and its callers.
+- [x] Reproduce and fix forkchoice authority, ancestry, durable publication, restart and reorg defects.
+- [x] Reproduce and fix native/snap state execution, rollback, storage, and proof-validation defects.
+- [x] Audit protocol encodings, peer cancellation, pagination, lifecycle shutdown and native consensus invariants.
+- [x] Add behavioral regressions and targeted mutation checks; run affected race, full, integration, tag, vet and build checks.
+- [x] Correct completion claims and document remaining scope accurately; commit and push scoped fixes.
+
+## Track 3 Implementation (2026-11-12)
+
+Base: `origin/master` at `9fde8aa` (PR #50 merged), branch `feat/track3-node`.
+
+- [x] Trace current snap serving, download, proof verification, persistence, pivot adoption, and restart paths against the pinned specifications.
+- [x] Replace node snap-sync no-op writers with verified persistent state and trie healing; test sync from an empty database and execution after pivot adoption.
+- [x] Connect unknown Engine forkchoice heads to a cancellable CL-driven beacon sync loop with peer download, validated ancestry, retries, and shutdown coverage.
+- [x] Connect 3SF, quick-slot scheduling, and PQ attestation components to an explicitly configured node lifecycle and verify their event consumers and shutdown.
+- [x] Run meaningful negative-path tests, affected race tests, integration tests, full Go tests, vet, formatting, and local builds.
+- [x] Update `STATUS.md` and the Track 3 completion record with implementation and verification evidence; commit scoped changes.
+
+Functional scope and evidence: [Track 3 node integration](docs/track3-node.md).
+Track 3 is **not fully complete**. Production snap synchronization still requires
+moving-pivot range reuse and bounded-memory assembly. Snap/2 and standalone CL
+validator/proposer tooling are additional work; the native observer has no
+execution forkchoice authority.
+
 ## Next Phase Planning (2026-11-11)
 
 Baseline: `master` at `137006e` (PR #48, `feat/eiptest-framework` merged). Re-verify each
@@ -28,9 +70,9 @@ gap against current code before starting — parts of the 2026-03 gap analysis a
 
 ### Track 3 — Node fundamentals (cross-cutting)
 
-- [ ] Real snap sync: re-verify stub status of `pkg/sync/statesync` + `pkg/sync/healer` (UNWIRED_CODE.md is dated 2026-03-09); replace stubs if still present so the node can snap-sync from zero.
-- [ ] CL-driven beacon sync loop (`pkg/sync/beacon`).
-- [ ] Wire own consensus components (3SF, quick slots, PQ attestations) into node lifecycle.
+- [ ] Real snap sync: fixed-pivot proof-verified bootstrap, persistent hashed state, authenticated healing and recovery are implemented and tested. Moving-pivot continuation and bounded-memory assembly remain open; do not equate the small-chain end-to-end test with production snap-sync completion.
+- [x] CL-driven beacon sync loop (`pkg/sync/beacon`): authenticated Engine request → hash-bound `eth` download → staged execution → atomic forkchoice publication; retries, target replacement, cancellation and `eth_syncing` are wired.
+- [x] Wire own consensus components (3SF, quick slots, PQ attestations) into node lifecycle as an explicit research observer: configuration-bound signatures, source-target quorums, RLPx vote delivery, CL reorg re-anchoring and joined shutdown. The external CL retains execution forkchoice authority; this is not a standalone consensus client.
 
 ### Track 4 — I* / PQ direction
 

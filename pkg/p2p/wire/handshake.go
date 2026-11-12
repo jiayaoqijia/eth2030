@@ -6,9 +6,8 @@ import (
 	"fmt"
 )
 
-// devp2p base protocol message codes. These are exchanged before any
-// sub-protocol messages. The hello handshake is the first thing sent
-// after the transport-level (RLPx) connection is established.
+// Legacy plaintext test-transport control codes. Standard RLPx uses 0x00-0x03
+// and the canonical RLP Hello in rlpx_hello.go; these codes never go on RLPx.
 const (
 	HelloMsg      = 0x80 // Capability handshake.
 	DisconnectMsg = 0x81 // Graceful disconnect with reason.

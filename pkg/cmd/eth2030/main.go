@@ -151,6 +151,7 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.IntVar(&cfg.P2PPort, "port", cfg.P2PPort, "P2P listening port")
 	fs.IntVar(&cfg.MaxPeers, "maxpeers", cfg.MaxPeers, "maximum number of P2P peers")
 	fs.StringVar(&cfg.SyncMode, "syncmode", cfg.SyncMode, "sync mode (full, snap)")
+	fs.StringVar(&cfg.NativeConsensusFile, "native-consensus", cfg.NativeConsensusFile, "research 3SF/PQ observer configuration file (CL retains forkchoice authority)")
 	fs.StringVar(&cfg.GCMode, "gcmode", cfg.GCMode, "GC mode: archive (no pruning) or full")
 	fs.Uint64Var(&cfg.NetworkID, "networkid", cfg.NetworkID, "network ID override (0 = use genesis chain ID)")
 	fs.IntVar(&cfg.Verbosity, "verbosity", cfg.Verbosity, "log level 0-5 (0=silent, 5=trace)")

@@ -14,6 +14,7 @@ type EthPeer struct {
 	peer      *p2p.Peer
 	transport p2p.Transport
 	reqID     atomic.Uint64
+	done      chan struct{}
 }
 
 // NewEthPeer creates a new EthPeer wrapping the given p2p peer and transport.
@@ -21,6 +22,7 @@ func NewEthPeer(peer *p2p.Peer, t p2p.Transport) *EthPeer {
 	return &EthPeer{
 		peer:      peer,
 		transport: t,
+		done:      make(chan struct{}),
 	}
 }
 
@@ -127,17 +129,17 @@ func (ep *EthPeer) SendNewPooledTransactionHashes(txs []*types.Transaction) erro
 // SendGetPooledTransactions requests the full bodies of the given transaction
 // hashes from the peer via the eth/68 GetPooledTransactions message (0x09).
 func (ep *EthPeer) SendGetPooledTransactions(hashes []types.Hash) error {
-	return ep.sendMessage(MsgGetPooledTransactions, &GetPooledTransactionsMessage{Hashes: hashes})
+	return ep.sendMessage(MsgGetPooledTransactions, &p2p.GetPooledTransactionsPacket{RequestID: ep.nextRequestID(), Hashes: hashes})
 }
 
 // SendPooledTransactions responds to a GetPooledTransactions request by sending
 // the full transaction bodies via the eth/68 PooledTransactions message (0x0a).
-func (ep *EthPeer) SendPooledTransactions(txs []*types.Transaction) error {
-	msg, err := encodePooledTransactions(txs)
-	if err != nil {
-		return fmt.Errorf("eth: encode pooled transactions: %w", err)
+func (ep *EthPeer) SendPooledTransactions(txs []*types.Transaction, requestIDs ...uint64) error {
+	var id uint64
+	if len(requestIDs) > 0 {
+		id = requestIDs[0]
 	}
-	return ep.transport.WriteMsg(msg)
+	return ep.sendMessage(p2p.PooledTransactionsMsg, &p2p.PooledTransactionsPacket{RequestID: id, Transactions: txs})
 }
 
 // SendNewBlockHashes announces new block hashes to the peer.
@@ -220,6 +222,9 @@ func (ep *EthPeer) Handshake(local *p2p.StatusData) (*p2p.StatusData, error) {
 	}
 
 	// Validate compatibility.
+	if remote.ProtocolVersion != local.ProtocolVersion {
+		return nil, ErrIncompatibleVersion
+	}
 	if remote.NetworkID != local.NetworkID {
 		return nil, fmt.Errorf("eth: network ID mismatch: local %d, remote %d", local.NetworkID, remote.NetworkID)
 	}

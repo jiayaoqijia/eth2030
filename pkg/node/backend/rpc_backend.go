@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/trie"
 )
@@ -22,6 +23,15 @@ type RPCBackend struct {
 // NewRPCBackend creates a new RPCBackend.
 func NewRPCBackend(node NodeDeps, engine *EngineBackend) rpc.Backend {
 	return &RPCBackend{node: node, engine: engine}
+}
+
+func (b *RPCBackend) SyncProgress() (bool, uint64, uint64, uint64) {
+	if source, ok := b.node.(interface {
+		SyncProgress() (bool, uint64, uint64, uint64)
+	}); ok {
+		return source.SyncProgress()
+	}
+	return false, 0, 0, 0
 }
 
 func (b *RPCBackend) HeaderByNumber(number rpc.BlockNumber) *types.Header {
@@ -151,13 +161,25 @@ func (b *RPCBackend) GetProof(addr types.Address, storageKeys []types.Hash, bloc
 		return nil, err
 	}
 
-	memState, ok := statedb.(*state.MemoryStateDB)
-	if !ok {
-		return nil, fmt.Errorf("state does not support proof generation")
+	snapshot, err := state.ExportStateSnapshot(statedb)
+	if err != nil {
+		return nil, err
 	}
-
-	stateTrie := memState.BuildStateTrie()
-	storageTrie := memState.BuildStorageTrie(addr)
+	if snapshot.Root() != header.Root {
+		return nil, fmt.Errorf("proof state root differs from requested header")
+	}
+	stateTrie, storageTrie := trie.New(), trie.New()
+	for key, value := range snapshot.Accounts {
+		if err := stateTrie.Put(key[:], value); err != nil {
+			return nil, err
+		}
+	}
+	accountHash := crypto.Keccak256Hash(addr[:])
+	for key, value := range snapshot.Storage[accountHash] {
+		if err := storageTrie.Put(key[:], value); err != nil {
+			return nil, err
+		}
+	}
 
 	return trie.ProveAccountWithStorage(stateTrie, addr, storageTrie, storageKeys)
 }

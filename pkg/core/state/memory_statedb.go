@@ -17,6 +17,7 @@ type stateObject struct {
 	dirtyStorage     map[types.Hash]types.Hash
 	committedStorage map[types.Hash]types.Hash
 	selfDestructed   bool
+	deleted          bool // finalized deletion; retain a tombstone until durable commit
 
 	// dbStorageRoot caches the storage Merkle root as stored in the DB at the
 	// time this account was loaded by TrieStateDB.loadFromDB.  It is the zero
@@ -62,10 +63,19 @@ func (s *MemoryStateDB) getStateObject(addr types.Address) *stateObject {
 	return s.stateObjects[addr]
 }
 
+func (s *MemoryStateDB) getLiveStateObject(addr types.Address) *stateObject {
+	obj := s.stateObjects[addr]
+	if obj != nil && obj.deleted {
+		return nil
+	}
+	return obj
+}
+
 func (s *MemoryStateDB) getOrNewStateObject(addr types.Address) *stateObject {
-	if obj := s.stateObjects[addr]; obj != nil {
+	if obj := s.stateObjects[addr]; obj != nil && !obj.deleted {
 		return obj
 	}
+	s.journal.append(createAccountChange{addr: addr, prev: s.stateObjects[addr]})
 	obj := newStateObject()
 	s.stateObjects[addr] = obj
 	return obj
@@ -92,14 +102,14 @@ func (s *MemoryStateDB) AddBalance(addr types.Address, amount *big.Int) {
 }
 
 func (s *MemoryStateDB) GetBalance(addr types.Address) *big.Int {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		return new(big.Int).Set(obj.account.Balance)
 	}
 	return new(big.Int)
 }
 
 func (s *MemoryStateDB) GetNonce(addr types.Address) uint64 {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		return obj.account.Nonce
 	}
 	return 0
@@ -112,7 +122,7 @@ func (s *MemoryStateDB) SetNonce(addr types.Address, nonce uint64) {
 }
 
 func (s *MemoryStateDB) GetCode(addr types.Address) []byte {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		return obj.code
 	}
 	return nil
@@ -129,14 +139,14 @@ func (s *MemoryStateDB) SetCode(addr types.Address, code []byte) {
 }
 
 func (s *MemoryStateDB) GetCodeHash(addr types.Address) types.Hash {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		return types.BytesToHash(obj.account.CodeHash)
 	}
 	return types.Hash{}
 }
 
 func (s *MemoryStateDB) GetCodeSize(addr types.Address) int {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		return len(obj.code)
 	}
 	return 0
@@ -145,13 +155,14 @@ func (s *MemoryStateDB) GetCodeSize(addr types.Address) int {
 // --- Self-destruct ---
 
 func (s *MemoryStateDB) SelfDestruct(addr types.Address) {
-	obj := s.getStateObject(addr)
+	obj := s.getLiveStateObject(addr)
 	if obj == nil {
 		return
 	}
 	s.journal.append(selfDestructChange{
 		addr:           addr,
 		prevDestructed: obj.selfDestructed,
+		prevDeleted:    obj.deleted,
 		prevBalance:    new(big.Int).Set(obj.account.Balance),
 	})
 	obj.selfDestructed = true
@@ -159,7 +170,7 @@ func (s *MemoryStateDB) SelfDestruct(addr types.Address) {
 }
 
 func (s *MemoryStateDB) HasSelfDestructed(addr types.Address) bool {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		return obj.selfDestructed
 	}
 	return false
@@ -168,7 +179,7 @@ func (s *MemoryStateDB) HasSelfDestructed(addr types.Address) bool {
 // --- Storage operations ---
 
 func (s *MemoryStateDB) GetState(addr types.Address, key types.Hash) types.Hash {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		if val, ok := obj.dirtyStorage[key]; ok {
 			return val
 		}
@@ -180,7 +191,7 @@ func (s *MemoryStateDB) GetState(addr types.Address, key types.Hash) types.Hash 
 // StorageSnapshot returns the account's current nonzero storage slots.
 func (s *MemoryStateDB) StorageSnapshot(addr types.Address) map[types.Hash]types.Hash {
 	result := make(map[types.Hash]types.Hash)
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		for slot, value := range obj.committedStorage {
 			if !value.IsZero() {
 				result[slot] = value
@@ -211,7 +222,7 @@ func (s *MemoryStateDB) SetState(addr types.Address, key types.Hash, value types
 }
 
 func (s *MemoryStateDB) GetCommittedState(addr types.Address, key types.Hash) types.Hash {
-	if obj := s.getStateObject(addr); obj != nil {
+	if obj := s.getLiveStateObject(addr); obj != nil {
 		return obj.committedStorage[key]
 	}
 	return types.Hash{}
@@ -220,11 +231,11 @@ func (s *MemoryStateDB) GetCommittedState(addr types.Address, key types.Hash) ty
 // --- Account existence ---
 
 func (s *MemoryStateDB) Exist(addr types.Address) bool {
-	return s.stateObjects[addr] != nil
+	return s.getLiveStateObject(addr) != nil
 }
 
 func (s *MemoryStateDB) Empty(addr types.Address) bool {
-	obj := s.getStateObject(addr)
+	obj := s.getLiveStateObject(addr)
 	if obj == nil {
 		return true
 	}
@@ -400,6 +411,12 @@ func trimLeadingZeros(b []byte) []byte {
 }
 
 func (s *MemoryStateDB) Commit() (types.Hash, error) {
+	for addr, obj := range s.stateObjects {
+		if obj.selfDestructed {
+			delete(s.stateObjects, addr)
+		}
+	}
+	s.journal = newJournal()
 	// Flush dirty storage to committed storage.
 	for _, obj := range s.stateObjects {
 		for key, val := range obj.dirtyStorage {
@@ -468,7 +485,7 @@ func (s *MemoryStateDB) Commit() (types.Hash, error) {
 // StorageRoot computes and returns the storage trie root for the given address.
 // Returns EmptyRootHash if the account does not exist or has no storage.
 func (s *MemoryStateDB) StorageRoot(addr types.Address) types.Hash {
-	obj := s.getStateObject(addr)
+	obj := s.getLiveStateObject(addr)
 	if obj == nil {
 		return types.EmptyRootHash
 	}
@@ -547,7 +564,7 @@ func (s *MemoryStateDB) BuildStateTrie() *trie.Trie {
 // storage. Returns nil if the account does not exist or has no storage. Each
 // storage slot is keyed by keccak256(slot) and the value is RLP-encoded.
 func (s *MemoryStateDB) BuildStorageTrie(addr types.Address) *trie.Trie {
-	obj := s.getStateObject(addr)
+	obj := s.getLiveStateObject(addr)
 	if obj == nil {
 		return nil
 	}
@@ -578,6 +595,8 @@ func (s *MemoryStateDB) Copy() *MemoryStateDB {
 		refund:           s.refund,
 		accessList:       s.accessList.Copy(),
 		transientStorage: make(map[types.Address]map[types.Hash]types.Hash, len(s.transientStorage)),
+		txHash:           s.txHash,
+		txIndex:          s.txIndex,
 	}
 
 	for addr, obj := range s.stateObjects {
@@ -592,6 +611,8 @@ func (s *MemoryStateDB) Copy() *MemoryStateDB {
 			dirtyStorage:     make(map[types.Hash]types.Hash, len(obj.dirtyStorage)),
 			committedStorage: make(map[types.Hash]types.Hash, len(obj.committedStorage)),
 			selfDestructed:   obj.selfDestructed,
+			deleted:          obj.deleted,
+			dbStorageRoot:    obj.dbStorageRoot,
 		}
 		copy(newObj.account.CodeHash, obj.account.CodeHash)
 		copy(newObj.code, obj.code)
@@ -608,6 +629,8 @@ func (s *MemoryStateDB) Copy() *MemoryStateDB {
 		cpLogs := make([]*types.Log, len(logs))
 		for i, log := range logs {
 			cpLog := *log
+			cpLog.Data = append([]byte(nil), log.Data...)
+			cpLog.Topics = append([]types.Hash(nil), log.Topics...)
 			cpLogs[i] = &cpLog
 		}
 		cp.logs[txHash] = cpLogs
@@ -679,6 +702,14 @@ func (s *MemoryStateDB) FinalizePreState() {
 	for _, obj := range s.stateObjects {
 		for key, value := range obj.dirtyStorage {
 			obj.committedStorage[key] = value
+		}
+	}
+}
+
+func (s *MemoryStateDB) FinalizeTransaction() {
+	for _, obj := range s.stateObjects {
+		if obj.selfDestructed {
+			obj.deleted = true
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/p2p"
+	"github.com/eth2030/eth2030/p2p/ethproto"
 	"github.com/eth2030/eth2030/rlp"
 	ethsync "github.com/eth2030/eth2030/sync"
 )
@@ -38,8 +39,11 @@ type Handler struct {
 	networkID uint64
 	peers     *p2p.PeerSet
 
-	ethPeersMu sync.RWMutex
-	ethPeers   map[string]*EthPeer // peer ID → EthPeer, for tx broadcast
+	ethPeersMu           sync.RWMutex
+	ethPeers             map[string]*EthPeer // peer ID → EthPeer, for tx broadcast
+	syncMu               sync.Mutex
+	syncRequests         map[syncRequestKey]*syncRequest
+	forkchoiceControlled bool
 
 	// Optional sync notifier triggered by NewBlock messages.
 	syncNotifier SyncNotifier
@@ -59,19 +63,25 @@ type Handler struct {
 
 // NewHandler creates a new eth protocol handler.
 func NewHandler(chain Blockchain, txPool TxPool, networkID uint64) *Handler {
-	return &Handler{
+	h := &Handler{
 		chain:     chain,
 		txPool:    txPool,
 		networkID: networkID,
 		peers:     p2p.NewPeerSet(),
 		ethPeers:  make(map[string]*EthPeer),
 	}
+	if provider, ok := chain.(ReceiptProvider); ok {
+		h.receiptProvider = provider
+	}
+	return h
 }
 
 // SetSyncNotifier configures an optional callback for new block events.
 func (h *Handler) SetSyncNotifier(sn SyncNotifier) {
 	h.syncNotifier = sn
 }
+
+func (h *Handler) SetForkchoiceControlled(enabled bool) { h.forkchoiceControlled = enabled }
 
 // SetOnBlockInserted registers a callback invoked after a P2P block is
 // successfully inserted. Typically used to reset the tx pool.
@@ -136,7 +146,7 @@ func (h *Handler) Protocol() p2p.Protocol {
 	return p2p.Protocol{
 		Name:    "eth",
 		Version: ETH68,
-		Length:  13,
+		Length:  17,
 		Run:     h.runPeer,
 	}
 }
@@ -145,6 +155,7 @@ func (h *Handler) Protocol() p2p.Protocol {
 // It performs the handshake and then enters the message loop.
 func (h *Handler) runPeer(peer *p2p.Peer, t p2p.Transport) error {
 	ethPeer := NewEthPeer(peer, t)
+	defer close(ethPeer.done)
 
 	// Build local status.
 	head := h.chain.CurrentBlock()
@@ -156,10 +167,18 @@ func (h *Handler) runPeer(peer *p2p.Peer, t p2p.Transport) error {
 		Head:            head.Hash(),
 		Genesis:         genesis.Hash(),
 	}
+	blocks, times, checkForks := h.forkSchedule()
+	status.ForkID = ethproto.CalcForkIDWithTime(genesis.Hash(), genesis.Time(), head.NumberU64(), head.Time(), blocks, times)
 
 	// Handshake.
-	if _, err := ethPeer.Handshake(status); err != nil {
+	remoteStatus, err := ethPeer.Handshake(status)
+	if err != nil {
 		return err
+	}
+	if checkForks {
+		if err := ethproto.ValidateForkID(remoteStatus.ForkID, genesis.Hash(), genesis.Time(), head.NumberU64(), head.Time(), blocks, times); err != nil {
+			return err
+		}
 	}
 
 	// Register peer.
@@ -235,9 +254,16 @@ func (h *Handler) handleMsg(ep *EthPeer, msg p2p.Msg) error {
 		return h.handlePooledTransactions(ep, msg)
 
 	case p2p.GetReceiptsMsg:
+		if ep.Peer().Version() == ETH68 {
+			return h.handleGetReceipts68(ep, msg)
+		}
 		return h.handleGetReceiptsV70(ep, msg)
 
 	case p2p.ReceiptsMsg:
+		if ep.Peer().Version() == ETH68 {
+			var packet p2p.ReceiptsPacket
+			return decodeMsg(msg, &packet)
+		}
 		return h.handleReceiptsV70(ep, msg)
 
 	case p2p.GetBlockAccessListsMsg:
@@ -310,43 +336,66 @@ func (h *Handler) handleGetBlockHeaders(ep *EthPeer, msg p2p.Msg) error {
 
 // collectHeaders gathers headers based on the request parameters.
 func (h *Handler) collectHeaders(req p2p.GetBlockHeadersRequest) []*types.Header {
-	var headers []*types.Header
-
-	// Resolve the starting block.
-	var origin *types.Block
-	if req.Origin.IsHash() {
-		origin = h.chain.GetBlock(req.Origin.Hash)
-	} else {
-		origin = h.chain.GetBlockByNumber(req.Origin.Number)
-	}
-	if origin == nil {
+	byHash := func(hash types.Hash) *types.Header {
+		if source, ok := h.chain.(interface {
+			GetHeaderByHash(types.Hash) *types.Header
+		}); ok {
+			return source.GetHeaderByHash(hash)
+		}
+		if block := h.chain.GetBlock(hash); block != nil {
+			return block.Header()
+		}
 		return nil
 	}
-
-	headers = append(headers, origin.Header())
-
-	// Collect subsequent headers.
+	byNumber := func(number uint64) *types.Header {
+		if source, ok := h.chain.(interface{ GetHeaderByNumber(uint64) *types.Header }); ok {
+			return source.GetHeaderByNumber(number)
+		}
+		if block := h.chain.GetBlockByNumber(number); block != nil {
+			return block.Header()
+		}
+		return nil
+	}
 	amount := req.Amount
 	if amount > MaxHeaders {
 		amount = MaxHeaders
 	}
-
-	num := origin.NumberU64()
-	for i := uint64(1); i < amount; i++ {
-		if req.Reverse {
-			if num < 1+req.Skip {
-				break
-			}
-			num -= 1 + req.Skip
-		} else {
-			num += 1 + req.Skip
-		}
-
-		block := h.chain.GetBlockByNumber(num)
-		if block == nil {
+	var header *types.Header
+	if req.Origin.IsHash() {
+		header = byHash(req.Origin.Hash)
+	} else {
+		header = byNumber(req.Origin.Number)
+	}
+	var headers []*types.Header
+	for uint64(len(headers)) < amount && header != nil {
+		headers = append(headers, header)
+		if req.Skip == ^uint64(0) {
 			break
 		}
-		headers = append(headers, block.Header())
+		step := req.Skip + 1
+		number := header.Number.Uint64()
+		canonical := byNumber(number)
+		onCanonical := canonical != nil && canonical.Hash() == header.Hash()
+		if req.Reverse {
+			if number < step {
+				break
+			}
+			if !req.Origin.IsHash() || onCanonical {
+				header = byNumber(number - step)
+			} else {
+				if step > MaxHeaders {
+					break
+				}
+				for j := uint64(0); j < step && header != nil; j++ {
+					header = byHash(header.ParentHash)
+				}
+			}
+		} else {
+			if number > ^uint64(0)-step || !onCanonical {
+				break
+			}
+			header = byNumber(number + step)
+		}
 	}
 	return headers
 }
@@ -357,7 +406,7 @@ func (h *Handler) handleBlockHeaders(ep *EthPeer, msg p2p.Msg) error {
 	if err := decodeMsg(msg, &pkt); err != nil {
 		return err
 	}
-	// For now, just log receipt. A sync manager would process these.
+	h.deliverSyncResponse(ep, pkt.RequestID, p2p.BlockHeadersMsg, syncResponse{headers: pkt.Headers})
 	log.Printf("eth: received %d headers from %s (req %d)", len(pkt.Headers), ep.ID(), pkt.RequestID)
 	return nil
 }
@@ -396,11 +445,15 @@ func (h *Handler) handleBlockBodies(ep *EthPeer, msg p2p.Msg) error {
 		return err
 	}
 	log.Printf("eth: received %d bodies from %s (req %d)", len(pkt.Bodies), ep.ID(), pkt.RequestID)
+	h.deliverSyncResponse(ep, pkt.RequestID, p2p.BlockBodiesMsg, syncResponse{bodies: pkt.Bodies})
 	return nil
 }
 
 // handleNewBlockHashes processes new block hash announcements.
 func (h *Handler) handleNewBlockHashes(ep *EthPeer, msg p2p.Msg) error {
+	if h.forkchoiceControlled {
+		return nil
+	}
 	var entries []p2p.NewBlockHashesEntry
 	if err := decodeMsg(msg, &entries); err != nil {
 		return err
@@ -417,6 +470,9 @@ func (h *Handler) handleNewBlockHashes(ep *EthPeer, msg p2p.Msg) error {
 
 // handleNewBlock processes a full new block announcement.
 func (h *Handler) handleNewBlock(ep *EthPeer, msg p2p.Msg) error {
+	if h.forkchoiceControlled {
+		return nil
+	}
 	data, err := decodeNewBlock(msg)
 	if err != nil {
 		return err
@@ -495,7 +551,7 @@ func (h *Handler) handleNewPooledTransactionHashes(ep *EthPeer, msg p2p.Msg) err
 // handleGetPooledTransactions responds to a GetPooledTransactions (0x09) request
 // by returning the requested transactions from our pool via PooledTransactions (0x0a).
 func (h *Handler) handleGetPooledTransactions(ep *EthPeer, msg p2p.Msg) error {
-	var req GetPooledTransactionsMessage
+	var req p2p.GetPooledTransactionsPacket
 	if err := decodeMsg(msg, &req); err != nil {
 		return err
 	}
@@ -505,24 +561,24 @@ func (h *Handler) handleGetPooledTransactions(ep *EthPeer, msg p2p.Msg) error {
 			txs = append(txs, tx)
 		}
 	}
-	return ep.SendPooledTransactions(txs)
+	return ep.SendPooledTransactions(txs, req.RequestID)
 }
 
 // handlePooledTransactions processes a PooledTransactions (0x0a) response from
 // a peer and adds any new transactions to our pool.
 func (h *Handler) handlePooledTransactions(ep *EthPeer, msg p2p.Msg) error {
-	txs, err := decodeTransactions(msg)
-	if err != nil {
+	var packet p2p.PooledTransactionsPacket
+	if err := decodeMsg(msg, &packet); err != nil {
 		return err
 	}
-	for _, tx := range txs {
-		if err := h.txPool.AddRemote(tx); err != nil {
-			log.Printf("eth: rejected pooled tx %s from %s: %v", tx.Hash().Hex(), ep.ID(), err)
+	var added []*types.Transaction
+	for _, tx := range packet.Transactions {
+		if err := h.txPool.AddRemote(tx); err == nil {
+			added = append(added, tx)
 		}
 	}
-	// Re-announce to other peers (excluding the sender).
-	if len(txs) > 0 {
-		h.announceTransactions(txs, ep.ID())
+	if len(added) > 0 {
+		h.announceTransactions(added, ep.ID())
 	}
 	return nil
 }
@@ -807,4 +863,43 @@ func decodeMsg(msg p2p.Msg, val interface{}) error {
 		Size:    msg.Size,
 		Payload: msg.Payload,
 	}, val)
+}
+
+func (h *Handler) handleGetReceipts68(ep *EthPeer, msg p2p.Msg) error {
+	var request p2p.GetReceiptsPacket
+	if err := decodeMsg(msg, &request); err != nil {
+		return err
+	}
+	response := &p2p.ReceiptsPacket{RequestID: request.RequestID}
+	budget := int64(MaxReceiptsResponseSize)
+	for i, hash := range request.Hashes {
+		if i >= MaxBodies || budget <= 0 {
+			break
+		}
+		block := h.chain.GetBlock(hash)
+		if block == nil {
+			continue
+		}
+		var receipts []*types.Receipt
+		if h.receiptProvider != nil {
+			receipts = h.receiptProvider.GetReceipts(hash)
+		}
+		if len(block.Transactions()) > 0 && receipts == nil {
+			continue
+		}
+		var size int64
+		for _, receipt := range receipts {
+			data, err := receipt.EncodeRLP()
+			if err != nil {
+				return err
+			}
+			size += int64(len(data))
+		}
+		if size > budget && len(response.Receipts) > 0 {
+			break
+		}
+		response.Receipts = append(response.Receipts, receipts)
+		budget -= size
+	}
+	return ep.sendMessage(p2p.ReceiptsMsg, response)
 }
