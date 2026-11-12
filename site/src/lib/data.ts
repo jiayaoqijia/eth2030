@@ -17,7 +17,7 @@ export const evidence = [
 ];
 
 export const gettingStartedCommands = [
-  { comment: '# Clone the repository', command: 'git clone https://github.com/jiayaoqijia/eth2030.git' },
+  { comment: '# Clone the repository', command: 'git clone https://github.com/alt-research/eth2030.git' },
   { comment: '# Build and test the Go module', command: 'cd eth2030/pkg && go build ./... && go test ./...' },
   { comment: '# Build the experimental node', command: 'go build -o eth2030-geth ./cmd/eth2030-geth/' },
 ];

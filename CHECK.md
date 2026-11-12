@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Website Account and Content Refresh (2026-11-12)
+
+- [x] Compare the deployed site and GitHub Pages configuration with current repository ownership and source.
+- [x] Update repository links, clone instructions, canonical domain, dependency version, and verified outdated feature claims.
+- [x] Distinguish historical roadmap/tracker data from current verification and document remaining sync limitations.
+- [x] Build the site and local Go module, verify exported links and evidence paths, update status, and commit task-owned changes.
+
 ## Track 3 Completion Follow-Up (2026-11-12)
 
 - [x] Trace bounded-memory snapshot download, execution and serving against the snap protocol and database implementations; the active FileDB also retains all values in memory.

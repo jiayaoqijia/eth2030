@@ -1,5 +1,11 @@
 # Project Status
 
+## Website Account and Content Refresh (2026-11-12)
+
+- Updated site repository links, clone instructions and issue contacts to `alt-research/eth2030`; aligned legal pages and deployment CNAME with the configured `eth2030.altllm.ai` domain. Updated the Go minimum to match `pkg/go.mod`.
+- Refreshed selected EIP tracker gaps and evidence against the current source and records; updated the traceability matrix for the checked items, retained the historical roadmap date, and described the remaining snap-sync and native-observer limitations. Tracker labels and percentages are explicitly historical estimates, not conformance claims.
+- Validation: site production build and Go module build passed; exported-page checks passed; tracker verification found zero missing paths across 371 references and no blocking discrepancies; desktop and mobile local browser checks found no horizontal overflow. The Google Analytics measurement ID was not changed because a replacement was not supplied. The live site will update after the change is deployed.
+
 ## Track 3 Remaining Acceptance Design (2026-11-12)
 
 - Recorded specific crash boundaries, proof-binding and reuse evidence, independent state/proof readback, memory scaling, real-client interoperability, and mutation gates in [the remaining-work acceptance design](docs/track3-remaining-acceptance.md). These gates are requirements, not completed test results.

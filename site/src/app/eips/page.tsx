@@ -159,8 +159,10 @@ export default function EipsPage() {
         <p className="mt-3 max-w-3xl text-sm text-eth-dim">
           Per-EIP implementation progress in ETH2030, organized by the L1 Strawmap fork timeline
           (strawmap.org, revision {STRAWMAP_REVISION}). Status sources: repo traceability matrix,
-          gap analyses, and the actual <code className="text-eth-purple">pkg/</code> tree — cross-checked
-          by <code className="text-eth-purple">scripts/verify-eips.ts</code>.
+          historical gap analyses, and the <code className="text-eth-purple">pkg/</code> tree. Entries and
+          percentages are historical estimates, not proof of current specification conformance;
+          <code className="text-eth-purple"> scripts/verify-eips.ts</code> checks references and paths,
+          not implementation correctness.
         </p>
 
         {/* North stars */}

@@ -15,7 +15,7 @@ export default function GettingStarted() {
         <TerminalBlock commands={gettingStartedCommands} />
 
         <div className="mt-8 text-center text-sm text-eth-dim">
-          Requires Go 1.25+. Running an Ethereum node also requires a compatible consensus client; see the project documentation for configuration and current limitations.
+          Requires Go 1.26.8+. Running an Ethereum node also requires a compatible consensus client; see the project documentation for configuration and current limitations.
         </div>
       </div>
     </section>

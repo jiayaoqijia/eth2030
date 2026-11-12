@@ -10,6 +10,6 @@ export const COLORS = {
   dim: '#9090b8',
 } as const;
 
-export const GITHUB_URL = 'https://github.com/jiayaoqijia/eth2030';
-export const DOCS_URL = 'https://github.com/jiayaoqijia/eth2030/tree/master/docs';
+export const GITHUB_URL = 'https://github.com/alt-research/eth2030';
+export const DOCS_URL = `${GITHUB_URL}/tree/master/docs`;
 export const STRAWMAP_URL = 'https://strawmap.org/';
