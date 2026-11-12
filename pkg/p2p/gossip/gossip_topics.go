@@ -4,10 +4,10 @@
 package gossip
 
 import (
-	"strings"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )

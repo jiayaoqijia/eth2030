@@ -14,14 +14,14 @@ import (
 )
 
 var (
-	ErrIncompatibleVersion  = errors.New("eth: incompatible protocol version")
-	ErrNetworkIDMismatch    = errors.New("eth: network ID mismatch")
-	ErrGenesisMismatch      = errors.New("eth: genesis block mismatch")
-	ErrReceiptsBlockUnknown = errors.New("eth: receipts block unknown")
+	ErrIncompatibleVersion   = errors.New("eth: incompatible protocol version")
+	ErrNetworkIDMismatch     = errors.New("eth: network ID mismatch")
+	ErrGenesisMismatch       = errors.New("eth: genesis block mismatch")
+	ErrReceiptsBlockUnknown  = errors.New("eth: receipts block unknown")
 	ErrReceiptsCountMismatch = errors.New("eth: partial receipts count mismatch")
-	ErrReceiptsTooLarge     = errors.New("eth: partial receipt exceeds transaction gas bound")
+	ErrReceiptsTooLarge      = errors.New("eth: partial receipt exceeds transaction gas bound")
 	ErrReceiptsTotalTooLarge = errors.New("eth: partial receipts exceed block gas limit")
-	ErrBALHashMismatch      = errors.New("eth: BAL does not match block-access-list-hash")
+	ErrBALHashMismatch       = errors.New("eth: BAL does not match block-access-list-hash")
 )
 
 // SyncNotifier is an optional callback interface for triggering sync on

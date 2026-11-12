@@ -276,7 +276,6 @@ func TestEIP7807_SSZEngineActivation(t *testing.T) {
 	}
 }
 
-
 // decodeHexJSON decodes a 0x-hex JSON string ("0x…") into raw bytes.
 func decodeHexJSON(raw json.RawMessage) ([]byte, error) {
 	var s string

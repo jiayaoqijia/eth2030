@@ -384,7 +384,6 @@ func SSZBlockHash(h *Header, ctx ExecutionSSZContext) (Hash, error) {
 	return proj.HashTreeRoot()
 }
 
-
 // requestsHashOrEmpty returns the header's requests hash, or the zero hash
 // when the header predates EIP-7685 commitments.
 func requestsHashOrEmpty(h *Header) Hash {

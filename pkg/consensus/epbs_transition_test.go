@@ -84,8 +84,8 @@ func TestProcessExecutionPayloadBidSelfBuild(t *testing.T) {
 		Body: &BeaconBlockBody{
 			SignedExecutionPayloadBid: &SignedExecutionPayloadBid{
 				Message: ExecutionPayloadBid{
-					BuilderIndex: BuilderIndexSelfBuild,
-					Slot:         10,
+					BuilderIndex:    BuilderIndexSelfBuild,
+					Slot:            10,
 					ParentBlockRoot: testParentRoot(),
 				},
 			},
@@ -277,10 +277,10 @@ func TestProcessExecutionPayloadEnvelope(t *testing.T) {
 	// Consistent envelope: payment queued, availability marked.
 	envelope.Message.BlockHash = types.Hash{0x22}
 	envelope.Message.BeaconBlockRoot = HashBeaconBlockHeader(&BeaconBlockHeader{
-		Slot:      state.LatestBlockHeader.Slot,
-		StateRoot: state.LatestBlockHeader.StateRoot,
-		BodyRoot:  state.LatestBlockHeader.BodyRoot,
-		ParentRoot: state.LatestBlockHeader.ParentRoot,
+		Slot:          state.LatestBlockHeader.Slot,
+		StateRoot:     state.LatestBlockHeader.StateRoot,
+		BodyRoot:      state.LatestBlockHeader.BodyRoot,
+		ParentRoot:    state.LatestBlockHeader.ParentRoot,
 		ProposerIndex: state.LatestBlockHeader.ProposerIndex,
 	})
 	if err := ProcessExecutionPayload(state, envelope, 0, false, [4]byte{}, [32]byte{}); err != nil {

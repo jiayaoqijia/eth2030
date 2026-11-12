@@ -34,11 +34,11 @@ func newGossipTestContext(t *testing.T) (*GossipContext, []*big.Int, types.Hash)
 	}
 	state.root = crypto.Keccak256Hash([]byte("committee-root"))
 	return &GossipContext{
-		CurrentSlot:          func() uint64 { return state.slot },
-		CommitteeRootForSlot: func(uint64) (types.Hash, error) { return state.root, nil },
-		IsILCommitteeMember:  func(idx, _ uint64) bool { return state.members[idx] },
-		ValidatorPubkey:      func(idx uint64) ([48]byte, error) { return state.pubkeys[idx], nil },
-		ForkVersion:          func() [4]byte { return [4]byte{} },
+		CurrentSlot:           func() uint64 { return state.slot },
+		CommitteeRootForSlot:  func(uint64) (types.Hash, error) { return state.root, nil },
+		IsILCommitteeMember:   func(idx, _ uint64) bool { return state.members[idx] },
+		ValidatorPubkey:       func(idx uint64) ([48]byte, error) { return state.pubkeys[idx], nil },
+		ForkVersion:           func() [4]byte { return [4]byte{} },
 		GenesisValidatorsRoot: func() [32]byte { return [32]byte{} },
 	}, secrets, state.root
 }

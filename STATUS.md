@@ -1,5 +1,11 @@
 # Project Status
 
+## PR #50 CI Repair and Master Merge (2026-11-12)
+
+- Merged `origin/master` at `c8fd3a1` (PR #49 merge, including fix `4903084`), importing the EIP-7928 fork-boundary regression fix and formatting corrections. Resolved the `STATUS.md` conflict by retaining both Track 2 and PR #49 records.
+- Applied `gofmt` to the seven remaining Track 2 files reported by the CI formatting check. No protocol behavior changed.
+- Validation: CI-matching Go 1.26.10 passed formatting, `go build -p 4 ./...`, `go vet -p 4 ./...`, `go test -p 4 -count=1 -timeout=15m ./...`, and `go test -p 4 -count=1 -timeout=15m -tags integration ./core ./p2p/...`. External EF fixtures are absent in the isolated worktree, so fixture-dependent tests skip locally; the dedicated remote CI job validates the pinned vectors.
+
 ## Hegotá Track 2 Closure (2026-11-12)
 
 Completed the Track 2 items on `feat/track2-hegota` (base: `feat/track1-glamsterdam`, PR #49).
@@ -11,6 +17,12 @@ Completed the Track 2 items on `feat/track2-hegota` (base: `feat/track1-glamster
 - **SSZ fork activation (EIP-6404/7807/7916)**: `SSZBlockTime` chain-config fork (fork schedule, ordering, genesis loader); header-only SSZ projection `SSZBlockHash`; `engine_getPayloadV7` returns the SSZ payload encoding plus its hash tree root when active; `engine_newPayloadV7` validates the SSZ binding (decode, hash match, field cross-check) before executing through the Amsterdam path; capabilities advertised. eiptest drives the full V7 surface on an SSZ-active sim: SSZ binding accepted, tampered binding INVALID.
 - Verification: full uncached `go test ./...` green (207 packages), `go vet` clean.
 - **Devnet node verification** (`full-feature-eth2030`, 3x EL + 3x Lighthouse 8.4.0-rc.0, rebuilt with the Track 2 code): fulu@slot 32, gloas@slot 64 with Amsterdam BAL enforcement, and heze@slot 96 all activated cleanly — blocks progressed past 115 with spamoor transfers landing; every post-Amsterdam block processed with `amsterdamActive:true` and nonempty `balEntries` (43); zero WARN/ERROR across all six nodes. The FOCIL gossip subscription, 8141 payer billing, 7495/8025 code, and SSZ fork plumbing (inert without a scheduled SSZBlockTime) run in production without interop regressions.
+
+## PR #49 CI Repair (2026-11-12)
+
+- Reproduced both failures from CI run `43086199969`: nine Go files failed `gofmt`, and `TestBAL_HashValidationAcrossFork` still expected post-Amsterdam headers without a BAL commitment to pass.
+- Applied `gofmt` to the nine reported files. Aligned the integration test with EIP-7928's mandatory header commitment, covering absent/present hashes immediately before, exactly at, and immediately after activation. Invalid cases assert `ErrInvalidBlockAccessList`; production validation remains unchanged.
+- Validation: Go 1.26.10 (matching CI) and Go 1.27.3 passed formatting, `go build -p 4 ./...`, `go vet -p 4 ./...`, `go test -p 4 -count=1 -timeout=15m ./...`, and `go test -p 4 -count=1 -timeout=15m -tags integration ./core ./p2p/...`. The isolated worktree has no external EF fixtures, so those fixture-dependent tests skip locally; the dedicated remote CI job checks the pinned vectors.
 
 ## Full-Feature Devnet Interop After BAL Enforcement (2026-11-12)
 

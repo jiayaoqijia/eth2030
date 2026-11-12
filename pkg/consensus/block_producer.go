@@ -99,17 +99,17 @@ type Eth1Data struct {
 // previous slot's payload, replacing the former inline execution payload
 // header.
 type BeaconBlockBody struct {
-	RandaoReveal             [96]byte
-	Eth1Data                 Eth1Data
-	Graffiti                 [GraffitiLength]byte
-	ProposerSlashings        []ProposerSlashing
-	AttesterSlashings        []AttesterSlashing
-	Attestations             []*PoolAttestation
-	Deposits                 []Deposit
-	VoluntaryExits           []VoluntaryExit
-	SyncAggregate            *SyncAggregate
+	RandaoReveal              [96]byte
+	Eth1Data                  Eth1Data
+	Graffiti                  [GraffitiLength]byte
+	ProposerSlashings         []ProposerSlashing
+	AttesterSlashings         []AttesterSlashing
+	Attestations              []*PoolAttestation
+	Deposits                  []Deposit
+	VoluntaryExits            []VoluntaryExit
+	SyncAggregate             *SyncAggregate
 	SignedExecutionPayloadBid *SignedExecutionPayloadBid
-	PayloadAttestations      []*PayloadAttestation
+	PayloadAttestations       []*PayloadAttestation
 }
 
 // BeaconBlockV2 represents a full beacon block for production.

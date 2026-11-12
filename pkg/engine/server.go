@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"encoding/hex"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/backendapi"
@@ -33,7 +33,7 @@ type EngineAPI struct {
 	blobValidator   *blobval.BlobValidator
 	// bidObserver, when set, receives every accepted builder bid (EIP-7732
 	// node-side auction wiring).
-	bidObserver func(*SignedExecutionPayloadBid) error
+	bidObserver     func(*SignedExecutionPayloadBid) error
 	server          *http.Server
 	listener        net.Listener
 	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)
@@ -655,7 +655,6 @@ func validateBlobHashes(payload *ExecutionPayloadV3, expected []types.Hash) erro
 	}
 	return nil
 }
-
 
 // decodeHexParam decodes a 0x-hex JSON string parameter into raw bytes.
 func decodeHexParam(raw json.RawMessage) ([]byte, error) {

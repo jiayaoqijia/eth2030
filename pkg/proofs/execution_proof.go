@@ -36,7 +36,7 @@ type BlockExecutionProof struct {
 	// keccak256(rlp(block access list)) per EIP-7928, matching the header's
 	// block-access-list-hash when the block is post-Amsterdam. Zero for
 	// proofs generated without a BAL.
-	BALHash   types.Hash
+	BALHash    types.Hash
 	Commitment types.Hash // Hash binding all proof components.
 }
 

@@ -63,9 +63,9 @@ func TestEIP7594_CustodyAssignmentUsesCanonicalSubnets(t *testing.T) {
 	var nodeID [32]byte
 	nodeID[0] = 0xA7
 	mgr := custody.NewColumnCustodyManager(custody.CustodyManagerParams{
-		NumberOfColumns:   dastypes.NumberOfColumns,
+		NumberOfColumns:    dastypes.NumberOfColumns,
 		CustodyRequirement: dastypes.CustodyRequirement,
-		SamplesPerSlot:    dastypes.SamplesPerSlot,
+		SamplesPerSlot:     dastypes.SamplesPerSlot,
 	}, nodeID)
 
 	assignment, err := mgr.ComputeAssignment(1)

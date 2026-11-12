@@ -506,7 +506,6 @@ func (api *EngineAPI) handleNewPayloadV7(params []json.RawMessage) (any, *jsonrp
 	return result, nil
 }
 
-
 // handleForkchoiceUpdatedV4 processes an engine_forkchoiceUpdatedV4 request
 // (Amsterdam). Lighthouse >= 8.4 adds an optional third `custodyColumns`
 // bitarray param (Fulu/PeerDAS custody set, may be null) — accepted and
