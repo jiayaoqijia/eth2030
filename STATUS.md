@@ -1,5 +1,10 @@
 # Project Status
 
+## Track 3 Remaining Acceptance Design (2026-11-12)
+
+- Recorded specific crash boundaries, proof-binding and reuse evidence, independent state/proof readback, memory scaling, real-client interoperability, and mutation gates in [the remaining-work acceptance design](docs/track3-remaining-acceptance.md). These gates are requirements, not completed test results.
+- Re-ran the current node, state-sync, beacon-sync and snap package race suites and the Go module build successfully. Docker and Kurtosis executables, the local ETH2030 and Lighthouse images, and an `ethereum/client-go` image are available; their presence is not an interoperability test.
+
 ## Track 3 Completed Snapshot Recovery (2026-11-12)
 
 - A CL-selected pivot can reuse a completely downloaded snapshot persisted before a crash or interrupted adoption. The node revalidates the account/storage roots and code, heals trie nodes, and checks the current finalized target before adoption. Offline restart succeeds when the required ancestry and trie nodes are available; corrupted leaves and missing trie nodes without peers are rejected.
