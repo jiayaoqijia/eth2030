@@ -40,15 +40,33 @@ func (c *Client) ID() string { return c.id }
 
 // WithContext creates a request-scoped adapter sharing the peer connection.
 func (c *Client) WithContext(ctx context.Context) *VerifiedPeer {
-	return &VerifiedPeer{Client: c, ctx: ctx, storageRoots: make(map[types.Hash]types.Hash)}
+	return &VerifiedPeer{Client: c, ctx: ctx, state: &verifiedState{storageRoots: make(map[types.Hash]types.Hash)}}
 }
 
 type VerifiedPeer struct {
 	*Client
-	ctx          context.Context
+	ctx   context.Context
+	state *verifiedState
+}
+
+// verifiedState is scoped to a single pivot attempt. Only account ranges
+// authenticated against stateRoot may add storage roots.
+type verifiedState struct {
+	mu           sync.Mutex
 	storageRoots map[types.Hash]types.Hash
 	stateRoot    types.Hash
 	rootSet      bool
+}
+
+// VerifiedPeers shares proof-verified account roots across transports for one
+// pivot attempt, so another peer can continue after a transport fails.
+func VerifiedPeers(ctx context.Context, clients []*Client) []*VerifiedPeer {
+	state := &verifiedState{storageRoots: make(map[types.Hash]types.Hash)}
+	peers := make([]*VerifiedPeer, len(clients))
+	for i, client := range clients {
+		peers[i] = &VerifiedPeer{Client: client, ctx: ctx, state: state}
+	}
+	return peers
 }
 
 func (c *Client) request(ctx context.Context, code uint64, packet func(uint64) any, out any) error {
@@ -121,9 +139,9 @@ func verifyRange(root, origin types.Hash, keys, values, proof [][]byte) (bool, e
 }
 
 func (p *VerifiedPeer) RequestAccountRange(req statesync.AccountRangeRequest) (*statesync.AccountRangeResponse, error) {
-	p.mu.Lock()
-	mismatch := p.rootSet && p.stateRoot != req.Root
-	p.mu.Unlock()
+	p.state.mu.Lock()
+	mismatch := p.state.rootSet && p.state.stateRoot != req.Root
+	p.state.mu.Unlock()
 	if mismatch {
 		return nil, fmt.Errorf("snap: peer adapter pivot changed")
 	}
@@ -152,12 +170,15 @@ func (p *VerifiedPeer) RequestAccountRange(req statesync.AccountRangeRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("snap: account range proof: %w", err)
 	}
-	p.mu.Lock()
-	p.stateRoot, p.rootSet = req.Root, true
-	for key, root := range roots {
-		p.storageRoots[key] = root
+	p.state.mu.Lock()
+	defer p.state.mu.Unlock()
+	if p.state.rootSet && p.state.stateRoot != req.Root {
+		return nil, fmt.Errorf("snap: peer adapter pivot changed")
 	}
-	p.mu.Unlock()
+	p.state.stateRoot, p.state.rootSet = req.Root, true
+	for key, root := range roots {
+		p.state.storageRoots[key] = root
+	}
 	out.More = more && (len(keys) == 0 || bytes.Compare(keys[len(keys)-1], req.Limit[:]) < 0)
 	return out, nil
 }
@@ -167,10 +188,10 @@ func (p *VerifiedPeer) RequestStorageRange(req statesync.StorageRangeRequest) (*
 		return nil, fmt.Errorf("snap: verified storage requests require one account")
 	}
 	account := req.Accounts[0]
-	p.mu.Lock()
-	root, ok := p.storageRoots[account]
-	ok = ok && p.rootSet && p.stateRoot == req.Root
-	p.mu.Unlock()
+	p.state.mu.Lock()
+	root, ok := p.state.storageRoots[account]
+	ok = ok && p.state.rootSet && p.state.stateRoot == req.Root
+	p.state.mu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("snap: storage account not verified")
 	}

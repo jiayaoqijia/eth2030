@@ -5,6 +5,7 @@
 - [x] Trace bounded-memory snapshot download, execution and serving against the snap protocol and database implementations; the active FileDB also retains all values in memory.
 - [x] Preserve storage pagination on transient failure and avoid quadratic scans of completed storage tasks.
 - [x] Verify finalized ancestry before reusing a completed snapshot after a CL finality advance.
+- [x] Continue a fixed-pivot download across peer failures, sharing only account roots authenticated against that pivot.
 - [ ] Implement authenticated moving-pivot continuation and safe restart behavior with regression coverage.
 - [ ] Remove remaining sync scalability bottlenecks without weakening ancestry validation.
 - [ ] Validate real-client interoperability and record the actual scope and resource limits.

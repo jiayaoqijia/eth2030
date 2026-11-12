@@ -56,6 +56,21 @@ func TestVerifiedSnapPeerRejectsGapsAndTampering(t *testing.T) {
 				}
 			}()
 			defer func() { _ = left.Close(); <-readerDone }()
+			left2, right2 := wire.MsgPipe()
+			defer right2.Close()
+			client2 := &Client{id: "test-second", transport: left2, pending: make(map[uint64]pendingResponse)}
+			readerDone2 := make(chan struct{})
+			go func() {
+				defer close(readerDone2)
+				for {
+					msg, err := left2.ReadMsg()
+					if err != nil {
+						return
+					}
+					_ = client2.deliver(msg)
+				}
+			}()
+			defer func() { _ = left2.Close(); <-readerDone2 }()
 			serverDone := make(chan struct{})
 			go func() {
 				defer close(serverDone)
@@ -84,6 +99,17 @@ func TestVerifiedSnapPeerRejectsGapsAndTampering(t *testing.T) {
 					response.Proof = nil
 				}
 				_ = sendSnapMsg(right, AccountRangeMsg, &response)
+				if test == "valid" {
+					msg, err := right2.ReadMsg()
+					if err != nil {
+						return
+					}
+					var storage GetStorageRangesPacket
+					if rlp.DecodeBytes(msg.Payload, &storage) != nil {
+						return
+					}
+					_ = sendSnapMsg(right2, StorageRangesMsg, &StorageRangesPacket{ID: storage.ID, Slots: [][]StorageData{{}}})
+				}
 			}()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
@@ -91,15 +117,29 @@ func TestVerifiedSnapPeerRejectsGapsAndTampering(t *testing.T) {
 			if test == "wrong-root" {
 				root[0] ^= 1
 			}
-			response, err := client.WithContext(ctx).RequestAccountRange(statesync.AccountRangeRequest{Root: root, Limit: types.Hash{0xff}, Bytes: SoftResponseLimit})
-			<-serverDone
+			peers := VerifiedPeers(ctx, []*Client{client, client2})
+			response, err := peers[0].RequestAccountRange(statesync.AccountRangeRequest{Root: root, Limit: types.Hash{0xff}, Bytes: SoftResponseLimit})
 			if test == "valid" {
 				if err != nil || len(response.Accounts) != 3 || response.More {
 					t.Fatalf("valid complete range: %+v %v", response, err)
 				}
-			} else if err == nil {
-				t.Fatal("unproven range accepted")
+				if _, err := peers[1].RequestStorageRange(statesync.StorageRangeRequest{Root: root, Accounts: []types.Hash{keys[0]}}); err != nil {
+					t.Fatalf("second peer could not use verified account root: %v", err)
+				}
+				wrongRoot := root
+				wrongRoot[0] ^= 1
+				if _, err := peers[1].RequestStorageRange(statesync.StorageRangeRequest{Root: wrongRoot, Accounts: []types.Hash{keys[0]}}); err == nil {
+					t.Fatal("storage proof accepted under a different pivot")
+				}
+			} else {
+				if err == nil {
+					t.Fatal("unproven range accepted")
+				}
+				if _, err := peers[1].RequestStorageRange(statesync.StorageRangeRequest{Root: root, Accounts: []types.Hash{keys[0]}}); err == nil {
+					t.Fatal("unverified account root shared with another peer")
+				}
 			}
+			<-serverDone
 		})
 	}
 }

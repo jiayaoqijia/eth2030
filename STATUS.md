@@ -1,5 +1,10 @@
 # Project Status
 
+## Track 3 Snap Peer Failover (2026-11-12)
+
+- One fixed-pivot scheduler can now continue across connected snap peers without throwing away ranges already downloaded in the same attempt. Peers share storage roots only after account-range verification against the same pivot; a root mismatch is rejected even if concurrent verification races with pivot initialization.
+- Tests cover proof-verified account roots consumed by a second peer, request-preserving transport failover, cancellation, and the existing two-node snap bootstrap. This is not durable resume or moving-pivot range reuse.
+
 ## Track 3 Sync Scalability Follow-up (2026-11-12)
 
 - A completed snap pivot can now be adopted after finalized advances only after verifying hash-linked, height-contiguous ancestry against the current CL target and checking that the target did not change during verification. Conflicting branches and malformed ancestry fail closed.

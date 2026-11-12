@@ -75,48 +75,47 @@ func (n *Node) syncFinalizedPivot(ctx context.Context, pivot *types.Block) (bool
 		history = append(history, parent.Header())
 		child = parent
 	}
-	peers := n.snapHandler.Clients()
-	lastErr := fmt.Errorf("snap: no connected peers")
-	for _, client := range peers {
-		if n.ethHandler.Peers().Peer(client.ID()) == nil {
-			continue
+	var clients []*p2psnap.Client
+	for _, client := range n.snapHandler.Clients() {
+		if n.ethHandler.Peers().Peer(client.ID()) != nil {
+			clients = append(clients, client)
 		}
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		writer := statesync.NewSnapshotWriter(n.db)
-		scheduler := statesync.NewStateSyncScheduler(writer, nil)
-		if err := scheduler.SetPivot(pivot.Header()); err != nil {
-			return false, err
-		}
-		peer := client.WithContext(ctx)
-		if err := scheduler.RunContext(ctx, peer); err != nil {
-			lastErr = err
-			continue
-		}
-		// Audit reconstructed trie nodes through the same authenticated healer
-		// used to repair missing nodes. A fixed pivot normally has no gaps.
-		heal := healer.NewStateHealer(pivot.Header().Root, healer.NewTrieStore(n.db))
-		stop := context.AfterFunc(ctx, heal.Close)
-		err := heal.Run(healPeer{peer})
-		stop()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		if err := n.executionSync.AdoptFinalized(ctx, pivot, func() error { return n.blockchain.ImportSnapPivot(pivot, history) }); err != nil {
-			return false, err
-		}
-		return true, nil
 	}
-	return false, lastErr
+	if len(clients) == 0 {
+		return false, fmt.Errorf("snap: no connected peers")
+	}
+	peer := &snapFailoverPeer{ctx: ctx}
+	for _, verified := range p2psnap.VerifiedPeers(ctx, clients) {
+		peer.peers = append(peer.peers, verified)
+	}
+	writer := statesync.NewSnapshotWriter(n.db)
+	scheduler := statesync.NewStateSyncScheduler(writer, nil)
+	if err := scheduler.SetPivot(pivot.Header()); err != nil {
+		return false, err
+	}
+	if err := scheduler.RunContext(ctx, peer); err != nil {
+		return false, err
+	}
+	// Audit reconstructed trie nodes through the same authenticated healer
+	// used to repair missing nodes. A fixed pivot normally has no gaps.
+	heal := healer.NewStateHealer(pivot.Header().Root, healer.NewTrieStore(n.db))
+	stop := context.AfterFunc(ctx, heal.Close)
+	err := heal.Run(healPeer{peer})
+	stop()
+	if err != nil {
+		return false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if err := n.executionSync.AdoptFinalized(ctx, pivot, func() error { return n.blockchain.ImportSnapPivot(pivot, history) }); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Healers request only trie nodes; range download stays in the scheduler.
-type healPeer struct{ *p2psnap.VerifiedPeer }
+type healPeer struct{ statesync.SnapPeer }
 
 func (p healPeer) RequestAccountRange(healer.AccountRangeRequest) (*healer.AccountRangeResponse, error) {
 	return nil, fmt.Errorf("healer: unexpected account request")
