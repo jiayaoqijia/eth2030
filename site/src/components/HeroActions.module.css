@@ -1,0 +1,76 @@
+.actions {
+  width: min(100%, 744px);
+  margin: 40px auto 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.action {
+  --accent: #8c8dfc;
+  min-width: 0;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 11px;
+  padding: 14px;
+  position: relative;
+  overflow: hidden;
+  text-align: left;
+  color: #e6e6ff;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  border-radius: 9px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--accent) 10%, #12122a), #101128 75%);
+  box-shadow: inset 0 1px #ffffff0d, 0 8px 28px #05051045;
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease, background .2s ease;
+}
+
+.action::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 14px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: .6;
+}
+
+.roadmap { --accent: #2de2e6; }
+.github { --accent: #a4a5ff; }
+.docs { --accent: #ff8db3; }
+
+.icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.icon svg { width: 21px; height: 21px; }
+.label { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.label strong { color: #eeeeff; font-size: 13px; font-weight: 700; line-height: 1.2; }
+.label small { color: #b0b4d1; font-size: 10px; line-height: 1.3; }
+.arrow { color: var(--accent); font-size: 14px; opacity: .75; transition: transform .2s ease, opacity .2s ease; }
+
+.action:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+  box-shadow: inset 0 1px #ffffff16, 0 10px 30px #05051070, 0 0 22px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.action:hover .arrow { opacity: 1; transform: translate(2px, -2px); }
+.action:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+@media (max-width: 700px) {
+  .actions { grid-template-columns: 1fr; max-width: 400px; margin-top: 30px; gap: 10px; }
+  .action { min-height: 64px; padding: 12px 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action, .arrow { transition: none; }
+  .action:hover, .action:hover .arrow { transform: none; }
+}

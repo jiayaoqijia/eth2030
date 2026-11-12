@@ -1,5 +1,42 @@
 # Project Status
 
+## Homepage Hero Actions (2026-11-13)
+
+- Redesigned the Roadmap, GitHub and Docs actions as equal-sized responsive cards with consistent icons, descriptions, focus states and reduced-motion support.
+- Validation: production site build and export checks passed. Browser checks confirmed equal dimensions and valid destinations at 1440px, 390px and 320px, without horizontal overflow; the Roadmap action has a visible keyboard focus state. Changes remain local and unpublished.
+
+## Homepage Roadmap Entry (2026-11-13)
+
+- Added direct Roadmap links to the homepage hero and footer. The site build and export checks passed; browser verification confirmed the hero link is visible at mobile width and opens `/roadmap/`.
+
+## Roadmap Homepage Integration (2026-11-13)
+
+- Promoted the six-card roadmap prototype to `/roadmap/` and integrated a compact six-card summary into the homepage. The homepage displays non-complete tracker entries only, with direct links to the corresponding detailed card; the detailed page retains the full node and status display.
+- Both views use the same fork mapping and tracker-count calculation. Percentages are the share of mapped entries historically labelled complete, not independent conformance or readiness measurements.
+- Validation: site build and export assertions passed, including all six links, filtering of complete entries and matching homepage/detail percentages. Tracker verification checked 371 paths without missing files or blocking discrepancies. Browser checks covered 1440px/390px layouts, card sizes, anchors and console errors; local Go build passed. This branch builds on the unmerged website refresh PR #52 and is not deployed.
+
+## EF Roadmap Prototype Card Alignment (2026-11-13)
+
+- Made all six roadmap cards equal in height and width within each responsive layout, preserved chronological reading order, aligned card footers, and allowed content to expand the shared grid height instead of being clipped.
+- Validation: production site build and export checks passed. Browser checks at 1440px, 1024px, 390px and 320px confirmed matching card dimensions, reading order, and no card or page overflow. This remains a local prototype.
+
+## EF Roadmap Prototype Density and Percentage (2026-11-13)
+
+- Made the six local prototype cards more compact, with responsive three-column layout, visible status ratios, animated percent rings and condensed EIP rows. Each percentage is the count of mapped entries labelled `complete` divided by all mapped tracker entries, rounded to the nearest whole percent; the unmapped EF node is excluded. Historical labels are not independent conformance or production-readiness measurements.
+- Validation: site production build and export checks passed; 371 tracker paths checked; browser checks recomputed all six ratios from displayed entries, including zero-complete cases, verified no detail links or console errors, and checked 1440px/390px layouts and reduced motion. This remains a local prototype.
+
+## EF Roadmap Prototype Visual Revision (2026-11-12)
+
+- Revised the local-only six-card prototype to use the existing dark, purple/cyan, glitch and matrix visual language. Cards now display all mapped nodes, individual tracker labels and status distributions inline, with no EIP detail-page navigation. An EF node without a tracker mapping is marked explicitly; the EIP-8077 association remains tentative.
+- Status distribution bars count historical tracker labels and are not implementation-completion percentages. The prototype retains this limitation and the EF draft-roadmap attribution.
+- Validation: production site build and export checks passed; 371 tracker paths verified; browser checks confirmed six cards, all 51 mapped entries and their counts, no detail links, no console errors, 1440px/390px layout, and reduced-motion behavior. Not published.
+
+## EF Roadmap Six-Card Prototype (2026-11-12)
+
+- Added a local-only `/roadmap-prototype/` view using the EF-maintained November 2 Strawmap as its source. Six interactive fork cards open mapped tracker entries grouped by roadmap node, with source, code/test references and explicit historical-status limits.
+- The original drawing places leanVM PQ proofs in I* and ethp2p unification in L*, while the older tracker classifies them differently; the prototype follows the drawing and calls out the discrepancy. Longer-term items remain outside these six cards.
+- Validation: static site build and export checks, tracker path verification (371 paths, no missing), local Go build, and browser checks of all six cards, grouped entries and 390px/1440px layouts passed. This is a review prototype, not a deployed page or a new full conformance audit.
+
 ## Website Account and Content Refresh (2026-11-12)
 
 - Updated site repository links, clone instructions and issue contacts to `alt-research/eth2030`; aligned legal pages and deployment CNAME with the configured `eth2030.altllm.ai` domain. Updated the Go minimum to match `pkg/go.mod`.

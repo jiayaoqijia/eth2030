@@ -1,5 +1,38 @@
 # Lean4 Verification Check-list
 
+## Roadmap Homepage Integration (2026-11-13)
+
+- [x] Promote the approved prototype to a detailed roadmap page and share its progress model with the homepage.
+- [x] Replace the homepage roadmap with six compact cards showing progress and only non-complete tracker entries.
+- [x] Verify homepage filtering, matching percentages, links, responsive layout, and the site build.
+- [x] Update status and commit the integration without publishing.
+
+## Roadmap Prototype Card Alignment (2026-11-13)
+
+- [x] Keep the six roadmap phases in chronological reading order and equalize card dimensions without clipping content.
+- [x] Verify all card sizes, order, visible content, and responsive layouts in the browser.
+- [x] Build, record the result, and commit the local prototype without publishing.
+
+## Roadmap Prototype Density and Percentage (2026-11-13)
+
+- [x] Make all six cards denser and emphasize tracker progress with clearly defined percentages and animation.
+- [x] Check percentage math against displayed entries, zero-complete cases, responsive layouts and reduced motion.
+- [x] Build, update status, and commit the local prototype without publishing.
+
+## Roadmap Prototype Visual Revision (2026-11-12)
+
+- [x] Match the existing site's dark visual language and add accessible animation.
+- [x] Put all mapped roadmap nodes and tracker progress directly inside six cards without detail-page navigation.
+- [x] Verify every mapped entry, status counts, animations, responsive layout, and the production build.
+- [x] Record the prototype revision and commit without publishing.
+
+## EF Roadmap Six-Card Prototype (2026-11-12)
+
+- [x] Check the current EF Strawmap and map its six fork columns to the existing repository tracker.
+- [x] Build a responsive, interactive prototype with source attribution and clear evidence limitations.
+- [x] Build locally, inspect desktop and mobile, and verify card navigation and source links.
+- [x] Record the prototype scope and commit the prototype without publishing it.
+
 ## Website Account and Content Refresh (2026-11-12)
 
 - [x] Compare the deployed site and GitHub Pages configuration with current repository ownership and source.

@@ -1,0 +1,41 @@
+.section { padding:100px 16px; background:#12122a4d; }
+.wrap { max-width:1120px; margin:0 auto; }
+.intro { display:flex; align-items:end; justify-content:space-between; gap:24px; margin-bottom:24px; }
+.intro p { max-width:650px; font-size:12px; line-height:1.8; color:#b8bad5; }
+.detailLink { flex:none; color:#2de2e6; font-size:11px; font-weight:700; border:1px solid #2de2e655; border-radius:6px; padding:12px 16px; transition:background .2s,box-shadow .2s; }
+.detailLink:hover { background:#2de2e611; box-shadow:0 0 20px #2de2e622; }
+.detailLink span { margin-left:6px; }
+.cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:1fr; gap:12px; }
+.card { min-width:0; display:flex; flex-direction:column; padding:18px; position:relative; overflow:hidden; border:1px solid #8c8dfc55; border-radius:9px; background:linear-gradient(155deg,#171735ed,#101229f5 55%,#12132ef5); box-shadow:0 12px 32px #05051050; transition:border-color .2s,box-shadow .2s; }
+.card::before { content:''; position:absolute; height:2px; top:0; left:0; right:0; background:linear-gradient(90deg,transparent,#8c8dfc,#2de2e6,transparent); opacity:.8; }
+.card:hover,.card:focus-visible { border-color:#2de2e699; box-shadow:0 0 26px #2de2e61c,0 12px 32px #05051070; }
+.card:focus-visible,.detailLink:focus-visible { outline:2px solid #2de2e6; outline-offset:3px; }
+.cardHead { display:flex; align-items:center; gap:11px; }
+.glyph { display:grid; place-items:center; flex:none; width:43px; height:43px; border:1px solid #8c8dfc66; border-radius:7px; background:#8c8dfc10; color:#aaaaff; font-size:16px; font-weight:800; }
+.phaseIndex { color:#9698ca; font-size:9px; letter-spacing:.07em; }
+.cardHead h3 { color:#f0edff; font-size:17px; font-weight:700; margin-top:3px; letter-spacing:-.04em; }
+.arrow { color:#7a81b3; margin-left:auto; font-size:16px; }
+.progress { display:flex; align-items:center; gap:14px; margin:17px 0; }
+.ring { flex:none; display:grid; place-items:center; width:70px; height:70px; padding:4px; border-radius:50%; background:conic-gradient(#2de2e6 calc(var(--complete-pct) * 1%),#292d50 0); box-shadow:0 0 17px #2de2e62b; animation:ringGlow 3s ease-in-out infinite; }
+.ring strong { display:grid; place-items:center; grid-auto-flow:column; align-content:center; border-radius:50%; width:100%; height:100%; background:#12132e; color:#70f7f6; font-size:22px; letter-spacing:-.08em; text-shadow:0 0 12px #2de2e688; }
+.ring small { font-size:11px; letter-spacing:0; }
+.progressText { display:flex; flex-direction:column; gap:3px; }
+.progressText>span { color:#aaadd0; font-size:9px; letter-spacing:.05em; }
+.progressText strong { color:#e9eaff; font-size:18px; line-height:1; }
+.progressText i { color:#7782bc; font-style:normal; }
+.progressText small { color:#a5a8c8; font-size:9px; }
+.pendingTitle { display:flex; justify-content:space-between; gap:8px; border-top:1px solid #8c8dfc30; padding-top:12px; font-size:9px; color:#a0a3c6; }
+.pendingTitle span:last-child { color:#2de2e6; }
+.pending { flex:1; min-height:92px; margin-top:7px; }
+.pendingRow { display:flex; justify-content:space-between; gap:9px; align-items:baseline; padding:5px 0; font-size:10px; line-height:1.4; color:#d4d5ed; border-bottom:1px solid #ffffff0a; }
+.pendingRow span:last-child { color:#a9a3eb; font-size:9px; text-align:right; flex:none; }
+.empty { font-size:10px; color:#a3a7c6; line-height:1.6; padding-top:8px; }
+.cardFooter { display:flex; justify-content:space-between; gap:8px; border-top:1px solid #8c8dfc28; padding-top:11px; margin-top:8px; color:#969bc3; font-size:9px; }
+.cardFooter span:last-child { color:#2de2e6; }
+.note { color:#aaaecb; font-size:10px; line-height:1.8; margin-top:22px; }
+.note a,.secondary a { color:#2de2e6; text-decoration:underline; }
+.secondary { display:flex; gap:12px; color:#697198; font-size:11px; margin-top:15px; }
+@keyframes ringGlow { 50% { box-shadow:0 0 25px #2de2e655; } }
+@media(max-width:900px) { .cards { grid-template-columns:repeat(2,minmax(0,1fr)); }.intro { align-items:start; flex-direction:column; gap:14px; } }
+@media(max-width:600px) { .section { padding:70px 16px; }.cards { grid-template-columns:1fr; }.card { padding:16px; }.pending { min-height:unset; }.cardFooter { margin-top:14px; } }
+@media(prefers-reduced-motion:reduce) { .ring { animation:none; }.detailLink,.card { transition:none; } }

@@ -1,13 +1,3 @@
-export const roadmapPhases = [
-  { name: 'Glamsterdam', highlights: ['ePBS', 'Block-level access lists', 'Gas repricing'], note: 'Sepolia activated; Hoodi postponed. Mainnet date has not been announced.' },
-  { name: 'Hegotá', highlights: ['FOCIL', 'Quick slots', 'Frame transactions', 'PQ key registrations'], note: 'Scope and timing remain subject to the upgrade process.' },
-  { name: 'I*', highlights: ['Decoupled consensus', 'leanSPHINCS transactions', 'leanVM PQ proofs'], note: 'Placeholder name; proposed work.' },
-  { name: 'J*', highlights: ['leanXMSS PQ attestations', 'leanDA PQ sampling', 'leanPCS frames'], note: 'Placeholder name; proposed work.' },
-  { name: 'K*', highlights: ['Mandatory 1-of-1 proofs', 'Decentralized state'], note: 'Placeholder name; proposed work.' },
-  { name: 'L*', highlights: ['1-round finality', 'Native rollups'], note: 'Placeholder name; proposed work.' },
-  { name: 'Longer term', highlights: ['Shielded transfers', 'Encrypted mempool', 'Distributed block building'], note: 'Research directions, not scheduled releases.' },
-];
-
 export const evidence = [
   { title: 'Block-level access lists', spec: 'EIP-7928', eip: '7928', code: 'pkg/bal', test: 'pkg/bal/spec_test.go', summary: 'Access tracking, ordering validation and scheduling code with package tests.', limit: 'Full current-spec conformance and network interoperability have not been established by this review.' },
   { title: 'Enshrined proposer-builder separation', spec: 'EIP-7732', eip: '7732', code: 'pkg/epbs', test: 'pkg/epbs/validation_test.go', summary: 'Builder bid and payload validation, payment state and Engine API code.', limit: 'Bid validation permits zero signatures or public keys in its testing path; end-to-end consensus interoperability is not established here.' },
