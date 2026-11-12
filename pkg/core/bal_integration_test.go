@@ -3,7 +3,9 @@
 package core
 
 import (
+	"errors"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
@@ -318,9 +320,9 @@ func TestValidator_RejectsBALMismatch(t *testing.T) {
 	}
 }
 
-// TestValidator_AcceptsMissingBALHashForCLCompatibility covers the legacy
-// payload path where the EL computes the BAL and the CL omits its hash.
-func TestValidator_AcceptsMissingBALHashForCLCompatibility(t *testing.T) {
+// TestValidator_RejectsMissingBALHashPostAmsterdam verifies the EIP-7928
+// rule that post-Amsterdam headers must carry block-access-list-hash.
+func TestValidator_RejectsMissingBALHashPostAmsterdam(t *testing.T) {
 	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	header := &types.Header{
@@ -330,8 +332,11 @@ func TestValidator_AcceptsMissingBALHashForCLCompatibility(t *testing.T) {
 
 	computedHash := types.HexToHash("0xcafebabe")
 	err := v.ValidateBlockAccessList(header, &computedHash)
-	if err != nil {
-		t.Fatalf("legacy payload with a computed BAL was rejected: %v", err)
+	if err == nil {
+		t.Fatal("post-Amsterdam block without a BAL hash must be rejected")
+	}
+	if !strings.Contains(err.Error(), "missing block_access_list_hash") {
+		t.Fatalf("unexpected rejection reason: %v", err)
 	}
 }
 
@@ -501,7 +506,7 @@ func TestBlockchain_RejectsWrongBALHash(t *testing.T) {
 
 // TestBAL_HashValidationAcrossFork covers BAL hash validation at activation.
 func TestBAL_HashValidationAcrossFork(t *testing.T) {
-	// Create two configs: one with Amsterdam, one without.
+	// Activate Amsterdam at a nonzero timestamp to exercise the fork boundary.
 	amsterdamTime := uint64(100)
 	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
@@ -520,23 +525,34 @@ func TestBAL_HashValidationAcrossFork(t *testing.T) {
 
 	v := coreblock.NewBlockValidator(config)
 
-	// Pre-Amsterdam block (time 50): should NOT require BAL hash.
-	preHeader := &types.Header{Time: 50}
-	if err := v.ValidateBlockAccessList(preHeader, nil); err != nil {
-		t.Errorf("pre-Amsterdam should not require BAL: %v", err)
-	}
-
-	// Post-Amsterdam legacy CL payloads may omit the header hash.
-	postHeader := &types.Header{Time: 200, BlockAccessListHash: nil}
-	if err := v.ValidateBlockAccessList(postHeader, nil); err != nil {
-		t.Errorf("legacy post-Amsterdam payload rejected: %v", err)
-	}
-
-	// Post-Amsterdam block with correct BAL hash: should pass.
+	// EIP-7928 requires the header commitment from activation onward, even
+	// for an empty BAL. Before activation, the field must be absent.
 	emptyHash := bal.NewBlockAccessList().Hash()
-	postHeaderValid := &types.Header{Time: 200, BlockAccessListHash: &emptyHash}
-	if err := v.ValidateBlockAccessList(postHeaderValid, &emptyHash); err != nil {
-		t.Errorf("post-Amsterdam block with correct BAL should pass: %v", err)
+	for _, tc := range []struct {
+		name       string
+		time       uint64
+		headerHash *types.Hash
+		computed   *types.Hash
+		wantErr    bool
+	}{
+		{"before/absent", amsterdamTime - 1, nil, nil, false},
+		{"before/present", amsterdamTime - 1, &emptyHash, &emptyHash, true},
+		{"activation/absent", amsterdamTime, nil, nil, true},
+		{"activation/present", amsterdamTime, &emptyHash, &emptyHash, false},
+		{"after/absent", amsterdamTime + 1, nil, nil, true},
+		{"after/present", amsterdamTime + 1, &emptyHash, &emptyHash, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			header := &types.Header{Time: tc.time, BlockAccessListHash: tc.headerHash}
+			err := v.ValidateBlockAccessList(header, tc.computed)
+			if tc.wantErr {
+				if !errors.Is(err, coreblock.ErrInvalidBlockAccessList) {
+					t.Fatalf("want ErrInvalidBlockAccessList, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("valid BAL header rejected: %v", err)
+			}
+		})
 	}
 }
 

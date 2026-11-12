@@ -68,7 +68,7 @@ Three layers, each with sub-tracks:
 
 ### EIP Implementation Status
 - **Complete** (50): EIP-150, EIP-152, EIP-196/197, EIP-1153, EIP-1559, EIP-2200, EIP-2537, EIP-2718, EIP-2929, EIP-2930, EIP-2935, EIP-3529, EIP-3540, EIP-4444, EIP-4762, EIP-4788, EIP-4844 (incl. KZG), EIP-4895, EIP-5656, EIP-6110, EIP-6780, EIP-7002, EIP-7069, EIP-7251, EIP-7480, EIP-7547, EIP-7549, EIP-7594, EIP-7620, EIP-7685, EIP-7691, EIP-7698, EIP-7701, EIP-7702, EIP-7706, EIP-7742, EIP-7745, EIP-7825, EIP-7898, EIP-7904, EIP-7916, EIP-7918, EIP-7928, EIP-7934, EIP-7939, EIP-8024, EIP-8070, EIP-8077, EIP-8141
-- **Substantial** (8): EIP-7732 (ePBS), EIP-7864 (binary tree), EIP-7805 (FOCIL, incl. Dora explorer support + EIP-8141 frame tx IL satisfaction), EIP-8025 (execution proofs), EIP-6404 and EIP-7807 (draft codecs and reference vectors; fork activation pending), EIP-8079 (rollup execution component; precompile address and ABI pending), PQC (Dilithium3/Falcon512/SPHINCS+)
+- **Substantial** (10): EIP-7732 (ePBS: Gloas state, PTC, builder payments), EIP-7864 (binary tree), EIP-7805 (FOCIL, incl. Dora explorer support + EIP-8141 frame tx IL satisfaction), EIP-7975 (eth/70 partial receipt lists), EIP-8159 (eth/71 BAL exchange), EIP-8025 (execution proofs), EIP-6404 and EIP-7807 (draft codecs and reference vectors; fork activation pending), EIP-8079 (rollup execution component; precompile address and ABI pending), PQC (Dilithium3/Falcon512/SPHINCS+)
 
 ## Project Structure & Module Organization
 

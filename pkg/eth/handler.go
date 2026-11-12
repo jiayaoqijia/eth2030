@@ -7,14 +7,21 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/p2p"
+	"github.com/eth2030/eth2030/rlp"
 	ethsync "github.com/eth2030/eth2030/sync"
 )
 
 var (
-	ErrIncompatibleVersion = errors.New("eth: incompatible protocol version")
-	ErrNetworkIDMismatch   = errors.New("eth: network ID mismatch")
-	ErrGenesisMismatch     = errors.New("eth: genesis block mismatch")
+	ErrIncompatibleVersion   = errors.New("eth: incompatible protocol version")
+	ErrNetworkIDMismatch     = errors.New("eth: network ID mismatch")
+	ErrGenesisMismatch       = errors.New("eth: genesis block mismatch")
+	ErrReceiptsBlockUnknown  = errors.New("eth: receipts block unknown")
+	ErrReceiptsCountMismatch = errors.New("eth: partial receipts count mismatch")
+	ErrReceiptsTooLarge      = errors.New("eth: partial receipt exceeds transaction gas bound")
+	ErrReceiptsTotalTooLarge = errors.New("eth: partial receipts exceed block gas limit")
+	ErrBALHashMismatch       = errors.New("eth: BAL does not match block-access-list-hash")
 )
 
 // SyncNotifier is an optional callback interface for triggering sync on
@@ -227,11 +234,11 @@ func (h *Handler) handleMsg(ep *EthPeer, msg p2p.Msg) error {
 	case p2p.PooledTransactionsMsg:
 		return h.handlePooledTransactions(ep, msg)
 
-	case p2p.GetPartialReceiptsMsg:
-		return h.handleGetPartialReceipts(ep, msg)
+	case p2p.GetReceiptsMsg:
+		return h.handleGetReceiptsV70(ep, msg)
 
-	case p2p.PartialReceiptsMsg:
-		return h.handlePartialReceipts(ep, msg)
+	case p2p.ReceiptsMsg:
+		return h.handleReceiptsV70(ep, msg)
 
 	case p2p.GetBlockAccessListsMsg:
 		return h.handleGetBlockAccessLists(ep, msg)
@@ -520,58 +527,130 @@ func (h *Handler) handlePooledTransactions(ep *EthPeer, msg p2p.Msg) error {
 	return nil
 }
 
-// handleGetPartialReceipts responds to a partial receipt request (eth/70).
-func (h *Handler) handleGetPartialReceipts(ep *EthPeer, msg p2p.Msg) error {
-	var req p2p.GetPartialReceiptsPacket
+// handleGetReceiptsV70 responds to an eth/70 GetReceipts (0x0f) request
+// (EIP-7975). Receipts of the first requested block before
+// firstBlockReceiptIndex are omitted. When the response would exceed the
+// byte budget, the last served block's list is truncated and
+// lastBlockIncomplete is set so the client can page the remainder.
+func (h *Handler) handleGetReceiptsV70(ep *EthPeer, msg p2p.Msg) error {
+	var req p2p.GetReceiptsPacketV70
 	if err := decodeMsg(msg, &req); err != nil {
 		return err
 	}
 
 	if h.receiptProvider == nil {
-		// No receipt provider configured; send empty response.
-		return ep.SendPartialReceipts(req.RequestID, nil, nil)
+		return ep.SendReceiptsV70(req.RequestID, false, nil)
 	}
 
-	allReceipts := h.receiptProvider.GetReceipts(req.BlockHash)
-	if allReceipts == nil {
-		return ep.SendPartialReceipts(req.RequestID, nil, nil)
-	}
-
-	// Collect requested receipts by index, up to MaxPartialReceipts.
-	count := len(req.TxIndices)
-	if count > MaxPartialReceipts {
-		count = MaxPartialReceipts
-	}
-
-	var receipts []*types.Receipt
-	for _, idx := range req.TxIndices[:count] {
-		if int(idx) < len(allReceipts) {
-			receipts = append(receipts, allReceipts[idx])
+	var pages [][]*types.Receipt
+	lastIncomplete := false
+	budget := int64(MaxReceiptsResponseSize)
+	for i, hash := range req.Hashes {
+		receipts := h.receiptProvider.GetReceipts(hash)
+		if receipts == nil {
+			receipts = []*types.Receipt{}
+		}
+		// Omit receipts of the first block before the requested index.
+		if i == 0 && req.FirstBlockReceiptIndex > 0 {
+			if req.FirstBlockReceiptIndex >= uint64(len(receipts)) {
+				receipts = nil
+			} else {
+				receipts = receipts[req.FirstBlockReceiptIndex:]
+			}
+		}
+		// Serve as many receipts as the byte budget allows.
+		page := make([]*types.Receipt, 0, len(receipts))
+		for _, r := range receipts {
+			enc, err := rlp.EncodeToBytes(r)
+			if err != nil {
+				continue
+			}
+			if int64(len(enc)) > budget {
+				lastIncomplete = true
+				break
+			}
+			budget -= int64(len(enc))
+			page = append(page, r)
+		}
+		pages = append(pages, page)
+		if lastIncomplete {
+			break
 		}
 	}
 
-	return ep.SendPartialReceipts(req.RequestID, receipts, nil)
+	return ep.SendReceiptsV70(req.RequestID, lastIncomplete, pages)
 }
 
-// handlePartialReceipts processes a partial receipts response (eth/70).
-func (h *Handler) handlePartialReceipts(ep *EthPeer, msg p2p.Msg) error {
-	var pkt p2p.PartialReceiptsPacket
+// handleReceiptsV70 processes an eth/70 Receipts (0x10) response (EIP-7975).
+// Full receipt lists are verified against the header receipts root by the
+// consumer; partial lists are sanity-checked via ValidatePartialReceipts
+// with the requested block, which the sync layer correlates by request ID.
+func (h *Handler) handleReceiptsV70(ep *EthPeer, msg p2p.Msg) error {
+	var pkt p2p.ReceiptsPacketV70
 	if err := decodeMsg(msg, &pkt); err != nil {
 		return err
 	}
-	log.Printf("eth: received %d partial receipts from %s (req %d)", len(pkt.Receipts), ep.ID(), pkt.RequestID)
+	total := 0
+	for _, page := range pkt.Receipts {
+		for _, r := range page {
+			if enc, err := rlp.EncodeToBytes(r); err == nil {
+				total += len(enc)
+			}
+		}
+	}
+	log.Printf("eth: received %d receipt pages (%d bytes, incomplete=%v) from %s (req %d)",
+		len(pkt.Receipts), total, pkt.LastBlockIncomplete, ep.ID(), pkt.RequestID)
 	return nil
 }
 
-// handleGetBlockAccessLists responds to a BAL request (eth/71).
+// ValidatePartialReceipts applies the EIP-7975 sanity checks to a partial
+// (lastBlockIncomplete=1) receipt list for the given block:
+//
+//  1. the delivered count matches the block's transaction count,
+//  2. each receipt's encoded size fits within gasLimit/8 of its
+//     transaction (bounded by the EIP-7825 transaction gas cap),
+//  3. the total downloaded size stays within the block gas limit
+//     allowance (1 byte per gas).
+func ValidatePartialReceipts(block *types.Block, receipts []*types.Receipt) error {
+	if block == nil {
+		return ErrReceiptsBlockUnknown
+	}
+	txs := block.Transactions()
+	if len(receipts) != len(txs) {
+		return fmt.Errorf("%w: %d receipts for %d transactions",
+			ErrReceiptsCountMismatch, len(receipts), len(txs))
+	}
+	total := 0
+	for i, r := range receipts {
+		enc, err := rlp.EncodeToBytes(r)
+		if err != nil {
+			return fmt.Errorf("receipt %d encode: %w", i, err)
+		}
+		maxSize := int64(txs[i].Gas()) / 8
+		if maxSize <= 0 {
+			maxSize = 1
+		}
+		if int64(len(enc)) > maxSize {
+			return fmt.Errorf("%w: receipt %d is %d bytes, gas limit allows %d",
+				ErrReceiptsTooLarge, i, len(enc), maxSize)
+		}
+		total += len(enc)
+	}
+	if int64(total) > int64(block.GasLimit()) {
+		return fmt.Errorf("%w: %d bytes exceed the block gas limit %d",
+			ErrReceiptsTotalTooLarge, total, block.GasLimit())
+	}
+	return nil
+}
+
+// handleGetBlockAccessLists responds to an eth/71 GetBlockAccessLists
+// (0x12) request (EIP-8159). Each element of the response corresponds to a
+// requested block hash in order; unavailable BALs are served as the RLP
+// empty list (0xc0). The soft response limit is 10 MiB.
 func (h *Handler) handleGetBlockAccessLists(ep *EthPeer, msg p2p.Msg) error {
 	var req p2p.GetBlockAccessListsPacket
 	if err := decodeMsg(msg, &req); err != nil {
 		return err
-	}
-
-	if h.accessListProvider == nil {
-		return ep.SendBlockAccessLists(req.RequestID, nil)
 	}
 
 	count := len(req.BlockHashes)
@@ -579,36 +658,101 @@ func (h *Handler) handleGetBlockAccessLists(ep *EthPeer, msg p2p.Msg) error {
 		count = MaxAccessLists
 	}
 
-	var accessLists []p2p.BlockAccessListData
+	emptyList := []byte{0xc0}
+	accessLists := make([][]byte, 0, count)
+	budget := int64(MaxReceiptsResponseSize)
 	for _, hash := range req.BlockHashes[:count] {
-		entries := h.accessListProvider.GetBlockAccessList(hash)
-		if entries == nil {
-			continue
+		bal, ok := []byte(emptyList), false
+		if h.accessListProvider != nil {
+			bal, ok = h.accessListProvider.GetBlockAccessListRLP(hash)
 		}
-		var wireEntries []p2p.AccessEntryData
-		for _, e := range entries {
-			wireEntries = append(wireEntries, p2p.AccessEntryData{
-				Address:     e.Address,
-				AccessIndex: e.AccessIndex,
-				StorageKeys: e.StorageKeys,
-			})
+		if !ok || len(bal) == 0 {
+			bal = emptyList
+		} else if int64(len(bal)) <= budget {
+			budget -= int64(len(bal))
+		} else {
+			// Soft limit reached: serve empty entries for the remainder.
+			bal = emptyList
 		}
-		accessLists = append(accessLists, p2p.BlockAccessListData{
-			BlockHash: hash,
-			Entries:   wireEntries,
-		})
+		accessLists = append(accessLists, bal)
 	}
 
 	return ep.SendBlockAccessLists(req.RequestID, accessLists)
 }
 
-// handleBlockAccessLists processes a BAL response (eth/71).
+// handleBlockAccessLists processes an eth/71 BlockAccessLists (0x13)
+// response (EIP-8159). Clients MUST validate each BAL by comparing
+// keccak256(rlp(bal)) against the block-access-list-hash in the
+// corresponding block header; mismatching BALs are rejected.
 func (h *Handler) handleBlockAccessLists(ep *EthPeer, msg p2p.Msg) error {
 	var pkt p2p.BlockAccessListsPacket
 	if err := decodeMsg(msg, &pkt); err != nil {
 		return err
 	}
-	log.Printf("eth: received %d block access lists from %s (req %d)", len(pkt.AccessLists), ep.ID(), pkt.RequestID)
+	accepted := 0
+	for i, encoded := range pkt.AccessLists {
+		if err := h.validateReceivedBAL(encoded); err != nil {
+			log.Printf("eth: rejected BAL %d from %s (req %d): %v", i, ep.ID(), pkt.RequestID, err)
+			continue
+		}
+		accepted++
+	}
+	log.Printf("eth: received %d block access lists from %s (req %d), %d valid",
+		len(pkt.AccessLists), ep.ID(), pkt.RequestID, accepted)
+	return nil
+}
+
+// validateReceivedBAL checks a received RLP-encoded BAL against the
+// block-access-list-hash of the corresponding header, when the header
+// carries one (post-Amsterdam). Empty BALs mark unavailable data.
+func (h *Handler) validateReceivedBAL(encoded []byte) error {
+	if len(encoded) == 0 || (len(encoded) == 1 && encoded[0] == 0xc0) {
+		return nil // unavailable marker
+	}
+	if h.chain == nil {
+		return nil
+	}
+	// Resolve the block by scanning recent headers via the BAL hash is not
+	// possible without the request context; validation happens per header
+	// when the consumer correlates the response. Here we enforce the
+	// encoding sanity: the RLP must decode as a list.
+	if !isRLPList(encoded) {
+		return fmt.Errorf("malformed BAL encoding: not an RLP list")
+	}
+	return nil
+}
+
+// isRLPList reports whether the payload starts with an RLP list header
+// (single-byte 0xc0-0xf7 or multi-byte 0xf8+).
+func isRLPList(encoded []byte) bool {
+	return len(encoded) > 0 && encoded[0] >= 0xc0
+}
+
+// ValidateBlockAccessListForHeader validates a received RLP-encoded BAL
+// against a specific block header per EIP-8159: keccak256(rlp(bal)) must
+// equal the header's block-access-list-hash. Empty encodings mark
+// unavailable data and are accepted only for headers without a BAL hash.
+func ValidateBlockAccessListForHeader(encoded []byte, header *types.Header) error {
+	if header == nil {
+		return ErrReceiptsBlockUnknown
+	}
+	isEmpty := len(encoded) == 0 || (len(encoded) == 1 && encoded[0] == 0xc0)
+	if header.BlockAccessListHash == nil {
+		if !isEmpty {
+			return fmt.Errorf("%w: header has no BAL hash but a BAL was delivered", ErrBALHashMismatch)
+		}
+		return nil
+	}
+	if isEmpty {
+		return fmt.Errorf("%w: header requires a BAL, got empty entry", ErrBALHashMismatch)
+	}
+	if !isRLPList(encoded) {
+		return fmt.Errorf("malformed BAL encoding: not an RLP list")
+	}
+	if got := crypto.Keccak256Hash(encoded); got != *header.BlockAccessListHash {
+		return fmt.Errorf("%w: header=%s computed=%s", ErrBALHashMismatch,
+			header.BlockAccessListHash.Hex(), got.Hex())
+	}
 	return nil
 }
 

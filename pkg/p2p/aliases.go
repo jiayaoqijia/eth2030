@@ -153,8 +153,6 @@ const (
 	PooledTransactionsMsg         = ethproto.PooledTransactionsMsg
 	GetReceiptsMsg                = ethproto.GetReceiptsMsg
 	ReceiptsMsg                   = ethproto.ReceiptsMsg
-	GetPartialReceiptsMsg         = ethproto.GetPartialReceiptsMsg
-	PartialReceiptsMsg            = ethproto.PartialReceiptsMsg
 	GetBlockAccessListsMsg        = ethproto.GetBlockAccessListsMsg
 	BlockAccessListsMsg           = ethproto.BlockAccessListsMsg
 )
@@ -178,11 +176,9 @@ type (
 	PooledTransactionsPacket           = ethproto.PooledTransactionsPacket
 	GetReceiptsPacket                  = ethproto.GetReceiptsPacket
 	ReceiptsPacket                     = ethproto.ReceiptsPacket
-	GetPartialReceiptsPacket           = ethproto.GetPartialReceiptsPacket
-	PartialReceiptsPacket              = ethproto.PartialReceiptsPacket
+	GetReceiptsPacketV70               = ethproto.GetReceiptsPacketV70
+	ReceiptsPacketV70                  = ethproto.ReceiptsPacketV70
 	GetBlockAccessListsPacket          = ethproto.GetBlockAccessListsPacket
-	BlockAccessListData                = ethproto.BlockAccessListData
-	AccessEntryData                    = ethproto.AccessEntryData
 	BlockAccessListsPacket             = ethproto.BlockAccessListsPacket
 )
 

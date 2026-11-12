@@ -5,6 +5,22 @@ import (
 	"fmt"
 )
 
+// GetBuilderByIndex returns the registered builder at the given index.
+func (api *EngineAPI) GetBuilderByIndex(index BuilderIndex) (*Builder, error) {
+	if api.builderRegistry == nil {
+		return nil, ErrBuilderNotFound
+	}
+	return api.builderRegistry.GetBuilderByIndex(index)
+}
+
+// SetBidObserver installs a callback invoked with every accepted builder
+// bid, letting the node feed its ePBS auction subsystem (EIP-7732).
+func (api *EngineAPI) SetBidObserver(fn func(*SignedExecutionPayloadBid) error) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.bidObserver = fn
+}
+
 // SubmitBuilderBidV1 processes a builder bid submission.
 // The bid contains a commitment to an execution payload (by block hash)
 // along with a value the builder is willing to pay the proposer.
@@ -12,7 +28,16 @@ func (api *EngineAPI) SubmitBuilderBidV1(signed SignedExecutionPayloadBid) error
 	if api.builderRegistry == nil {
 		return ErrBuilderNotFound
 	}
-	return api.builderRegistry.SubmitBid(&signed)
+	if err := api.builderRegistry.SubmitBid(&signed); err != nil {
+		return err
+	}
+	api.mu.Lock()
+	observer := api.bidObserver
+	api.mu.Unlock()
+	if observer != nil {
+		return observer(&signed)
+	}
+	return nil
 }
 
 // GetBuilderBidsV1 returns the bids for a given slot, ordered by value.

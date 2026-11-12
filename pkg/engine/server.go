@@ -30,6 +30,9 @@ type EngineAPI struct {
 	backend         Backend
 	builderRegistry *BuilderRegistry
 	blobValidator   *blobval.BlobValidator
+	// bidObserver, when set, receives every accepted builder bid (EIP-7732
+	// node-side auction wiring).
+	bidObserver     func(*SignedExecutionPayloadBid) error
 	server          *http.Server
 	listener        net.Listener
 	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)

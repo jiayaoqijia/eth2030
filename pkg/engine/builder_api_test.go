@@ -416,3 +416,42 @@ func TestBuilderRegistry_PruneSlotAPI(t *testing.T) {
 		t.Fatalf("want 0 bids after prune, got %d", len(bids))
 	}
 }
+
+// TestSubmitBuilderBidV1_BidObserver tests that an installed bid observer
+// receives every accepted builder bid and that observer errors propagate.
+func TestSubmitBuilderBidV1_BidObserver(t *testing.T) {
+	api := newBuilderTestAPI()
+	idx := registerBuilderForAPI(t, api)
+
+	var observed []*SignedExecutionPayloadBid
+	api.SetBidObserver(func(signed *SignedExecutionPayloadBid) error {
+		observed = append(observed, signed)
+		return nil
+	})
+
+	bid := SignedExecutionPayloadBid{
+		Message: ExecutionPayloadBid{
+			Slot:            10,
+			BuilderIndex:    idx,
+			Value:           100,
+			BlockHash:       types.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+			ParentBlockHash: types.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+			GasLimit:        30000000,
+			FeeRecipient:    types.HexToAddress("0xaaaa"),
+		},
+	}
+	if err := api.SubmitBuilderBidV1(bid); err != nil {
+		t.Fatalf("SubmitBuilderBidV1 error: %v", err)
+	}
+	if len(observed) != 1 || observed[0].Message.Slot != 10 {
+		t.Fatalf("observer did not receive the accepted bid: %d", len(observed))
+	}
+
+	// Observer errors surface to the caller after registry acceptance.
+	api.SetBidObserver(func(*SignedExecutionPayloadBid) error {
+		return ErrNoBidsAvailable
+	})
+	if err := api.SubmitBuilderBidV1(bid); err == nil {
+		t.Fatal("expected observer error to propagate")
+	}
+}

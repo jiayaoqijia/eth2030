@@ -154,23 +154,26 @@ func (ep *EthPeer) SendNewBlock(block *types.Block, td *big.Int) error {
 	return ep.transport.WriteMsg(msg)
 }
 
-// RequestPartialReceipts sends a request for specific transaction receipts (eth/70).
-func (ep *EthPeer) RequestPartialReceipts(blockHash types.Hash, txIndices []uint64) (uint64, error) {
+// RequestReceiptsV70 sends an eth/70 GetReceipts (0x0f) request (EIP-7975).
+// Receipts of the first requested block before firstIndex are omitted by
+// the server, enabling paginated receipt download.
+func (ep *EthPeer) RequestReceiptsV70(hashes []types.Hash, firstIndex uint64) (uint64, error) {
 	reqID := ep.nextRequestID()
-	err := ep.sendMessage(p2p.GetPartialReceiptsMsg, &p2p.GetPartialReceiptsPacket{
-		RequestID: reqID,
-		BlockHash: blockHash,
-		TxIndices: txIndices,
+	err := ep.sendMessage(p2p.GetReceiptsMsg, &p2p.GetReceiptsPacketV70{
+		RequestID:              reqID,
+		FirstBlockReceiptIndex: firstIndex,
+		Hashes:                 hashes,
 	})
 	return reqID, err
 }
 
-// SendPartialReceipts sends a partial receipts response (eth/70).
-func (ep *EthPeer) SendPartialReceipts(requestID uint64, receipts []*types.Receipt, proofs [][]byte) error {
-	return ep.sendMessage(p2p.PartialReceiptsMsg, &p2p.PartialReceiptsPacket{
-		RequestID: requestID,
-		Receipts:  receipts,
-		Proofs:    proofs,
+// SendReceiptsV70 sends an eth/70 Receipts (0x10) response (EIP-7975).
+// lastBlockIncomplete marks the last receipt list as partial.
+func (ep *EthPeer) SendReceiptsV70(requestID uint64, lastBlockIncomplete bool, pages [][]*types.Receipt) error {
+	return ep.sendMessage(p2p.ReceiptsMsg, &p2p.ReceiptsPacketV70{
+		RequestID:           requestID,
+		LastBlockIncomplete: lastBlockIncomplete,
+		Receipts:            pages,
 	})
 }
 
@@ -184,8 +187,10 @@ func (ep *EthPeer) RequestBlockAccessLists(hashes []types.Hash) (uint64, error) 
 	return reqID, err
 }
 
-// SendBlockAccessLists sends a block access lists response (eth/71).
-func (ep *EthPeer) SendBlockAccessLists(requestID uint64, accessLists []p2p.BlockAccessListData) error {
+// SendBlockAccessLists sends an eth/71 BlockAccessLists (0x13) response
+// (EIP-8159). Each element is the RLP-encoded BAL per EIP-7928, in request
+// order; the RLP empty list (0xc0) marks an unavailable BAL.
+func (ep *EthPeer) SendBlockAccessLists(requestID uint64, accessLists [][]byte) error {
 	return ep.sendMessage(p2p.BlockAccessListsMsg, &p2p.BlockAccessListsPacket{
 		RequestID:   requestID,
 		AccessLists: accessLists,

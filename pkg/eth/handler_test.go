@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/p2p"
+	"github.com/eth2030/eth2030/rlp"
 )
 
 // mockBlockchain implements Blockchain for testing.
@@ -615,7 +617,9 @@ func (rp *mockReceiptProvider) GetReceipts(hash types.Hash) []*types.Receipt {
 	return rp.receipts[hash]
 }
 
-func TestHandler_GetPartialReceipts(t *testing.T) {
+// --- eth/70: EIP-7975 Partial Block Receipt Lists Tests ---
+
+func TestHandler_GetReceiptsV70(t *testing.T) {
 	bc := newMockBlockchain()
 	genesis := bc.Genesis()
 
@@ -627,7 +631,6 @@ func TestHandler_GetPartialReceipts(t *testing.T) {
 
 	handler := NewHandler(bc, newMockTxPool(), 1)
 
-	// Set up receipt provider with receipts for block1.
 	rp := newMockReceiptProvider()
 	rp.receipts[block1.Hash()] = []*types.Receipt{
 		{Status: 1, CumulativeGasUsed: 21000, TxHash: tx1.Hash()},
@@ -643,14 +646,13 @@ func TestHandler_GetPartialReceipts(t *testing.T) {
 	peer := p2p.NewPeer("test-peer", "127.0.0.1:30303", nil)
 	ep := NewEthPeer(peer, end1)
 
-	// Request receipts for tx indices 0 and 2 only.
-	reqPkt := &p2p.GetPartialReceiptsPacket{
-		RequestID: 100,
-		BlockHash: block1.Hash(),
-		TxIndices: []uint64{0, 2},
+	// Page from receipt index 1 of the first block.
+	reqPkt := &p2p.GetReceiptsPacketV70{
+		RequestID:              100,
+		FirstBlockReceiptIndex: 1,
+		Hashes:                 []types.Hash{block1.Hash()},
 	}
-
-	reqMsg, err := p2p.EncodeMessage(p2p.GetPartialReceiptsMsg, reqPkt)
+	reqMsg, err := p2p.EncodeMessage(p2p.GetReceiptsMsg, reqPkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -665,33 +667,31 @@ func TestHandler_GetPartialReceipts(t *testing.T) {
 	}
 
 	resp, _ := end2.ReadMsg()
-	if resp.Code != p2p.PartialReceiptsMsg {
-		t.Fatalf("expected PartialReceiptsMsg (0x%02x), got 0x%02x", p2p.PartialReceiptsMsg, resp.Code)
+	if resp.Code != p2p.ReceiptsMsg {
+		t.Fatalf("expected ReceiptsMsg (0x%02x), got 0x%02x", p2p.ReceiptsMsg, resp.Code)
 	}
 
-	var pkt p2p.PartialReceiptsPacket
+	var pkt p2p.ReceiptsPacketV70
 	if err := p2p.DecodeMessage(p2p.Message{Code: resp.Code, Size: resp.Size, Payload: resp.Payload}, &pkt); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-
 	if pkt.RequestID != 100 {
 		t.Errorf("request ID = %d, want 100", pkt.RequestID)
 	}
-	if len(pkt.Receipts) != 2 {
-		t.Fatalf("got %d receipts, want 2", len(pkt.Receipts))
+	if pkt.LastBlockIncomplete {
+		t.Error("full page must not be marked incomplete")
 	}
-	if pkt.Receipts[0].CumulativeGasUsed != 21000 {
-		t.Errorf("receipt[0].CumulativeGasUsed = %d, want 21000", pkt.Receipts[0].CumulativeGasUsed)
+	if len(pkt.Receipts) != 1 || len(pkt.Receipts[0]) != 2 {
+		t.Fatalf("expected one page of 2 receipts, got %v", pkt.Receipts)
 	}
-	if pkt.Receipts[1].CumulativeGasUsed != 63000 {
-		t.Errorf("receipt[1].CumulativeGasUsed = %d, want 63000", pkt.Receipts[1].CumulativeGasUsed)
+	if pkt.Receipts[0][0].CumulativeGasUsed != 42000 {
+		t.Errorf("first served receipt gas = %d, want 42000 (index 1)", pkt.Receipts[0][0].CumulativeGasUsed)
 	}
 }
 
-func TestHandler_GetPartialReceipts_NoProvider(t *testing.T) {
+func TestHandler_GetReceiptsV70_NoProvider(t *testing.T) {
 	bc := newMockBlockchain()
 	handler := NewHandler(bc, newMockTxPool(), 1)
-	// No receipt provider set.
 
 	end1, end2 := p2p.MsgPipe()
 	defer end1.Close()
@@ -700,12 +700,8 @@ func TestHandler_GetPartialReceipts_NoProvider(t *testing.T) {
 	peer := p2p.NewPeer("test-peer", "127.0.0.1:30303", nil)
 	ep := NewEthPeer(peer, end1)
 
-	reqPkt := &p2p.GetPartialReceiptsPacket{
-		RequestID: 200,
-		BlockHash: types.BytesToHash([]byte{0xab}),
-		TxIndices: []uint64{0},
-	}
-	reqMsg, _ := p2p.EncodeMessage(p2p.GetPartialReceiptsMsg, reqPkt)
+	reqPkt := &p2p.GetReceiptsPacketV70{RequestID: 200, Hashes: []types.Hash{types.BytesToHash([]byte{0xab})}}
+	reqMsg, _ := p2p.EncodeMessage(p2p.GetReceiptsMsg, reqPkt)
 
 	go func() {
 		end2.WriteMsg(p2p.Msg{Code: reqMsg.Code, Size: reqMsg.Size, Payload: reqMsg.Payload})
@@ -717,14 +713,70 @@ func TestHandler_GetPartialReceipts_NoProvider(t *testing.T) {
 	}
 
 	resp, _ := end2.ReadMsg()
-	var pkt p2p.PartialReceiptsPacket
+	var pkt p2p.ReceiptsPacketV70
 	p2p.DecodeMessage(p2p.Message{Code: resp.Code, Size: resp.Size, Payload: resp.Payload}, &pkt)
 
 	if pkt.RequestID != 200 {
 		t.Errorf("request ID = %d, want 200", pkt.RequestID)
 	}
 	if len(pkt.Receipts) != 0 {
-		t.Errorf("got %d receipts, want 0 (no provider)", len(pkt.Receipts))
+		t.Errorf("got %d receipt pages, want 0 (no provider)", len(pkt.Receipts))
+	}
+}
+
+func TestValidatePartialReceipts(t *testing.T) {
+	bc := newMockBlockchain()
+	genesis := bc.Genesis()
+	tx1 := makeTestTx(0)
+	tx2 := makeTestTx(1)
+	block := makeTestBlock(1, genesis.Hash(), []*types.Transaction{tx1, tx2})
+
+	// Happy path: one receipt per tx, each well under gasLimit/8.
+	r1 := &types.Receipt{Status: 1, CumulativeGasUsed: 21000, TxHash: tx1.Hash()}
+	r2 := &types.Receipt{Status: 1, CumulativeGasUsed: 42000, TxHash: tx2.Hash()}
+	if err := ValidatePartialReceipts(block, []*types.Receipt{r1, r2}); err != nil {
+		t.Fatalf("valid partial receipts rejected: %v", err)
+	}
+
+	// Count mismatch.
+	if err := ValidatePartialReceipts(block, []*types.Receipt{r1}); err == nil {
+		t.Fatal("count mismatch must be rejected")
+	}
+
+	// Receipt larger than gasLimit/8 of its transaction: build an oversized
+	// log payload (tx gas is 21000, so the bound is 2625 bytes).
+	bigData := make([]byte, 4096)
+	for i := range bigData {
+		bigData[i] = 0xAB
+	}
+	fatReceipt := &types.Receipt{
+		Status:            1,
+		CumulativeGasUsed: 21000,
+		TxHash:            tx1.Hash(),
+		Logs: []*types.Log{{
+			Address: types.BytesToAddress([]byte{0xcc}),
+			Data:    bigData,
+		}},
+	}
+	if err := ValidatePartialReceipts(block, []*types.Receipt{fatReceipt, r2}); err == nil {
+		t.Fatal("oversized receipt must be rejected")
+	}
+
+	// Total size beyond the block gas limit (1 byte per gas): a tiny block
+	// gas limit with receipts that individually fit their transaction bounds
+	// still exceeds the block allowance.
+	tinyHeader := &types.Header{
+		Number:   new(big.Int).SetUint64(2),
+		GasLimit: 100,
+	}
+	tinyBlock := types.NewBlock(tinyHeader, &types.Body{Transactions: []*types.Transaction{tx1, tx2}})
+	if err := ValidatePartialReceipts(tinyBlock, []*types.Receipt{r1, r2}); err == nil {
+		t.Fatal("receipts exceeding the block gas limit must be rejected")
+	}
+
+	// Unknown block.
+	if err := ValidatePartialReceipts(nil, []*types.Receipt{r1, r2}); err == nil {
+		t.Fatal("unknown block must be rejected")
 	}
 }
 
@@ -732,15 +784,16 @@ func TestHandler_GetPartialReceipts_NoProvider(t *testing.T) {
 
 // mockAccessListProvider implements AccessListProvider for testing.
 type mockAccessListProvider struct {
-	accessLists map[types.Hash][]AccessListEntry
+	accessLists map[types.Hash][]byte
 }
 
 func newMockAccessListProvider() *mockAccessListProvider {
-	return &mockAccessListProvider{accessLists: make(map[types.Hash][]AccessListEntry)}
+	return &mockAccessListProvider{accessLists: make(map[types.Hash][]byte)}
 }
 
-func (alp *mockAccessListProvider) GetBlockAccessList(hash types.Hash) []AccessListEntry {
-	return alp.accessLists[hash]
+func (alp *mockAccessListProvider) GetBlockAccessListRLP(hash types.Hash) ([]byte, bool) {
+	bal, ok := alp.accessLists[hash]
+	return bal, ok
 }
 
 func TestHandler_GetBlockAccessLists(t *testing.T) {
@@ -752,18 +805,14 @@ func TestHandler_GetBlockAccessLists(t *testing.T) {
 	handler := NewHandler(bc, newMockTxPool(), 1)
 
 	alp := newMockAccessListProvider()
-	alp.accessLists[block1.Hash()] = []AccessListEntry{
-		{
-			Address:     types.BytesToAddress([]byte{0xaa}),
-			AccessIndex: 1,
-			StorageKeys: []types.Hash{types.BytesToHash([]byte{0x01})},
-		},
-		{
-			Address:     types.BytesToAddress([]byte{0xbb}),
-			AccessIndex: 2,
-			StorageKeys: nil,
-		},
+	encodedBAL, err := rlp.EncodeToBytes([][]byte{
+		types.BytesToAddress([]byte{0xaa}).Bytes(),
+		types.BytesToAddress([]byte{0xbb}).Bytes(),
+	})
+	if err != nil {
+		t.Fatalf("encode test BAL: %v", err)
 	}
+	alp.accessLists[block1.Hash()] = encodedBAL
 	handler.SetAccessListProvider(alp)
 
 	end1, end2 := p2p.MsgPipe()
@@ -775,9 +824,8 @@ func TestHandler_GetBlockAccessLists(t *testing.T) {
 
 	reqPkt := &p2p.GetBlockAccessListsPacket{
 		RequestID:   300,
-		BlockHashes: []types.Hash{block1.Hash()},
+		BlockHashes: []types.Hash{block1.Hash(), types.BytesToHash([]byte{0xab})},
 	}
-
 	reqMsg, err := p2p.EncodeMessage(p2p.GetBlockAccessListsMsg, reqPkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -805,17 +853,16 @@ func TestHandler_GetBlockAccessLists(t *testing.T) {
 	if pkt.RequestID != 300 {
 		t.Errorf("request ID = %d, want 300", pkt.RequestID)
 	}
-	if len(pkt.AccessLists) != 1 {
-		t.Fatalf("got %d access lists, want 1", len(pkt.AccessLists))
+	// One entry per requested hash, in order; the unavailable block is the
+	// RLP empty list 0xc0 per the spec.
+	if len(pkt.AccessLists) != 2 {
+		t.Fatalf("got %d access lists, want 2", len(pkt.AccessLists))
 	}
-	if pkt.AccessLists[0].BlockHash != block1.Hash() {
-		t.Errorf("block hash mismatch")
+	if string(pkt.AccessLists[0]) != string(encodedBAL) {
+		t.Error("served BAL does not round-trip the provider bytes")
 	}
-	if len(pkt.AccessLists[0].Entries) != 2 {
-		t.Errorf("got %d entries, want 2", len(pkt.AccessLists[0].Entries))
-	}
-	if pkt.AccessLists[0].Entries[0].AccessIndex != 1 {
-		t.Errorf("entry[0].AccessIndex = %d, want 1", pkt.AccessLists[0].Entries[0].AccessIndex)
+	if len(pkt.AccessLists[1]) != 1 || pkt.AccessLists[1][0] != 0xc0 {
+		t.Errorf("unavailable BAL must be the empty list 0xc0, got %x", pkt.AccessLists[1])
 	}
 }
 
@@ -852,14 +899,48 @@ func TestHandler_GetBlockAccessLists_NoProvider(t *testing.T) {
 	if pkt.RequestID != 400 {
 		t.Errorf("request ID = %d, want 400", pkt.RequestID)
 	}
-	if len(pkt.AccessLists) != 0 {
-		t.Errorf("got %d access lists, want 0 (no provider)", len(pkt.AccessLists))
+	// Without a provider every entry is the unavailable marker.
+	if len(pkt.AccessLists) != 1 || pkt.AccessLists[0][0] != 0xc0 {
+		t.Errorf("expected empty-list marker, got %v", pkt.AccessLists)
+	}
+}
+
+func TestValidateBlockAccessListForHeader(t *testing.T) {
+	encoded, err := rlp.EncodeToBytes([][]byte{{0xaa}, {0xbb}})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	hash := crypto.Keccak256Hash(encoded)
+
+	header := &types.Header{BlockAccessListHash: &hash}
+	if err := ValidateBlockAccessListForHeader(encoded, header); err != nil {
+		t.Fatalf("matching BAL rejected: %v", err)
+	}
+
+	wrong := &types.Hash{0x01}
+	badHeader := &types.Header{BlockAccessListHash: wrong}
+	if err := ValidateBlockAccessListForHeader(encoded, badHeader); err == nil {
+		t.Fatal("BAL hash mismatch must be rejected")
+	}
+
+	// Headers without a BAL hash accept only the empty marker.
+	noHash := &types.Header{}
+	if err := ValidateBlockAccessListForHeader([]byte{0xc0}, noHash); err != nil {
+		t.Fatalf("empty BAL for header without hash must pass: %v", err)
+	}
+	if err := ValidateBlockAccessListForHeader(encoded, noHash); err == nil {
+		t.Fatal("non-empty BAL for header without hash must be rejected")
+	}
+
+	// Header requiring a BAL rejects the empty marker.
+	if err := ValidateBlockAccessListForHeader([]byte{0xc0}, header); err == nil {
+		t.Fatal("empty BAL for header with hash must be rejected")
 	}
 }
 
 // --- EthPeer send method tests ---
 
-func TestEthPeer_RequestPartialReceipts(t *testing.T) {
+func TestEthPeer_RequestReceiptsV70(t *testing.T) {
 	end1, end2 := p2p.MsgPipe()
 	defer end1.Close()
 	defer end2.Close()
@@ -867,12 +948,15 @@ func TestEthPeer_RequestPartialReceipts(t *testing.T) {
 	peer := p2p.NewPeer("test-peer", "127.0.0.1:30303", nil)
 	ep := NewEthPeer(peer, end1)
 
-	blockHash := types.BytesToHash([]byte{0xca, 0xfe})
+	hashes := []types.Hash{
+		types.BytesToHash([]byte{0x01}),
+		types.BytesToHash([]byte{0x02}),
+	}
 
 	go func() {
-		reqID, err := ep.RequestPartialReceipts(blockHash, []uint64{0, 1, 3})
+		reqID, err := ep.RequestReceiptsV70(hashes, 5)
 		if err != nil {
-			t.Errorf("RequestPartialReceipts: %v", err)
+			t.Errorf("RequestReceiptsV70: %v", err)
 		}
 		if reqID == 0 {
 			t.Error("expected non-zero request ID")
@@ -883,18 +967,18 @@ func TestEthPeer_RequestPartialReceipts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if msg.Code != p2p.GetPartialReceiptsMsg {
-		t.Errorf("msg.Code = 0x%02x, want 0x%02x", msg.Code, p2p.GetPartialReceiptsMsg)
+	if msg.Code != p2p.GetReceiptsMsg {
+		t.Errorf("msg.Code = 0x%02x, want 0x%02x", msg.Code, p2p.GetReceiptsMsg)
 	}
 
-	var pkt p2p.GetPartialReceiptsPacket
+	var pkt p2p.GetReceiptsPacketV70
 	p2p.DecodeMessage(p2p.Message{Code: msg.Code, Size: msg.Size, Payload: msg.Payload}, &pkt)
 
-	if pkt.BlockHash != blockHash {
-		t.Errorf("block hash mismatch")
+	if len(pkt.Hashes) != 2 {
+		t.Errorf("got %d hashes, want 2", len(pkt.Hashes))
 	}
-	if len(pkt.TxIndices) != 3 {
-		t.Errorf("got %d indices, want 3", len(pkt.TxIndices))
+	if pkt.FirstBlockReceiptIndex != 5 {
+		t.Errorf("FirstBlockReceiptIndex = %d, want 5", pkt.FirstBlockReceiptIndex)
 	}
 }
 

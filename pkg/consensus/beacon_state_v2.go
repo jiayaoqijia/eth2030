@@ -115,6 +115,16 @@ type BeaconStateV2 struct {
 	CurrentJustifiedCheckpoint  CheckpointV2
 	FinalizedCheckpoint         CheckpointV2
 	SlotsPerEpoch               uint64
+	// ePBS (Gloas/EIP-7732) state. Zero values are safe: lazy initializers
+	// in the epbs accessors size the lists on first use.
+	Builders                     []*Builder
+	NextWithdrawalBuilderIndex   uint64
+	ExecutionPayloadAvailability []bool
+	BuilderPendingPayments       []BuilderPendingPayment
+	BuilderPendingWithdrawals    []BuilderPendingWithdrawal
+	LatestBlockHash              types.Hash
+	LatestExecutionPayloadBid    *ExecutionPayloadBid
+	PayloadExpectedWithdrawals   []ExpectedWithdrawal
 }
 
 // NewBeaconStateV2 creates a new empty BeaconStateV2.
@@ -123,7 +133,9 @@ func NewBeaconStateV2(spe uint64) *BeaconStateV2 {
 		spe = 32
 	}
 	return &BeaconStateV2{Validators: make([]*ValidatorV2, 0), Balances: make([]uint64, 0),
-		HistoricalRoots: make([][32]byte, 0), SlotsPerEpoch: spe}
+		HistoricalRoots: make([][32]byte, 0), SlotsPerEpoch: spe,
+		ExecutionPayloadAvailability: make([]bool, SlotsPerHistoricalRoot),
+		BuilderPendingPayments:       make([]BuilderPendingPayment, 2*spe)}
 }
 
 func (s *BeaconStateV2) GetCurrentEpoch() Epoch { return Epoch(s.Slot / s.SlotsPerEpoch) }

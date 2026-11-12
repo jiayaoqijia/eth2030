@@ -30,13 +30,10 @@ const (
 	GetReceiptsMsg                = 0x0f
 	ReceiptsMsg                   = 0x10
 
-	// eth/70 message codes (EIP-7975: Partial Block Receipt Lists).
-	GetPartialReceiptsMsg = 0x11
-	PartialReceiptsMsg    = 0x12
-
 	// eth/71 message codes (EIP-8159: Block Access List Exchange).
-	GetBlockAccessListsMsg = 0x13
-	BlockAccessListsMsg    = 0x14
+	// Message IDs 0x12/0x13 follow sequentially from BlockRangeUpdate (0x11).
+	GetBlockAccessListsMsg = 0x12
+	BlockAccessListsMsg    = 0x13
 )
 
 // StatusData represents the status message exchanged during the eth handshake.
@@ -155,46 +152,45 @@ type PooledTransactionsPacket struct {
 }
 
 // --- eth/70: EIP-7975 Partial Block Receipt Lists ---
+//
+// eth/70 does not add message codes: it extends the encodings of
+// GetReceipts (0x0f) and Receipts (0x10) for paginated receipt transfer.
 
-// GetPartialReceiptsPacket requests specific transaction receipts by index
-// within a block, avoiding the need to transfer all receipts.
-type GetPartialReceiptsPacket struct {
-	RequestID uint64
-	BlockHash types.Hash
-	TxIndices []uint64 // indices of transactions whose receipts are requested
+// GetReceiptsPacketV70 is the eth/70 GetReceipts (0x0f) request:
+// [request-id, firstBlockReceiptIndex, [blockhash, ...]]. For the first
+// requested block the server omits receipts before firstBlockReceiptIndex.
+type GetReceiptsPacketV70 struct {
+	RequestID              uint64
+	FirstBlockReceiptIndex uint64
+	Hashes                 []types.Hash
 }
 
-// PartialReceiptsPacket is the response to GetPartialReceiptsPacket,
-// containing only the requested receipts along with Merkle proofs.
-type PartialReceiptsPacket struct {
-	RequestID uint64
-	Receipts  []*types.Receipt
-	Proofs    [][]byte // Merkle proof nodes for receipt trie verification
+// ReceiptsPacketV70 is the eth/70 Receipts (0x10) response:
+// [request-id, lastBlockIncomplete, [[receipt, ...], ...]]. When
+// lastBlockIncomplete is 1 the last receipt list is partial and the client
+// must request the remainder in a follow-up message.
+type ReceiptsPacketV70 struct {
+	RequestID           uint64
+	LastBlockIncomplete bool
+	Receipts            [][]*types.Receipt
 }
 
 // --- eth/71: EIP-8159 Block Access List Exchange ---
 
-// GetBlockAccessListsPacket requests Block Access Lists for the specified blocks.
+// GetBlockAccessListsPacket is the eth/71 GetBlockAccessLists (0x12)
+// request: [request-id, [blockhash, ...]]. Requests for unavailable BALs
+// (pre-activation or pruned) return empty entries.
 type GetBlockAccessListsPacket struct {
 	RequestID   uint64
 	BlockHashes []types.Hash
 }
 
-// BlockAccessListData holds a BAL for a single block.
-type BlockAccessListData struct {
-	BlockHash types.Hash
-	Entries   []AccessEntryData
-}
-
-// AccessEntryData is the wire representation of a single BAL entry.
-type AccessEntryData struct {
-	Address     types.Address
-	AccessIndex uint64
-	StorageKeys []types.Hash // storage slots accessed
-}
-
-// BlockAccessListsPacket is the response to GetBlockAccessListsPacket.
+// BlockAccessListsPacket is the eth/71 BlockAccessLists (0x13) response:
+// [request-id, [bal, ...]]. Each element is the RLP-encoded block access
+// list per EIP-7928, in request order; the RLP empty list (0xc0) marks an
+// unavailable BAL. Clients MUST validate each BAL against the
+// block-access-list-hash in the corresponding block header.
 type BlockAccessListsPacket struct {
 	RequestID   uint64
-	AccessLists []BlockAccessListData
+	AccessLists [][]byte
 }

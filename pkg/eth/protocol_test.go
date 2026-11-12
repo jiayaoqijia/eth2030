@@ -27,8 +27,8 @@ func TestMaxLimits(t *testing.T) {
 	if MaxBodies != 512 {
 		t.Fatalf("MaxBodies = %d, want 512", MaxBodies)
 	}
-	if MaxPartialReceipts != 256 {
-		t.Fatalf("MaxPartialReceipts = %d, want 256", MaxPartialReceipts)
+	if MaxReceiptsResponseSize != 10<<20 {
+		t.Fatalf("MaxReceiptsResponseSize = %d, want %d", MaxReceiptsResponseSize, 10<<20)
 	}
 	if MaxAccessLists != 64 {
 		t.Fatalf("MaxAccessLists = %d, want 64", MaxAccessLists)
@@ -61,24 +61,17 @@ func TestStatusInfo_Fields(t *testing.T) {
 	}
 }
 
-// TestAccessListEntry_Fields tests the AccessListEntry type.
-func TestAccessListEntry_Fields(t *testing.T) {
-	entry := AccessListEntry{
-		Address:     types.HexToAddress("0xaaaa"),
-		AccessIndex: 5,
-		StorageKeys: []types.Hash{
-			types.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000001"),
-			types.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000002"),
-		},
+// TestAccessListProvider_Interface pins the eth/71 provider signature.
+func TestAccessListProvider_Interface(t *testing.T) {
+	alp := newMockAccessListProvider()
+	var _ AccessListProvider = alp
+	alp.accessLists[types.HexToHash("0xaaaa")] = []byte{0xc0}
+	bal, ok := alp.GetBlockAccessListRLP(types.HexToHash("0xaaaa"))
+	if !ok || len(bal) != 1 || bal[0] != 0xc0 {
+		t.Fatalf("unexpected provider response: %x ok=%v", bal, ok)
 	}
-	if entry.Address == (types.Address{}) {
-		t.Fatal("Address should not be zero")
-	}
-	if entry.AccessIndex != 5 {
-		t.Fatalf("want 5, got %d", entry.AccessIndex)
-	}
-	if len(entry.StorageKeys) != 2 {
-		t.Fatalf("want 2 storage keys, got %d", len(entry.StorageKeys))
+	if _, ok := alp.GetBlockAccessListRLP(types.HexToHash("0xbbbb")); ok {
+		t.Fatal("unavailable BAL must report ok=false")
 	}
 }
 
@@ -105,13 +98,11 @@ func TestStatusInfo_ZeroValues(t *testing.T) {
 	}
 }
 
-// TestAccessListEntry_EmptyStorageKeys tests an entry with no storage keys.
-func TestAccessListEntry_EmptyStorageKeys(t *testing.T) {
-	entry := AccessListEntry{
-		Address:     types.HexToAddress("0xbbbb"),
-		AccessIndex: 0,
-	}
-	if entry.StorageKeys != nil {
-		t.Fatal("StorageKeys should be nil by default")
+// TestReceiptProvider_Interface pins the eth/70 provider signature.
+func TestReceiptProvider_Interface(t *testing.T) {
+	var _ ReceiptProvider = (*mockReceiptProvider)(nil)
+	rp := newMockReceiptProvider()
+	if got := rp.GetReceipts(types.HexToHash("0xaaaa")); got != nil {
+		t.Fatalf("unknown block must return nil, got %v", got)
 	}
 }

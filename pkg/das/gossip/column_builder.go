@@ -364,11 +364,19 @@ func (cb *ColumnBuilder) ClearDedup() {
 // ToDataColumnSidecar converts a BuiltColumn into a DataColumnSidecar
 // suitable for network transmission.
 func (cb *ColumnBuilder) ToDataColumnSidecar(col *BuiltColumn, commitments []dastypes.KZGCommitment) *dastypes.DataColumnSidecar {
+	return cb.ToDataColumnSidecarWithHeader(col, commitments, nil)
+}
+
+// ToDataColumnSidecarWithHeader converts a BuiltColumn into a
+// DataColumnSidecar carrying the signed beacon block header, per the Fulu
+// DataColumnSidecar container (EIP-7594).
+func (cb *ColumnBuilder) ToDataColumnSidecarWithHeader(col *BuiltColumn, commitments []dastypes.KZGCommitment, header *dastypes.SignedBeaconBlockHeader) *dastypes.DataColumnSidecar {
 	sidecar := &dastypes.DataColumnSidecar{
-		Index:          col.Index,
-		Column:         make([]dastypes.Cell, len(col.Cells)),
-		KZGCommitments: make([]dastypes.KZGCommitment, len(commitments)),
-		KZGProofs:      make([]dastypes.KZGProof, len(col.Proofs)),
+		Index:             col.Index,
+		Column:            make([]dastypes.Cell, len(col.Cells)),
+		KZGCommitments:    make([]dastypes.KZGCommitment, len(commitments)),
+		KZGProofs:         make([]dastypes.KZGProof, len(col.Proofs)),
+		SignedBlockHeader: header,
 	}
 	copy(sidecar.Column, col.Cells)
 	copy(sidecar.KZGCommitments, commitments)

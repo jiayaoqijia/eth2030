@@ -1,6 +1,17 @@
 // Package dastypes provides fundamental PeerDAS data types per EIP-7594.
 package dastypes
 
+import (
+	"errors"
+	"fmt"
+)
+
+// Sidecar validation errors.
+var (
+	ErrSidecarNil      = errors.New("dastypes: nil data column sidecar")
+	ErrSidecarNoHeader = errors.New("dastypes: sidecar missing signed block header")
+)
+
 // PeerDAS constants from the Fulu consensus spec.
 const (
 	// NumberOfColumns is the number of columns in the extended data matrix.
@@ -94,11 +105,66 @@ type DataColumnSidecar struct {
 	// KZGProofs contains one proof per blob in the block.
 	KZGProofs []KZGProof
 
-	// SignedBlockHeader is omitted here as it depends on CL types.
-	// In a full implementation this would reference the signed beacon block header.
+	// SignedBlockHeader is the signed beacon block header the sidecar
+	// belongs to, per the Fulu DataColumnSidecar container. Gossip
+	// validation uses its slot for clock-disparity and finalization
+	// checks; signature verification stays in the consensus layer.
+	SignedBlockHeader *SignedBeaconBlockHeader
 
 	// InclusionProof is the Merkle proof for KZG commitments inclusion.
 	InclusionProof [][32]byte
+}
+
+// SignedBeaconBlockHeader is the consensus signed beacon block header as
+// referenced by DataColumnSidecar.SignedBlockHeader.
+type SignedBeaconBlockHeader struct {
+	Slot          uint64
+	ProposerIndex uint64
+	ParentRoot    [32]byte
+	StateRoot     [32]byte
+	BodyRoot      [32]byte
+	Signature     [96]byte
+}
+
+// ComputeSubnetForDataColumnSidecar returns the gossip subnet for a column,
+// per the Fulu p2p spec: column_index mod DATA_COLUMN_SIDECARS_SUBNET_COUNT.
+func ComputeSubnetForDataColumnSidecar(index ColumnIndex) uint64 {
+	return uint64(index) % DataColumnSidecarSubnetCount
+}
+
+// ValidateSidecarSubnet enforces the Fulu gossip REJECT rule: the sidecar
+// must be published on compute_subnet_for_data_column_sidecar(sidecar.index).
+func ValidateSidecarSubnet(sidecar *DataColumnSidecar, subnetID uint64) error {
+	if sidecar == nil {
+		return ErrSidecarNil
+	}
+	if got := ComputeSubnetForDataColumnSidecar(sidecar.Index); got != subnetID {
+		return fmt.Errorf("sidecar column %d belongs to subnet %d, got %d",
+			sidecar.Index, got, subnetID)
+	}
+	return nil
+}
+
+// ValidateSidecarSlot enforces the Fulu gossip IGNORE rules on slots: the
+// sidecar must not be from a future slot (MAXIMUM_GOSSIP_CLOCK_DISPARITY
+// handled by the caller's currentSlot) and must be newer than the latest
+// finalized slot.
+func ValidateSidecarSlot(sidecar *DataColumnSidecar, currentSlot, finalizedSlot uint64) error {
+	if sidecar == nil {
+		return ErrSidecarNil
+	}
+	if sidecar.SignedBlockHeader == nil {
+		return ErrSidecarNoHeader
+	}
+	if sidecar.SignedBlockHeader.Slot > currentSlot {
+		return fmt.Errorf("sidecar slot %d is in the future (current %d)",
+			sidecar.SignedBlockHeader.Slot, currentSlot)
+	}
+	if sidecar.SignedBlockHeader.Slot <= finalizedSlot {
+		return fmt.Errorf("sidecar slot %d not newer than finalized slot %d",
+			sidecar.SignedBlockHeader.Slot, finalizedSlot)
+	}
+	return nil
 }
 
 // MatrixEntry represents a single cell in the extended data matrix along with

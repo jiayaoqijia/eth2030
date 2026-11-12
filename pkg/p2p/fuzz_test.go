@@ -58,10 +58,10 @@ func FuzzP2PMessageDecode(f *testing.F) {
 		var receipts GetReceiptsPacket
 		_ = DecodeMessage(msg, &receipts)
 
-		// Try decoding into GetPartialReceiptsPacket (eth/70).
-		msg.Code = GetPartialReceiptsMsg
-		var partialReceipts GetPartialReceiptsPacket
-		_ = DecodeMessage(msg, &partialReceipts)
+		// Try decoding into GetReceiptsPacketV70 (eth/70).
+		msg.Code = GetReceiptsMsg
+		var receiptsV70 GetReceiptsPacketV70
+		_ = DecodeMessage(msg, &receiptsV70)
 
 		// Try decoding into GetBlockAccessListsPacket (eth/71).
 		msg.Code = GetBlockAccessListsMsg

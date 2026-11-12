@@ -254,10 +254,11 @@ type GetBlockAccessListsMessage struct {
 	Hashes []types.Hash
 }
 
-// BlockAccessListsMessage contains block access lists.
+// BlockAccessListsMessage contains RLP-encoded block access lists
+// (EIP-8159); empty entries mark unavailable BALs.
 type BlockAccessListsMessage struct {
-	BlockHash   types.Hash
-	AccessLists []AccessListEntry
+	Hashes      []types.Hash
+	AccessLists [][]byte
 }
 
 // GetExecutionWitnessMessage requests an execution witness for a block.
