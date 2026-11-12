@@ -4,6 +4,7 @@
 
 - One fixed-pivot scheduler can now continue across connected snap peers without throwing away ranges already downloaded in the same attempt. Peers share storage roots only after account-range verification against the same pivot; a root mismatch is rejected even if concurrent verification races with pivot initialization.
 - Tests cover proof-verified account roots consumed by a second peer, request-preserving transport failover, cancellation, and the existing two-node snap bootstrap. This is not durable resume or moving-pivot range reuse.
+- Auditing a possible bounded-memory trie builder revealed that the existing `StackTrie` retains inserted nodes until finalization and discarded node-writer errors. Its documentation now states the actual memory behavior, and `Commit` propagates write failures; it is not yet a bounded-memory replacement for snap assembly.
 
 ## Track 3 Sync Scalability Follow-up (2026-11-12)
 

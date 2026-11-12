@@ -1,7 +1,7 @@
 // stack_trie_builder.go implements a higher-level builder on top of StackTrie
 // for constructing tries from mpt.DerivableList sources (transactions, receipts,
-// withdrawals). It provides batch construction, root derivation, a streaming
-// node writer, and memory-efficient building by discarding completed subtrees.
+// withdrawals). It provides batch construction, root derivation, and node
+// persistence. The underlying trie currently retains nodes until finalization.
 //
 // The StackTrieBuilder is the recommended way to compute transaction and
 // receipt trie roots during block processing.
@@ -19,7 +19,7 @@ import (
 )
 
 // StackTrieBuilder wraps StackTrie with batch construction utilities,
-// node persistence, and memory tracking. It supports both streaming
+// node persistence, and memory tracking. It supports both incremental
 // (key-by-key) and batch (from mpt.DerivableList) modes.
 type StackTrieBuilder struct {
 	mu       sync.Mutex

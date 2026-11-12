@@ -6,6 +6,7 @@
 - [x] Preserve storage pagination on transient failure and avoid quadratic scans of completed storage tasks.
 - [x] Verify finalized ancestry before reusing a completed snapshot after a CL finality advance.
 - [x] Continue a fixed-pivot download across peer failures, sharing only account roots authenticated against that pivot.
+- [x] Audit the candidate stack-trie builder: propagate node-writer failures and correct its bounded-memory claim.
 - [ ] Implement authenticated moving-pivot continuation and safe restart behavior with regression coverage.
 - [ ] Remove remaining sync scalability bottlenecks without weakening ancestry validation.
 - [ ] Validate real-client interoperability and record the actual scope and resource limits.

@@ -2,6 +2,7 @@ package stack
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sort"
 	"testing"
@@ -14,6 +15,32 @@ import (
 // mapNodeWriter is a simple in-memory NodeWriter for tests.
 type mapNodeWriter struct {
 	store map[types.Hash][]byte
+}
+
+type failingNodeWriter struct{ err error }
+
+func (w *failingNodeWriter) Put(types.Hash, []byte) error { return w.err }
+
+func TestStackTrieCommitPropagatesNodeWriteFailure(t *testing.T) {
+	writeErr := errors.New("disk unavailable")
+	writer := &failingNodeWriter{err: writeErr}
+	st := NewStackTrie(writer)
+	for _, key := range []byte{1, 2} {
+		if err := st.Update([]byte{key}, bytes.Repeat([]byte{key}, 80)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if root, err := st.Commit(); !errors.Is(err, writeErr) || root != (types.Hash{}) {
+		t.Fatalf("failed write reported success: root=%s err=%v", root, err)
+	}
+	st.Reset()
+	writer.err = nil
+	if err := st.Update([]byte{1}, []byte{2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Commit(); err != nil {
+		t.Fatalf("reset retained previous write failure: %v", err)
+	}
 }
 
 func (w *mapNodeWriter) Put(hash types.Hash, data []byte) error {
