@@ -74,35 +74,35 @@ const (
 
 // ePBS errors.
 var (
-	ErrEPBSNilState          = errors.New("epbs: nil beacon state")
-	ErrEPBSNilBid            = errors.New("epbs: nil execution payload bid")
-	ErrEPBSNilBody           = errors.New("epbs: nil beacon block body")
-	ErrEPBSNilEnvelope       = errors.New("epbs: nil execution payload envelope")
-	ErrEPBSNilAttestation    = errors.New("epbs: nil payload attestation")
-	ErrEPBSUnknownBuilder    = errors.New("epbs: builder index not in registry")
-	ErrEPBSInactiveBuilder   = errors.New("epbs: builder is not active")
-	ErrEPBSInsufficientFunds = errors.New("epbs: builder cannot cover bid")
-	ErrEPBSInvalidBidSig     = errors.New("epbs: invalid bid signature")
-	ErrEPBSSelfBuildAmount   = errors.New("epbs: self-build bid must carry zero value")
-	ErrEPBSSelfBuildSig      = errors.New("epbs: self-build bid signature must be G2_POINT_AT_INFINITY")
-	ErrEPBSBlobLimit         = errors.New("epbs: too many blob KZG commitments in bid")
-	ErrEPBSBidSlotMismatch   = errors.New("epbs: bid is not for the current slot")
-	ErrEPBSBidParentHash     = errors.New("epbs: bid parent block hash mismatch")
-	ErrEPBSBidParentRoot     = errors.New("epbs: bid parent block root mismatch")
-	ErrEPBSBidPrevRandao     = errors.New("epbs: bid prev_randao mismatch")
-	ErrEPBSAttestationRoot   = errors.New("epbs: payload attestation is not for the parent block")
-	ErrEPBSAttestationSlot   = errors.New("epbs: payload attestation is not for the previous slot")
-	ErrEPBSAttestationBits   = errors.New("epbs: payload attestation aggregation bits size mismatch")
-	ErrEPBSAttestationSig    = errors.New("epbs: invalid payload attestation signature")
-	ErrEPBSEnvelopeBuilder   = errors.New("epbs: envelope builder index mismatch")
+	ErrEPBSNilState           = errors.New("epbs: nil beacon state")
+	ErrEPBSNilBid             = errors.New("epbs: nil execution payload bid")
+	ErrEPBSNilBody            = errors.New("epbs: nil beacon block body")
+	ErrEPBSNilEnvelope        = errors.New("epbs: nil execution payload envelope")
+	ErrEPBSNilAttestation     = errors.New("epbs: nil payload attestation")
+	ErrEPBSUnknownBuilder     = errors.New("epbs: builder index not in registry")
+	ErrEPBSInactiveBuilder    = errors.New("epbs: builder is not active")
+	ErrEPBSInsufficientFunds  = errors.New("epbs: builder cannot cover bid")
+	ErrEPBSInvalidBidSig      = errors.New("epbs: invalid bid signature")
+	ErrEPBSSelfBuildAmount    = errors.New("epbs: self-build bid must carry zero value")
+	ErrEPBSSelfBuildSig       = errors.New("epbs: self-build bid signature must be G2_POINT_AT_INFINITY")
+	ErrEPBSBlobLimit          = errors.New("epbs: too many blob KZG commitments in bid")
+	ErrEPBSBidSlotMismatch    = errors.New("epbs: bid is not for the current slot")
+	ErrEPBSBidParentHash      = errors.New("epbs: bid parent block hash mismatch")
+	ErrEPBSBidParentRoot      = errors.New("epbs: bid parent block root mismatch")
+	ErrEPBSBidPrevRandao      = errors.New("epbs: bid prev_randao mismatch")
+	ErrEPBSAttestationRoot    = errors.New("epbs: payload attestation is not for the parent block")
+	ErrEPBSAttestationSlot    = errors.New("epbs: payload attestation is not for the previous slot")
+	ErrEPBSAttestationBits    = errors.New("epbs: payload attestation aggregation bits size mismatch")
+	ErrEPBSAttestationSig     = errors.New("epbs: invalid payload attestation signature")
+	ErrEPBSEnvelopeBuilder    = errors.New("epbs: envelope builder index mismatch")
 	ErrEPBSEnvelopePrevRandao = errors.New("epbs: envelope prev_randao mismatch")
-	ErrEPBSEnvelopeBlockRoot = errors.New("epbs: envelope beacon block root mismatch")
-	ErrEPBSEnvelopeSlot      = errors.New("epbs: envelope slot mismatch")
-	ErrEPBSEnvelopeGasLimit  = errors.New("epbs: envelope gas limit mismatch")
-	ErrEPBSEnvelopeBlockHash = errors.New("epbs: envelope block hash mismatch")
-	ErrEPBSEnvelopeParent    = errors.New("epbs: envelope parent hash mismatch")
-	ErrEPBSEnvelopeStateRoot = errors.New("epbs: envelope state root mismatch")
-	ErrEPBSNoWithdrawalCred  = errors.New("epbs: withdrawal credentials lack builder prefix")
+	ErrEPBSEnvelopeBlockRoot  = errors.New("epbs: envelope beacon block root mismatch")
+	ErrEPBSEnvelopeSlot       = errors.New("epbs: envelope slot mismatch")
+	ErrEPBSEnvelopeGasLimit   = errors.New("epbs: envelope gas limit mismatch")
+	ErrEPBSEnvelopeBlockHash  = errors.New("epbs: envelope block hash mismatch")
+	ErrEPBSEnvelopeParent     = errors.New("epbs: envelope parent hash mismatch")
+	ErrEPBSEnvelopeStateRoot  = errors.New("epbs: envelope state root mismatch")
+	ErrEPBSNoWithdrawalCred   = errors.New("epbs: withdrawal credentials lack builder prefix")
 )
 
 // Builder is a staked in-protocol block builder per the Gloas spec.
@@ -175,10 +175,10 @@ type SignedExecutionPayloadEnvelope struct {
 // PayloadAttestationData is the data attested to by PTC members per the
 // Gloas spec (payload presence and blob data availability booleans).
 type PayloadAttestationData struct {
-	BeaconBlockRoot    types.Hash
-	Slot               uint64
-	PayloadPresent     bool
-	BlobDataAvailable  bool
+	BeaconBlockRoot   types.Hash
+	Slot              uint64
+	PayloadPresent    bool
+	BlobDataAvailable bool
 }
 
 // PayloadAttestation is an aggregated PTC attestation.

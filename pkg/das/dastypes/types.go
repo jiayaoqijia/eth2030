@@ -118,12 +118,12 @@ type DataColumnSidecar struct {
 // SignedBeaconBlockHeader is the consensus signed beacon block header as
 // referenced by DataColumnSidecar.SignedBlockHeader.
 type SignedBeaconBlockHeader struct {
-	Slot       uint64
+	Slot          uint64
 	ProposerIndex uint64
-	ParentRoot [32]byte
-	StateRoot  [32]byte
-	BodyRoot   [32]byte
-	Signature  [96]byte
+	ParentRoot    [32]byte
+	StateRoot     [32]byte
+	BodyRoot      [32]byte
+	Signature     [96]byte
 }
 
 // ComputeSubnetForDataColumnSidecar returns the gossip subnet for a column,

@@ -1,5 +1,11 @@
 # Project Status
 
+## PR #49 CI Repair (2026-11-12)
+
+- Reproduced both failures from CI run `43086199969`: nine Go files failed `gofmt`, and `TestBAL_HashValidationAcrossFork` still expected post-Amsterdam headers without a BAL commitment to pass.
+- Applied `gofmt` to the nine reported files. Aligned the integration test with EIP-7928's mandatory header commitment, covering absent/present hashes immediately before, exactly at, and immediately after activation. Invalid cases assert `ErrInvalidBlockAccessList`; production validation remains unchanged.
+- Validation: Go 1.26.10 (matching CI) and Go 1.27.3 passed formatting, `go build -p 4 ./...`, `go vet -p 4 ./...`, `go test -p 4 -count=1 -timeout=15m ./...`, and `go test -p 4 -count=1 -timeout=15m -tags integration ./core ./p2p/...`. The isolated worktree has no external EF fixtures, so those fixture-dependent tests skip locally; the dedicated remote CI job checks the pinned vectors.
+
 ## Full-Feature Devnet Interop After BAL Enforcement (2026-11-12)
 
 Ran `full-feature-eth2030` kurtosis devnet (3x eth2030:local EL + 3x eth2030cl:local Lighthouse 8.4.0-rc.0, 15s slots) against the BAL-enforced Track 1 branch.

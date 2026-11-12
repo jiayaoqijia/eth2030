@@ -160,9 +160,9 @@ type PooledTransactionsPacket struct {
 // [request-id, firstBlockReceiptIndex, [blockhash, ...]]. For the first
 // requested block the server omits receipts before firstBlockReceiptIndex.
 type GetReceiptsPacketV70 struct {
-	RequestID             uint64
+	RequestID              uint64
 	FirstBlockReceiptIndex uint64
-	Hashes                []types.Hash
+	Hashes                 []types.Hash
 }
 
 // ReceiptsPacketV70 is the eth/70 Receipts (0x10) response:
