@@ -79,11 +79,16 @@ func (bc *Blockchain) ApplyForkchoice(headHash, safeHash, finalHash types.Hash) 
 		}
 	}
 	var removed []*types.Block
-	for old := oldHead; old != nil && ancestors[old.Hash()] == nil; old = bc.GetBlock(old.ParentHash()) {
+	old := oldHead
+	for old != nil && ancestors[old.Hash()] == nil {
 		removed = append(removed, old)
 		if old.NumberU64() == 0 {
 			return fmt.Errorf("forkchoice: no common ancestor")
 		}
+		old = bc.GetBlock(old.ParentHash())
+	}
+	if old == nil {
+		return fmt.Errorf("forkchoice: missing canonical ancestor")
 	}
 	st, err := bc.StateAtBlock(head)
 	if err != nil {

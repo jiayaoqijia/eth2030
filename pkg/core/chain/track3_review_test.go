@@ -215,3 +215,27 @@ func TestAncientLookupCannotSubstituteAnotherFork(t *testing.T) {
 		t.Fatalf("requested side hash returned frozen block %s", got.Hash())
 	}
 }
+
+func TestForkchoiceRejectsMissingOldBranchBody(t *testing.T) {
+	bc, st := testChain(t)
+	canonical := makeChainBlocks(bc.Genesis(), 2, st.Copy())
+	if _, err := bc.InsertChain(canonical); err != nil {
+		t.Fatal(err)
+	}
+	header := canonical[0].Header()
+	header.Extra = []byte("side")
+	side := types.NewBlock(header, canonical[0].Body())
+	if err := bc.InsertSyncedBlock(side); err != nil {
+		t.Fatal(err)
+	}
+	if err := rawdb.DeleteBody(bc.db, canonical[0].NumberU64(), canonical[0].Hash()); err != nil {
+		t.Fatal(err)
+	}
+	bc.EvictBlockFromCache(canonical[0].Hash())
+	if err := bc.ApplyForkchoice(side.Hash(), types.Hash{}, types.Hash{}); err == nil {
+		t.Fatal("accepted a reorg without the old branch ancestry")
+	}
+	if bc.CurrentBlock().Hash() != canonical[1].Hash() {
+		t.Fatal("failed reorg changed the head")
+	}
+}

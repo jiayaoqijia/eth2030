@@ -1,5 +1,11 @@
 # Project Status
 
+## Forkchoice Missing-Ancestor Follow-up (2026-11-12)
+
+- Rechecked `0084028` and found that old-canonical ancestry traversal could terminate at a missing block body without finding a common ancestor, then publish a reorg without fully removing old transaction indices. `ApplyForkchoice` now rejects that case before committing state or metadata.
+- `TestForkchoiceRejectsMissingOldBranchBody` reproduces a missing intermediate canonical body and verifies the proposed reorg fails without changing the head. The test passed with the race detector; affected-package race and local build checks were run separately.
+- This follow-up does not close the production snap limitations recorded below: moving-pivot continuation and bounded-memory assembly remain open.
+
 ## Track 3 Corrective Review (2026-11-12)
 
 Reviewed `fc1f70f` through specification, production callers, wire messages, persisted state, restart and adversarial tests. The previous Track 3 completion claim was too broad. Detailed findings and regressions: [Track 3 review](docs/track3-review.md).
