@@ -505,10 +505,18 @@ func (s *StateSyncScheduler) runCodeDownload(peer SnapPeer) error {
 			continue
 		}
 		failures = 0
-		for _, code := range resp.Codes {
-			if e := s.writer.WriteBytecode(code.Hash, code.Code); e != nil {
-				return fmt.Errorf("state sync: write bytecode: %w", e)
+		if writer, ok := s.writer.(interface{ WriteBytecodes([]BytecodeData) error }); ok {
+			if err := writer.WriteBytecodes(resp.Codes); err != nil {
+				return fmt.Errorf("state sync: write bytecode: %w", err)
 			}
+		} else {
+			for _, code := range resp.Codes {
+				if err := s.writer.WriteBytecode(code.Hash, code.Code); err != nil {
+					return fmt.Errorf("state sync: write bytecode: %w", err)
+				}
+			}
+		}
+		for _, code := range resp.Codes {
 			s.mu.Lock()
 			if ct, ok := s.codeTasks[code.Hash]; ok {
 				ct.done = true

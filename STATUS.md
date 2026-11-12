@@ -4,6 +4,7 @@
 
 - A CL-selected pivot can reuse a completely downloaded snapshot persisted before a crash or interrupted adoption. The node revalidates the account/storage roots and code, heals trie nodes, and checks the current finalized target before adoption. Offline restart succeeds when the required ancestry and trie nodes are available; corrupted leaves and missing trie nodes without peers are rejected.
 - This recovers complete snapshots only. Interrupted range progress is not durable and moving-pivot continuation remains open.
+- Downloaded bytecode is also saved independently in hash-verified batches and reused after restart or pivot changes. Corrupt cached code is rejected and fetched again; this does not persist account or storage range progress.
 
 ## Track 3 Snapshot Assembly Follow-up (2026-11-12)
 

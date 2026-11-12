@@ -9,6 +9,7 @@
 - [x] Audit the candidate stack-trie builder: propagate node-writer failures and correct its bounded-memory claim.
 - [x] Stream snapshot validation and trie-node generation; write trie nodes and snapshot leaves in bounded batches with failure-before-publication tests.
 - [x] Revalidate and recover a completely downloaded, not-yet-adopted snapshot after restart, including offline recovery and corruption/missing-node rejection.
+- [x] Persist downloaded bytecode by verified content hash and reuse it across attempts and restarts without publishing an incomplete state.
 - [ ] Implement authenticated moving-pivot continuation and safe restart behavior with regression coverage.
 - [ ] Remove remaining sync scalability bottlenecks without weakening ancestry validation.
 - [ ] Validate real-client interoperability and record the actual scope and resource limits.

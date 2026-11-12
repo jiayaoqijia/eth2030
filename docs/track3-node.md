@@ -31,7 +31,8 @@ these peers only after an account-range proof authenticates them against the
 same pivot. Partial range progress is still discarded on restart. A completely
 downloaded snapshot that was persisted before pivot adoption can be revalidated
 and reused after restart, including offline when the required ancestry and trie
-nodes are present locally.
+nodes are present locally. Downloaded bytecode is persisted independently by
+content hash and rehashed before reuse across attempts or pivots.
 The authenticated trie healer follows parent hash references, includes storage
 tries, and rejects unrequested or mismatched node bytes. Exhausted downloads
 and healing tasks fail rather than reporting completion.

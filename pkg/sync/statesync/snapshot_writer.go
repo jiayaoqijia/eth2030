@@ -50,15 +50,41 @@ func (w *SnapshotWriter) WriteStorage(account, slot types.Hash, value []byte) er
 	return nil
 }
 func (w *SnapshotWriter) WriteBytecode(hash types.Hash, code []byte) error {
-	if crypto.Keccak256Hash(code) != hash {
-		return fmt.Errorf("snap: code hash mismatch")
+	return w.WriteBytecodes([]BytecodeData{{Hash: hash, Code: code}})
+}
+
+// WriteBytecodes persists hash-verified code independently of any pivot. A
+// future attempt may reuse it, even if the current snapshot is never adopted.
+func (w *SnapshotWriter) WriteBytecodes(codes []BytecodeData) error {
+	batch := w.db.NewBatch()
+	for _, item := range codes {
+		if crypto.Keccak256Hash(item.Code) != item.Hash {
+			return fmt.Errorf("snap: code hash mismatch")
+		}
+		if err := batch.Put(append([]byte("snap-code/"), item.Hash[:]...), item.Code); err != nil {
+			return err
+		}
 	}
-	w.snapshot.Codes[hash] = bytes.Clone(code)
+	if len(codes) != 0 {
+		if err := batch.Write(); err != nil {
+			return err
+		}
+	}
+	for _, item := range codes {
+		w.snapshot.Codes[item.Hash] = bytes.Clone(item.Code)
+	}
 	return nil
 }
 func (w *SnapshotWriter) HasBytecode(hash types.Hash) bool {
-	_, ok := w.snapshot.Codes[hash]
-	return ok
+	if _, ok := w.snapshot.Codes[hash]; ok {
+		return true
+	}
+	code, err := w.db.Get(append([]byte("snap-code/"), hash[:]...))
+	if err != nil || crypto.Keccak256Hash(code) != hash {
+		return false
+	}
+	w.snapshot.Codes[hash] = bytes.Clone(code)
+	return true
 }
 
 // A fixed-pivot complete range download reconstructs intermediate trie nodes
