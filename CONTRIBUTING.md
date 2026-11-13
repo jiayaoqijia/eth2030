@@ -5,15 +5,17 @@ from anyone and are grateful for even the smallest improvements.
 
 ## Development Setup
 
+Install Go 1.26.8 or later.
+
 ```bash
 # Clone the repository
-git clone https://github.com/jiayaoqijia/eth2030.git
+git clone https://github.com/alt-research/eth2030.git
 cd eth2030
 
 # Build all packages
 cd pkg && go build ./...
 
-# Run all tests (49 packages, 18,000+ tests)
+# Run all package tests
 go test ./...
 
 # Run tests for a specific package
@@ -42,7 +44,7 @@ an EIP implementation:
 
 ### 2. Bug Fixes
 
-- Run the EF state test suite: `go test ./core/eftest/ -run TestGethCategorySummary`
+- Follow the [Quick Start](README.md#quick-start) to fetch the pinned fixtures and run the EF state test suite.
 - Check `docs/GAP_ANALYSIS.md` for known gaps and PARTIAL items
 - Write a regression test before fixing the bug
 

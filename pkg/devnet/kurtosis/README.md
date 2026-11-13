@@ -8,11 +8,14 @@ Local multi-client Ethereum devnets using [Kurtosis](https://www.kurtosis.com/) 
 - **Kurtosis CLI**: Install from https://docs.kurtosis.com/install/
 
 ```bash
+# From the repository root, initialize the pinned devnet package
+git submodule update --init refs/ethereum-package
+
 # Start the Kurtosis engine (first time only)
 kurtosis engine start
 
 # Build the eth2030-geth Docker image
-cd pkg && docker build -t eth2030:local .
+(cd pkg && docker build -t eth2030:local .)
 ```
 
 ## Quick Start

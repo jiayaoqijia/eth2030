@@ -3,7 +3,7 @@
 <p align="center">
   <strong>Ethereum execution client targeting the L1 Strawmap</strong>
   <br />
-  <a href="https://eth2030.com">eth2030.com</a>
+  <a href="https://eth2030.altllm.ai/">eth2030.altllm.ai</a>
 </p>
 
 <p align="center">
@@ -17,9 +17,9 @@
 > **Do not use this software to manage real funds, validate mainnet blocks, or run production infrastructure.** Exercise extreme caution with anything that touches wallets, private keys, seed phrases, or transaction signing. Always review the source code and do your own research (DYOR) before running any Ethereum client software. Use entirely at your own risk.
 
 <p align="center">
-  <a href="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml"><img src="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI" /></a>
-  <a href="https://github.com/jiayaoqijia/eth2030/releases/latest"><img src="https://img.shields.io/github/v/release/jiayaoqijia/eth2030?label=Release&color=%234f46e5" alt="Release" /></a>
-  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go" alt="Go" />
+  <a href="https://github.com/alt-research/eth2030/actions/workflows/ci.yml"><img src="https://github.com/alt-research/eth2030/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI" /></a>
+  <a href="https://github.com/alt-research/eth2030/releases/latest"><img src="https://img.shields.io/github/v/release/alt-research/eth2030?label=Release&color=%234f46e5" alt="Release" /></a>
+  <img src="https://img.shields.io/badge/Go-1.26.8-00ADD8?logo=go" alt="Go" />
 </p>
 
 <p align="center">
@@ -45,8 +45,8 @@
 
 ## Features
 
-- **Full EVM execution** -- 164+ opcodes, 24 precompiles, EOF container support, go-ethereum v1.17.1 backend
-- **100% EF conformance** -- 36,126/36,126 Ethereum Foundation state tests passing via go-ethereum v1.17.1 backend
+- **Full EVM execution** -- 164+ opcodes, 24 precompiles, EOF container support, go-ethereum backend
+- **EF state test benchmark** -- 36,126/36,126 Ethereum Foundation state tests passed in the [recorded benchmark](#ef-state-test-benchmark)
 - **58+ EIPs supported** -- Covering Frontier through Prague and beyond (native + go-ethereum backend)
 - **Parallel execution** -- Block Access Lists (EIP-7928) for BAL-driven parallel transaction processing
 - **Post-quantum ready** -- ML-DSA-65 (FIPS 204), Dilithium3, Falcon512, SPHINCS+ signers with hybrid mode
@@ -60,9 +60,11 @@
 
 ## Quick Start
 
+Install Go 1.26.8 or later.
+
 ```bash
 # Clone
-git clone https://github.com/jiayaoqijia/eth2030.git
+git clone https://github.com/alt-research/eth2030.git
 cd eth2030/pkg
 
 # Build all packages
@@ -77,11 +79,15 @@ go build -o eth2030-geth ./cmd/eth2030-geth/
 # Sync with mainnet
 ./eth2030-geth -datadir ~/.eth2030-geth -authrpc.jwtsecret /path/to/jwt.hex
 
-# Run all tests (48 packages, 18,400+ tests)
+# Run all package tests
 go test ./...
 
-# Run EF state test validation (36,126 vectors, 100% pass rate)
-go test ./core/eftest/ -run TestGethCategorySummary -timeout=10m
+# Fetch the pinned EF state test fixtures from the repository root
+(cd .. && git submodule update --init refs/go-ethereum &&
+  git -C refs/go-ethereum submodule update --init tests/testdata)
+
+# Run EF state test validation and fail if fixtures are missing
+ETH2030_REQUIRE_EF_FIXTURES=1 go test -v -count=1 -timeout=15m -run '^TestGethCategorySummary$' ./core/eftest
 ```
 
 ### eth2030-geth Flags
@@ -106,18 +112,20 @@ go test ./core/eftest/ -run TestGethCategorySummary -timeout=10m
 ETH2030 includes Kurtosis devnet integration for multi-client consensus testing using [ethpandaops/ethereum-package](https://github.com/ethpandaops/ethereum-package) with 10 testing tools (assertoor, spamoor, rakoon, dora, blobscan, forky, tracoor, forkmon, prometheus, grafana).
 
 ```bash
-# Prerequisites: Docker + Kurtosis CLI
+# From the repository root, with Docker and the Kurtosis CLI installed
+git submodule update --init refs/ethereum-package
 kurtosis engine start
-cd pkg && docker build -t eth2030:local .
+(cd pkg && docker build -t eth2030:local .)
+cd pkg/devnet/kurtosis
 
 # Run all 40 feature devnet tests
-cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh
+./scripts/run-feature-tests.sh
 
 # Run specific features
-cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh epbs focil native-aa
+./scripts/run-feature-tests.sh epbs focil native-aa
 
 # Launch a general devnet
-cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh full-feature
+./scripts/run-devnet.sh full-feature
 ```
 
 **40 Feature Tests** — All passing consensus checks, covering all 65 roadmap items:
@@ -158,12 +166,7 @@ cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh full-feature
 - `test-frametx.sh` — EIP-8141 frame transaction test (deploys APPROVE contract, verifies opcodes)
 - `test-precompiles.sh` — Custom precompile smoke test
 
-**Public Devnet Endpoints** (when running):
-- **RPC**: https://devnet.eth2030.com
-- **Dora Explorer**: https://devnet-dora.eth2030.com
-- **Blockscout Explorer**: https://devnet-blockscout.eth2030.com
-
-See [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) for full documentation (40 feature tests, 6 configs, 10+ tools).
+For devnet testing, use the [Kurtosis devnet guide](pkg/devnet/kurtosis/README.md) to run a local devnet.
 
 ## Architecture
 
@@ -211,7 +214,7 @@ See [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) for full docu
 
 ## go-ethereum Integration
 
-ETH2030 imports go-ethereum v1.17.1 as a library for EVM execution, achieving 100% EF state test conformance:
+ETH2030 imports go-ethereum as a library for EVM execution. See [pkg/go.mod](pkg/go.mod) for the current version.
 
 | Component | Description |
 |-----------|-------------|
@@ -237,7 +240,7 @@ The `eth2030-geth` binary has been verified syncing with live Ethereum networks:
 
 ETH2030 combines native implementations with go-ethereum as a backend. This section clarifies what is built from scratch versus delegated:
 
-**go-ethereum delegated (~40 EIPs):** Core EVM opcodes, gas accounting, state root computation, trie operations, and standard precompile execution are handled by the `pkg/geth/` adapter importing go-ethereum v1.17.1 as a library. This includes all Frontier-through-Prague EVM semantics, EIP-158 empty account cleanup, and SSTORE gas metering (EIP-2200/2929/3529).
+**go-ethereum delegated (~40 EIPs):** Core EVM opcodes, gas accounting, state root computation, trie operations, and standard precompile execution are handled by the `pkg/geth/` adapter importing go-ethereum as a library. This includes all Frontier-through-Prague EVM semantics, EIP-158 empty account cleanup, and SSTORE gas metering (EIP-2200/2929/3529).
 
 **Native ETH2030 (~25 features):** Consensus layer (3SF, quick slots, 1-epoch finality, PQ attestations, endgame finality), data availability (PeerDAS, blob streaming, custody proofs, variable-size blobs), proposer-builder separation (ePBS, FOCIL, distributed builder), encrypted mempool (commit-reveal, threshold decryption), BAL parallel execution (EIP-7928), native rollups (EIP-8079), SSZ encoding (EIP-6404/7807), 13 custom precompiles (NTT, NII, field arithmetic), and the Engine API V3-V7.
 
@@ -340,6 +343,8 @@ See [docs/EIP_SPEC_IMPL.md](docs/EIP_SPEC_IMPL.md) for full traceability: specs,
 
 ## EF State Test Benchmark
 
+Recorded results from the go-ethereum v1.17.1 backend.
+
 | Metric | Value |
 |--------|-------|
 | **Total tests** | 36,126 |
@@ -394,7 +399,7 @@ All 65 strawmap items are COMPLETE with real cryptographic backends wired (BLS, 
 
 ## Development Stats
 
-This project was built with [Claude Code](https://claude.ai/code) (Claude Opus 4/4.6) over ~8 days:
+This project was built with [Claude Code](https://claude.com/product/claude-code) (Claude Opus 4/4.6) over ~8 days:
 
 | Metric | Value |
 |--------|-------|

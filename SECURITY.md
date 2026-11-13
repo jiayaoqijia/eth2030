@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Please see [Releases](https://github.com/jiayaoqijia/eth2030/releases). We
+Please see [Releases](https://github.com/alt-research/eth2030/releases). We
 recommend using the most recently released version.
 
 | Version | Supported |
