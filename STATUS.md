@@ -1,5 +1,9 @@
 # Project Status
 
+## README Link and Quick Start Audit (2026-11-13)
+
+- Updated the GitHub Pages URL, clone commands, badges, and release links. Fixed the fixture and devnet setup commands, documented the Go version required by the module, and directed readers to local devnet setup while the public endpoints are unavailable.
+
 ## Homepage Hero Actions (2026-11-13)
 
 - Redesigned the Roadmap, GitHub and Docs actions as equal-sized responsive cards with consistent icons, descriptions, focus states and reduced-motion support.
